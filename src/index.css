@@ -1,0 +1,76 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-exchange-bg: #0b0e11;
+  --color-exchange-surface: #12161a;
+  --color-exchange-card: #161a20;
+  --color-exchange-border: #2a2e35;
+  --color-exchange-text: #eaecef;
+  --color-exchange-muted: #848e9c;
+  --color-exchange-sell: #f6465d;
+  --color-exchange-buy: #0ecb81;
+  --color-exchange-yellow: #f0b90b;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Light theme — runtime override of the @theme tokens. Utilities reference the
+ * CSS variables, so swapping the variable values is enough to theme the app.
+ * Applied by settingsStore/ThemeManager via `data-theme` on <html>.
+ */
+:root[data-theme='light'] {
+  --color-exchange-bg: #f7f8fa;
+  --color-exchange-surface: #eceff2;
+  --color-exchange-card: #ffffff;
+  --color-exchange-border: #d7dce2;
+  --color-exchange-text: #151a23;
+  --color-exchange-muted: #5b6572;
+  --color-exchange-sell: #d93850;
+  --color-exchange-buy: #07935f;
+  --color-exchange-yellow: #c99400;
+}
+
+:root[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #c6ccd4;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-exchange-bg);
+  color: var(--color-exchange-text);
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2e35;
+  border-radius: 4px;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
