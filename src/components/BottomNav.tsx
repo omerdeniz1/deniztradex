@@ -61,7 +61,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Mobil gezinme"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-exchange-border bg-exchange-surface/95 pb-safe backdrop-blur sm:hidden"
+      className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-exchange-border bg-exchange-surface/95 pb-safe backdrop-blur md:hidden"
     >
       <div className="flex items-stretch justify-around">
         {ITEMS.map((item) => (
