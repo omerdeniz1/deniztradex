@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/store/settingsStore'
 import { useUiStore } from '@/store/uiStore'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { Navbar } from '@/components/Navbar'
+import { BottomNav } from '@/components/BottomNav'
 import { Toasts } from '@/components/ui/Toasts'
 import { DepositModal } from '@/components/wallet/DepositModal'
 import { WithdrawModal } from '@/components/wallet/WithdrawModal'
@@ -45,10 +46,10 @@ function Shell() {
   const closeWithdraw = useUiStore((s) => s.closeWithdraw)
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-exchange-bg text-exchange-text">
+    <div className="flex h-dvh min-h-0 flex-col bg-exchange-bg text-exchange-text">
       <ThemeManager />
       <Navbar balance={balance} username={user?.username ?? ''} />
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col pb-14 sm:pb-0">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/markets" element={<MarketsPage />} />
@@ -59,6 +60,7 @@ function Shell() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
+      <BottomNav />
       <DepositModal open={depositOpen} onClose={closeDeposit} />
       <WithdrawModal open={withdrawOpen} onClose={closeWithdraw} />
     </div>

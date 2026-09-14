@@ -34,7 +34,7 @@ export function Navbar({ balance, username }: Props) {
         <Logo iconClassName="h-6 w-6" />
       </Link>
 
-      <nav className="flex items-center gap-1">
+      <nav className="hidden items-center gap-1 md:flex">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
@@ -54,8 +54,8 @@ export function Navbar({ balance, username }: Props) {
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-3">
-        <div className="text-right">
+      <div className="ml-auto flex items-center gap-2 sm:gap-3">
+        <div className="hidden text-right sm:block">
           <div className="text-[10px] uppercase text-exchange-muted">Bakiye</div>
           <div className="font-mono text-sm font-bold">
             {formatNumber(balance, 2)} <span className="text-exchange-yellow">USDT</span>
@@ -64,7 +64,7 @@ export function Navbar({ balance, username }: Props) {
         <Button size="sm" variant="outline" onClick={openDeposit}>
           + Para Yatır
         </Button>
-        <Button size="sm" variant="outline" onClick={openWithdraw}>
+        <Button size="sm" variant="outline" onClick={openWithdraw} className="hidden sm:inline-flex">
           - Para Çek
         </Button>
         <UserMenu username={username} />
@@ -107,7 +107,7 @@ function UserMenu({ username }: { username: string }) {
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-exchange-yellow text-xs font-extrabold text-black">
           {username.charAt(0).toUpperCase()}
         </span>
-        <span className="text-sm font-semibold text-exchange-text">{username}</span>
+        <span className="hidden text-sm font-semibold text-exchange-text sm:block">{username}</span>
         <svg
           width="10"
           height="10"

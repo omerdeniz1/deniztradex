@@ -233,10 +233,10 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <main className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_360px]">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto md:overflow-hidden">
+      <main className="flex min-h-0 flex-col md:grid md:min-h-0 md:flex-1 md:grid-cols-[1fr_360px]">
         {/* Left: chart + positions */}
-        <section className="flex min-h-0 flex-col border-r border-exchange-border">
+        <section className="flex min-h-0 flex-col md:border-r md:border-exchange-border">
           <div className="flex items-center justify-between border-b border-exchange-border px-4 py-2">
             <div className="flex items-center gap-3">
               <PairSelector
@@ -245,7 +245,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 tickers={tickers}
                 live={marketStatus === 'live'}
               />
-              <span className="font-mono text-2xl font-bold text-exchange-text">
+              <span className="font-mono text-xl font-bold text-exchange-text sm:text-2xl">
                 {livePrice ? formatPrice(livePrice) : '—'}
               </span>
               {ticker && (
@@ -272,7 +272,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             </div>
           </div>
 
-          <div className="relative min-h-[320px] flex-1">
+          <div className="relative h-[360px] flex-none sm:h-[420px] md:h-auto md:min-h-[320px] md:flex-1">
             {isLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-exchange-muted">
                 Loading chart data…
@@ -342,7 +342,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                     diğer coinlerden alıp cüzdanınızda tutabilirsiniz.
                   </div>
                 ) : (
-                <div className="px-4 py-2">
+                <div className="overflow-x-auto px-4 py-2">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-exchange-border text-exchange-muted">
@@ -384,7 +384,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         </section>
 
         {/* Right: trading panel */}
-        <aside className="min-h-0 border-b border-exchange-border bg-exchange-surface lg:border-b-0">
+        <aside className="min-h-0 border-t border-exchange-border bg-exchange-surface md:border-t-0">
           <TradingPanel
             key={symbol}
             ticker={ticker}

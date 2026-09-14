@@ -170,7 +170,7 @@ export function WalletPage() {
           </div>
         ) : (
           <>
-            <div className="max-h-72 overflow-y-auto">
+            <div className="max-h-72 overflow-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-exchange-card">
                   <tr className="border-b border-exchange-border text-xs text-exchange-muted">

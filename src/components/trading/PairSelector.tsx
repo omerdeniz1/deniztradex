@@ -85,7 +85,7 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live }: Props) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.98 }}
             transition={{ duration: 0.12 }}
-            className="absolute left-0 top-full z-50 mt-2 w-[24rem] overflow-hidden rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+            className="absolute left-0 top-full z-50 mt-2 w-[24rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
           >
             <div className="border-b border-exchange-border p-3">
               <div className="relative">
