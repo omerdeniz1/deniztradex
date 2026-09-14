@@ -24,7 +24,7 @@ export function Navbar({ balance, username }: Props) {
   const openWithdraw = useUiStore((s) => s.openWithdraw)
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-exchange-border bg-exchange-surface px-4">
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-exchange-border bg-exchange-surface px-4 py-2 md:h-14 md:flex-nowrap md:py-0">
       <Link
         to="/"
         title="Ana Sayfa"

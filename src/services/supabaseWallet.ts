@@ -65,6 +65,37 @@ export async function getProfileBalance(userId: string): Promise<number | null> 
   return profile?.balance ?? null
 }
 
+const PROFILE_RETRY_DELAY_MS = 400
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Like `getProfileBalance`, but with short backoff: the `profiles` row is
+ * seeded by the `handle_new_user` DB trigger right after sign-up, so right
+ * after `signInWithPassword` / `signUp` the row may briefly not be visible
+ * yet (async trigger / replication lag). Instead of crashing or applying a
+ * stale balance, re-query every `delayMs` up to `attempts` times and return
+ * the balance as soon as the profile shows up.
+ *
+ * When there is no Supabase backend (offline / tests) there is nothing to
+ * wait on — returns immediately.
+ */
+export async function getProfileBalanceWithRetry(
+  userId: string,
+  attempts = 5,
+  delayMs = PROFILE_RETRY_DELAY_MS,
+): Promise<number | null> {
+  if (!supabase || !userId) return null
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const balance = await getProfileBalance(userId)
+    if (typeof balance === 'number' && Number.isFinite(balance)) return balance
+    if (attempt < attempts) await wait(delayMs)
+  }
+  return null
+}
+
 export async function findProfileByEmail(email: string): Promise<Profile | null> {
   if (!supabase || !email) return null
   try {

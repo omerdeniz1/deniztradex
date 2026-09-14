@@ -5,7 +5,7 @@ import {
   logout as serviceLogout,
   register as serviceRegister,
 } from '@/services/authService'
-import { getProfileBalance } from '@/services/supabaseWallet'
+import { getProfileBalanceWithRetry } from '@/services/supabaseWallet'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useTradeStore } from '@/store/tradeStore'
 import type { User } from '@/types'
@@ -22,9 +22,16 @@ interface AuthState {
   logout: () => void
 }
 
-/** Best-effort: pull the wallet starting balance from supabase profiles. */
+/**
+ * Best-effort: pull the wallet starting balance from supabase profiles.
+ * The `profiles` row is created by the `handle_new_user` DB trigger right
+ * after sign-up. Right after sign-in that row can briefly not be there yet —
+ * `getProfileBalanceWithRetry` waits and retries (short backoff, ~2s cap)
+ * instead of crashing or silently keeping a stale balance. Falls back to the
+ * persisted wallet / zero when the row never appears.
+ */
 async function syncProfileBalance(userId: string) {
-  const balance = await getProfileBalance(userId)
+  const balance = await getProfileBalanceWithRetry(userId)
   if (typeof balance === 'number' && Number.isFinite(balance)) {
     useTradeStore.getState().setBalance(balance)
   }
@@ -40,7 +47,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     // The account's theme / confirmation preferences live under the user's
     // own storage key — reload them once the session is active.
     void useSettingsStore.persist.rehydrate()
-    void syncProfileBalance(user.id)
+    await syncProfileBalance(user.id)
     return user
   },
 
@@ -50,7 +57,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     // Fresh users have no persisted wallet yet.
     await useTradeStore.persist.rehydrate()
     void useSettingsStore.persist.rehydrate()
-    void syncProfileBalance(user.id)
+    await syncProfileBalance(user.id)
     return user
   },
 

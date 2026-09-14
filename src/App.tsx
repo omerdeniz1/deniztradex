@@ -49,7 +49,7 @@ function Shell() {
     <div className="flex h-dvh min-h-0 w-full max-w-full flex-col overflow-x-hidden bg-exchange-bg text-exchange-text">
       <ThemeManager />
       <Navbar balance={balance} username={user?.username ?? ''} />
-      <div className="flex min-h-0 flex-1 flex-col pb-20 sm:pb-0">
+      <div className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-hidden pb-20 sm:pb-0">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/markets" element={<MarketsPage />} />

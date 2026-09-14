@@ -233,10 +233,10 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto md:overflow-hidden">
-      <main className="flex min-h-0 flex-col md:grid md:min-h-0 md:flex-1 md:grid-cols-[1fr_360px]">
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-auto md:overflow-hidden">
+      <main className="flex min-h-0 w-full min-w-0 max-w-full flex-col md:min-h-0 md:flex-1 md:flex-row">
         {/* Left: chart + positions */}
-        <section className="flex min-h-0 flex-col md:border-r md:border-exchange-border">
+        <section className="flex min-h-0 w-full min-w-0 max-w-full flex-col md:flex-1 md:overflow-y-auto md:border-r md:border-exchange-border">
           <div className="flex items-center justify-between border-b border-exchange-border px-4 py-2">
             <div className="flex items-center gap-3">
               <PairSelector
@@ -272,7 +272,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             </div>
           </div>
 
-          <div className="relative h-[360px] flex-none sm:h-[420px] md:h-auto md:min-h-[320px] md:flex-1">
+          <div className="relative h-[300px] w-full max-w-full flex-none md:h-[500px]">
             {isLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-exchange-muted">
                 Loading chart data…
@@ -384,7 +384,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         </section>
 
         {/* Right: trading panel */}
-        <aside className="min-h-0 border-t border-exchange-border bg-exchange-surface md:border-t-0">
+        <aside className="w-full min-h-0 min-w-0 max-w-full border-t border-exchange-border bg-exchange-surface md:border-t-0 md:w-[360px] md:shrink-0">
           <TradingPanel
             key={symbol}
             ticker={ticker}
