@@ -56,10 +56,12 @@ export function ForumPage() {
 
   // Canlı akış: başka cihazda paylaşılan gönderi bu ekrana da düşsün.
   // Birincil kanal realtime'dır (<1 sn); periyodik yoklama yalnızca
-  // yedektir (realtime bağlanamazsa devreye girer). Odaklanınca yenileme
-  // de vardır. Sessiz yenileme — yükleniyor göstergesiyle akışı
-  // boşaltıp "silindi" izlenimi vermez, hata durumunda toast spam'i
-  // yapmaz (hata inline banner'da durur).
+  // yedektir (realtime bağlanamazsa devreye girer). Mobil özellikle
+  // kapsanır: wifi/hücre geçişinde kopan soket yeniden bağlanınca,
+  // bfcache'den dönünce (geri tuşu) ve ağ geri gelince anında yakala.
+  // Sessiz yenileme — yükleniyor göstergesiyle akışı boşaltıp "silindi"
+  // izlenimi vermez, hata durumunda toast spam'i yapmaz (hata inline
+  // banner'da durur).
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return
     const client = supabase
@@ -78,18 +80,28 @@ export function ForumPage() {
         { event: '*', schema: 'public', table: 'forum_replies' },
         quiet,
       )
-      .subscribe()
-    const timer = window.setInterval(quiet, 3000)
+      .subscribe((status) => {
+        // Soket (yeniden) bağlanır bağlanmaz kaçırılanları çek.
+        if (status === 'SUBSCRIBED') quiet()
+      })
+    const timer = window.setInterval(quiet, 2000)
     const onFocus = quiet
     const onVisibility = () => {
       if (document.visibilityState === 'visible') quiet()
     }
+    // bfcache restore / ağ dönüşü: interval ve soket bayatlamış olabilir.
+    const onPageShow = () => quiet()
+    const onOnline = () => quiet()
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('online', onOnline)
     return () => {
       window.clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('online', onOnline)
       void client.removeChannel(channel)
     }
   }, [refresh])
