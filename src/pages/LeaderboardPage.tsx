@@ -36,7 +36,7 @@ export function LeaderboardPage() {
   }, [load])
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-3 py-4 sm:px-4 sm:py-6">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
@@ -77,11 +77,11 @@ export function LeaderboardPage() {
               <table className="w-full border-collapse text-left text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-exchange-border text-[10px] uppercase tracking-wide text-exchange-muted sm:text-[11px]">
-                    <th scope="col" className="sticky top-0 z-10 w-9 bg-exchange-card px-2 py-2 text-center font-semibold sm:w-12 sm:px-3 sm:py-2.5">#</th>
-                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-2 py-2 font-semibold sm:px-3 sm:py-2.5">Kullanıcı</th>
-                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-2 py-2 text-right font-semibold sm:px-3 sm:py-2.5">Portföy</th>
-                    <th scope="col" className="sticky top-0 z-10 hidden bg-exchange-card px-3 py-2.5 text-right font-semibold sm:table-cell sm:px-4">Hacim</th>
-                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-2 py-2 text-right font-semibold sm:px-3 sm:py-2.5">Skor</th>
+                    <th scope="col" className="w-9 bg-exchange-card px-2 py-2 text-center font-semibold sm:w-12 sm:px-3 sm:py-2.5">#</th>
+                    <th scope="col" className="bg-exchange-card px-2 py-2 font-semibold sm:px-3 sm:py-2.5">Kullanıcı</th>
+                    <th scope="col" className="bg-exchange-card px-2 py-2 text-right font-semibold sm:px-3 sm:py-2.5">Portföy</th>
+                    <th scope="col" className="hidden bg-exchange-card px-3 py-2.5 text-right font-semibold sm:table-cell sm:px-4">Hacim</th>
+                    <th scope="col" className="bg-exchange-card px-2 py-2 text-right font-semibold sm:px-3 sm:py-2.5">Skor</th>
                   </tr>
                 </thead>
                 <tbody>
