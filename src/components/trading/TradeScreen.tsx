@@ -21,6 +21,7 @@ import type { Interval } from '@/types'
 import type { TradingMode } from '@/types'
 import { TradingChart, type ChartIndicators } from '@/components/chart/TradingChart'
 import { TradingPanel, type PanelSide } from '@/components/trading/TradingPanel'
+import { MobileTradeTabs } from '@/components/trading/MobileTradeTabs'
 import { Button } from '@/components/ui/Button'
 import { PairSelector } from '@/components/trading/PairSelector'
 import { PositionList } from '@/components/trading/PositionList'
@@ -440,26 +441,28 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
           </div>
 
           {/* Mobil emir çubuğu: yalnızca Al/Sat. Form sheet içinde. */}
-          <div className="grid grid-cols-2 gap-2 px-3 py-2.5 sm:px-4 md:hidden">
+          <div className="grid grid-cols-2 gap-2 px-3 py-2 sm:px-4 md:hidden">
             <Button
               variant="buy"
-              size="lg"
-              className="w-full whitespace-nowrap text-base"
+              size="md"
+              className="w-full whitespace-nowrap font-bold"
               onClick={() => setSheetSide(mode === 'spot' ? 'buy' : 'long')}
             >
               {mode === 'spot' ? 'Al' : 'Long'}
             </Button>
             <Button
               variant="sell"
-              size="lg"
-              className="w-full whitespace-nowrap text-base"
+              size="md"
+              className="w-full whitespace-nowrap font-bold"
               onClick={() => setSheetSide(mode === 'spot' ? 'sell' : 'short')}
             >
               {mode === 'spot' ? 'Sat' : 'Short'}
             </Button>
           </div>
 
-          <div className="border-t border-exchange-border">
+          <MobileTradeTabs mode={mode} livePrices={livePrices} />
+
+          <div className="hidden border-t border-exchange-border md:block">
             <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2 sm:px-4">
               <span className="text-xs font-semibold uppercase tracking-wide text-exchange-muted">
                 {mode === 'spot' ? 'Spot Varlıklar' : 'Açık Pozisyonlar'}
@@ -567,7 +570,9 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         </aside>
       </main>
 
-      <TradeHistory mode={mode} />
+      <div className="hidden md:block">
+        <TradeHistory mode={mode} />
+      </div>
 
       {/* Mobil emir sheet'i: formun tamamı burada (Binance mobil düzeni). */}
       <AnimatePresence>

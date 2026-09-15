@@ -39,7 +39,7 @@ export function TradeHistory({ mode }: { mode: TradingMode }) {
   )
 }
 
-function FuturesHistory({ trades }: { trades: ReturnType<typeof useTradeStore.getState>['trades'] }) {
+export function FuturesHistory({ trades }: { trades: ReturnType<typeof useTradeStore.getState>['trades'] }) {
   if (trades.length === 0) {
     return (
       <div className="px-4 py-6 text-center text-xs text-exchange-muted">
@@ -122,7 +122,7 @@ function FuturesHistory({ trades }: { trades: ReturnType<typeof useTradeStore.ge
   )
 }
 
-function SpotHistory({ trades }: { trades: ReturnType<typeof useTradeStore.getState>['spotTrades'] }) {
+export function SpotHistory({ trades }: { trades: ReturnType<typeof useTradeStore.getState>['spotTrades'] }) {
   return (
     <div>
       <div className="px-4 py-3">
