@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
+import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import {
   FORUM_POST_MAX_LENGTH,
   createForumPost,
@@ -8,6 +9,7 @@ import {
   deleteForumPost,
   deleteForumReply,
   formatTimeAgo,
+  forumDisplayName,
   listForumPosts,
   listForumReplies,
   toggleForumLike,
@@ -39,6 +41,49 @@ export function ForumPage() {
 
   useEffect(() => {
     void refresh()
+  }, [refresh])
+
+  // Canlı akış: başka cihazda paylaşılan gönderi bu ekrana da düşsün.
+  // Realtime + periyodik yoklama + odaklanınca yenileme birlikte çalışır;
+  // biri çalışmazsa diğeri yakalar. Sessiz yenileme — yükleniyor
+  // göstergesiyle akışı boşaltıp "silindi" izlenimi vermez.
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return
+    const client = supabase
+    const channel = client
+      .channel('forum-feed')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'forum_posts' },
+        () => {
+          void refresh()
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'forum_replies' },
+        () => {
+          void refresh()
+        },
+      )
+      .subscribe()
+    const timer = window.setInterval(() => {
+      void refresh()
+    }, 15000)
+    const onFocus = () => {
+      void refresh()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      void client.removeChannel(channel)
+    }
   }, [refresh])
 
   const publish = async () => {
@@ -229,16 +274,20 @@ function PostRow({
     }
   }
 
+  // Servis zaten görünen adı döndürür; burada tekrar sarmalamak eski
+  // satırlarda yanlışlıkla uid yazmış kayıtları da UI'da temizler.
+  const displayName = forumDisplayName(post.username, post.userId)
+
   return (
     <li className="border-b border-exchange-border px-3 py-3 last:border-0 sm:px-4">
       <div className="flex min-w-0 items-start gap-2.5">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-sm font-extrabold text-exchange-yellow" aria-hidden>
-          {(post.username.charAt(0) || '?').toUpperCase()}
+          {(displayName.charAt(0) || '?').toUpperCase()}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
-              {post.username}
+              {displayName}
             </span>
             <span className="shrink-0 whitespace-nowrap text-[11px] text-exchange-muted">
               {formatTimeAgo(post.createdAt)}
@@ -306,12 +355,12 @@ function PostRow({
                   {(replies ?? []).map((reply) => (
                     <div key={reply.id} className="flex min-w-0 items-start gap-2 py-2">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-exchange-surface text-[11px] font-extrabold text-exchange-muted" aria-hidden>
-                        {(reply.username.charAt(0) || '?').toUpperCase()}
+                        {(forumDisplayName(reply.username, reply.userId).charAt(0) || '?').toUpperCase()}
                       </span>
                       <div className="min-w-0 flex-1 rounded-xl bg-exchange-surface/60 px-2.5 py-1.5">
                         <div className="flex min-w-0 items-baseline gap-1.5">
                           <span className="min-w-0 flex-1 truncate text-xs font-bold text-exchange-text">
-                            {reply.username}
+                            {forumDisplayName(reply.username, reply.userId)}
                           </span>
                           <span className="shrink-0 whitespace-nowrap text-[10px] text-exchange-muted">
                             {formatTimeAgo(reply.createdAt)}

@@ -2,17 +2,68 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { getSessionUser } from '@/services/authService'
 
 /**
- * Forum (Topluluk) veri katmanı — Supabase öncelikli, çevrimdışı yedekli.
+ * Forum (Topluluk) veri katmanı — tek kaynak Supabase, çevrimdışı yedekli.
  *
  * Supabase yapılandırıldığında (`forum_posts` / `forum_likes` tabloları +
- * `toggle_forum_like` RPC'si) tüm cihazlar aynı akışı görür. Yapılandırma
- * yoksa (vitest / çevrimdışı) sayfa yerel depolamayla çalışmaya devam
- * eder; testler deterministik ve ağsız kalır.
+ * `toggle_forum_like` RPC'si) TEK kaynak Supabase'tir: tüm cihazlar
+ * (masaüstü + mobil) aynı akışı görür, hiçbir şey cihaza özel
+ * localStorage'a yazılmaz ve kendiliğinden silinmez.
+ *
+ * Yerel depolama SADECE Supabase yapılandırılmadığında
+ * (vitest / çevrimdışı) kullanılır; testler deterministik ve ağsız kalır.
+ * Uzak hata gizlenip yerele düşülmez — aksi halde masaüstünde
+ * paylaşılan mobilde görünmez (ve tersi), akış iki kaynak arasında
+ * gidip gelip "silinmiş" gibi görünürdü.
  */
 
 export const FORUM_POST_MAX_LENGTH = 280
 const FORUM_LOCAL_KEY = 'deniztradx_forum_posts_v1'
 const FORUM_FEED_LIMIT = 50
+
+/** Supabase varken uzak moddayız: yerel depolamaya asla düşme. */
+function isRemoteMode(): boolean {
+  return isSupabaseConfigured && supabase !== null
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** uid / uuid görünümlü değer mi? UI'da bunlar asla gösterilmemeli. */
+function isUidLike(value: string): boolean {
+  const v = value.trim()
+  if (!v) return true
+  if (UUID_RE.test(v)) return true
+  if (v.startsWith('usr_')) return true
+  if (/^[0-9a-f]{24,}$/i.test(v)) return true
+  return false
+}
+
+/**
+ * UI'da gösterilecek isim: kayıtlı kullanıcı adı. Kayıt boşsa ya da
+ * yanlışlıkla uid yazılmışsa ("show uid" bug'ı) kullanıcı adı yerine
+ * okunabilir bir isim döndürür — UI'da asla ham uid görünmez.
+ */
+export function forumDisplayName(username: string, userId: string): string {
+  const name = (username ?? '').trim()
+  if (name && name !== userId && !isUidLike(name)) return name
+  const id = (userId ?? '').trim()
+  if (id && !isUidLike(id) && id !== 'deniztradex') return id
+  if (id.toLowerCase() === 'deniztradex') return 'DenizTradeX'
+  return 'Kullanıcı'
+}
+
+/** Uzağa yazarken kullanılacak isim: boş/uid ise e-posta ön-ekine düş. */
+function resolveWriteUsername(user: { id: string; username: string; email?: string }): string {
+  const name = (user.username ?? '').trim()
+  if (name && name !== user.id && !isUidLike(name)) return name
+  const email = (user.email ?? '').trim()
+  if (email.includes('@')) {
+    const prefix = email.split('@')[0].trim()
+    if (prefix && !isUidLike(prefix)) return prefix
+  }
+  if (user.id && !isUidLike(user.id)) return user.id
+  return 'Kullanıcı'
+}
 
 export interface ForumPost {
   id: string
@@ -155,7 +206,7 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
   return {
     id: row.id,
     userId: row.userId,
-    username: row.username,
+    username: forumDisplayName(row.username, row.userId),
     content: row.content,
     likeCount: row.likedBy.length,
     likedByMe: myId !== null && row.likedBy.includes(myId),
@@ -169,20 +220,15 @@ function toForumReply(postId: string, row: LocalStoredReply): ForumReply {
     id: row.id,
     postId,
     userId: row.userId,
-    username: row.username,
+    username: forumDisplayName(row.username, row.userId),
     content: row.content,
     createdAt: row.createdAt,
   }
 }
 
 // ---------------------------------------------------------------
-// Açık API — Supabase öncelikli, hata durumunda yerel yedekli.
-//
-// Neden yedek? Tablolar/RPC henüz veritabanında yoksa (migration
-// uygulanmamışsa) Supabase çağrısı patlar. O durumda hata fırlatıp
-// sayfayı kilitlemek yerine yerel depolamaya düşülür: gönderi
-// paylaşma/beğenme/silme anında çalışır. Migration uygulanınca aynı
-// kod paylaşılan akışa geçer (yerel kayıtlar taşınmaz).
+// Açık API — uzak modda SADECE Supabase (hata fırlatılır, yerele
+// düşülmez). Yerel mod yalnızca Supabase yokken (test/çevrimdışı).
 // ---------------------------------------------------------------
 
 function listLocal(): Promise<ForumPost[]> {
@@ -196,12 +242,10 @@ function listLocal(): Promise<ForumPost[]> {
 }
 
 export async function listForumPosts(): Promise<ForumPost[]> {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      return await listRemote()
-    } catch {
-      // tablo yok / ağ hatası → yerel akış
-    }
+  if (isRemoteMode()) {
+    // Uzak hata gizlenmez: listeleyemezsek boş yerel akış gösterip
+    // "tüm mesajlar silindi" izlenimi vermek yerine hata fırlatılır.
+    return listRemote()
   }
   return listLocal()
 }
@@ -238,7 +282,7 @@ async function listRemote(): Promise<ForumPost[]> {
   }[]).map((r) => ({
     id: r.id,
     userId: r.user_id,
-    username: r.username,
+    username: forumDisplayName(r.username, r.user_id),
     content: r.content,
     likeCount: r.like_count ?? 0,
     likedByMe: liked.has(r.id),
@@ -265,27 +309,27 @@ export async function createForumPost(rawContent: string): Promise<ForumPost> {
   const content = validateContent(rawContent)
   const user = requireSessionUser()
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      return await createRemote(user, content)
-    } catch {
-      // tablo yok / ağ hatası → yerel paylaşım
-    }
+  if (isRemoteMode()) {
+    // Uzak yazım başarısızsa yerele yazıp "paylaşıldı" demek, gönderinin
+    // yalnızca bu cihazda görünüp diğerinde görünmemesine (ve sonra
+    // "silinmiş" sanılmasına) yol açardı. Hata aynen iletilir.
+    return createRemote(user, content)
   }
   return createLocal(user, content)
 }
 
 async function createRemote(
-  user: { id: string; username: string },
+  user: { id: string; username: string; email?: string },
   content: string,
 ): Promise<ForumPost> {
   if (!supabase) throw new Error('no-backend')
+  const username = resolveWriteUsername(user)
   const { data, error } = await supabase
       .from('forum_posts')
-      .insert({ user_id: user.id, username: user.username, content })
+      .insert({ user_id: user.id, username, content })
       .select('id,user_id,username,content,like_count,reply_count,created_at')
       .single()
-    if (error || !data) throw new Error('paylasim-failed')
+    if (error || !data) throw new Error('Gönderi paylaşılamadı. Bağlantını kontrol edip tekrar dene.')
     const row = data as {
       id: string
       user_id: string
@@ -298,7 +342,7 @@ async function createRemote(
     return {
       id: row.id,
       userId: row.user_id,
-      username: row.username,
+      username: forumDisplayName(row.username, row.user_id),
       content: row.content,
       likeCount: row.like_count ?? 0,
       likedByMe: false,
@@ -328,24 +372,14 @@ export async function toggleForumLike(
 ): Promise<{ liked: boolean; likeCount: number }> {
   const user = requireSessionUser()
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { data, error } = await supabase.rpc('toggle_forum_like', {
-        p_post_id: postId,
-      })
-      if (error || !data) throw new Error('begeni-failed')
-      const res = data as { liked?: boolean; like_count?: number }
-      return { liked: res.liked === true, likeCount: res.like_count ?? 0 }
-    } catch (err) {
-      // "Gönderi bulunamadı" gibi gerçek hatalar da buraya düşer — ancak
-      // migration'sız DB'de her şey başarısız olacağı için yereli dene;
-      // yerel de bulamazsa hatayı aynen iletir.
-      try {
-        return await toggleLocal(user, postId)
-      } catch {
-        throw err instanceof Error ? err : new Error('Beğeni işlenemedi. Lütfen tekrar dene.')
-      }
-    }
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    const { data, error } = await supabase.rpc('toggle_forum_like', {
+      p_post_id: postId,
+    })
+    if (error || !data) throw new Error('Beğeni işlenemedi. Lütfen tekrar dene.')
+    const res = data as { liked?: boolean; like_count?: number }
+    return { liked: res.liked === true, likeCount: res.like_count ?? 0 }
   }
   return toggleLocal(user, postId)
 }
@@ -362,14 +396,22 @@ function deleteLocal(user: { id: string }, postId: string): Promise<void> {
 export async function deleteForumPost(postId: string): Promise<void> {
   const user = requireSessionUser()
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { error } = await supabase.from('forum_posts').delete().eq('id', postId)
-      if (error) throw error
-      return
-    } catch {
-      // tablo yok / ağ hatası → yerel silme
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    // RLS reddederse (başkasının gönderisi) PostgREST satır döndürmez;
+    // sessizce "silinmiş" gibi davranmak yerine doğrula.
+    const { data, error } = await supabase
+      .from('forum_posts')
+      .delete()
+      .eq('id', postId)
+      .select('id')
+    if (error) throw new Error('Gönderi silinemedi. Lütfen tekrar dene.')
+    if (!data || data.length === 0) {
+      // Satır yoksa: ya zaten silinmiş ya da yetkisiz. Yerel bir şeyi
+      // silmiyoruz — uzak durum korunur, akış tutarlı kalır.
+      throw new Error('Gönderi silinemedi. Yalnızca kendi gönderini silebilirsin.')
     }
+    return
   }
   return deleteLocal(user, postId)
 }
@@ -388,33 +430,30 @@ function validateReply(raw: string): string {
 }
 
 export async function listForumReplies(postId: string): Promise<ForumReply[]> {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('forum_replies')
-        .select('id,post_id,user_id,username,content,created_at')
-        .eq('post_id', postId)
-        .order('created_at', { ascending: true })
-        .limit(100)
-      if (error || !Array.isArray(data)) throw new Error('yanit-liste-failed')
-      return (data as {
-        id: string
-        post_id: string
-        user_id: string
-        username: string
-        content: string
-        created_at: string
-      }[]).map((r) => ({
-        id: r.id,
-        postId: r.post_id,
-        userId: r.user_id,
-        username: r.username,
-        content: r.content,
-        createdAt: Date.parse(r.created_at) || Date.now(),
-      }))
-    } catch {
-      // tablo yok / ağ hatası → yerel yanıtlar
-    }
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    const { data, error } = await supabase
+      .from('forum_replies')
+      .select('id,post_id,user_id,username,content,created_at')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true })
+      .limit(100)
+    if (error || !Array.isArray(data)) throw new Error('Yanıtlar yüklenemedi. Lütfen tekrar dene.')
+    return (data as {
+      id: string
+      post_id: string
+      user_id: string
+      username: string
+      content: string
+      created_at: string
+    }[]).map((r) => ({
+      id: r.id,
+      postId: r.post_id,
+      userId: r.user_id,
+      username: forumDisplayName(r.username, r.user_id),
+      content: r.content,
+      createdAt: Date.parse(r.created_at) || Date.now(),
+    }))
   }
   const post = readLocalPosts().find((p) => p.id === postId)
   if (!post) return []
@@ -427,32 +466,30 @@ export async function createForumReply(postId: string, rawContent: string): Prom
   const content = validateReply(rawContent)
   const user = requireSessionUser()
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('forum_replies')
-        .insert({ post_id: postId, user_id: user.id, username: user.username, content })
-        .select('id,post_id,user_id,username,content,created_at')
-        .single()
-      if (error || !data) throw new Error('yanit-failed')
-      const row = data as {
-        id: string
-        post_id: string
-        user_id: string
-        username: string
-        content: string
-        created_at: string
-      }
-      return {
-        id: row.id,
-        postId: row.post_id,
-        userId: row.user_id,
-        username: row.username,
-        content: row.content,
-        createdAt: Date.parse(row.created_at) || Date.now(),
-      }
-    } catch {
-      // tablo yok / ağ hatası → yerel yanıt
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    const username = resolveWriteUsername(user)
+    const { data, error } = await supabase
+      .from('forum_replies')
+      .insert({ post_id: postId, user_id: user.id, username, content })
+      .select('id,post_id,user_id,username,content,created_at')
+      .single()
+    if (error || !data) throw new Error('Yanıt gönderilemedi. Lütfen tekrar dene.')
+    const row = data as {
+      id: string
+      post_id: string
+      user_id: string
+      username: string
+      content: string
+      created_at: string
+    }
+    return {
+      id: row.id,
+      postId: row.post_id,
+      userId: row.user_id,
+      username: forumDisplayName(row.username, row.user_id),
+      content: row.content,
+      createdAt: Date.parse(row.created_at) || Date.now(),
     }
   }
 
@@ -474,14 +511,18 @@ export async function createForumReply(postId: string, rawContent: string): Prom
 export async function deleteForumReply(postId: string, replyId: string): Promise<void> {
   const user = requireSessionUser()
 
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { error } = await supabase.from('forum_replies').delete().eq('id', replyId)
-      if (error) throw error
-      return
-    } catch {
-      // tablo yok / ağ hatası → yerel silme
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    const { data, error } = await supabase
+      .from('forum_replies')
+      .delete()
+      .eq('id', replyId)
+      .select('id')
+    if (error) throw new Error('Yanıt silinemedi. Lütfen tekrar dene.')
+    if (!data || data.length === 0) {
+      throw new Error('Yanıt silinemedi. Yalnızca kendi yanıtını silebilirsin.')
     }
+    return
   }
 
   const posts = readLocalPosts()
