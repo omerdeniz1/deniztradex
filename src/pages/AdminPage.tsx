@@ -257,7 +257,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <div className="mx-auto flex min-h-full w-full max-w-5xl flex-col px-3 py-4 sm:px-4 sm:py-6">
+      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-3 py-4 sm:px-4 sm:py-6">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -351,7 +351,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
             // Scroll düzeltmesi: kayıt çokken tablo kendi bölgesinde
             // dikey kayar (başlık sabit), sayfa akışı bozulmaz.
             <div className="max-h-[65dvh] overflow-auto">
-              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[880px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-exchange-border text-[11px] uppercase tracking-wide text-exchange-muted">
                     <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 font-semibold sm:px-4">Kullanıcı</th>
@@ -509,6 +509,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                 Henüz yönetici yok.
               </div>
             ) : (
+              <div className="max-h-[40dvh] overflow-auto">
               <ul>
                 {admins.map((u) => {
                   const isSelf = myId !== null && u.id === myId
@@ -559,6 +560,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                   )
                 })}
               </ul>
+              </div>
             )}
           </div>
         )}

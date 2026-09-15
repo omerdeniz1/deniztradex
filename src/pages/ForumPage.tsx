@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
 import { getMyAdminAccess } from '@/services/adminService'
+import { extractMentions, notifyMentions } from '@/services/notificationService'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import {
   FORUM_POST_MAX_LENGTH,
@@ -140,11 +141,14 @@ export function ForumPage() {
   const publish = async () => {
     if (publishing || !draft.trim()) return
     setPublishing(true)
+    const text = draft
     try {
-      const post = await createForumPost(draft)
+      const post = await createForumPost(text)
       setPosts((prev) => [post, ...prev])
       setDraft('')
       pushToast({ message: 'Gönderin paylaşıldı.', tone: 'success' })
+      // Etiketlenenlere bildirim (best-effort, akışı etkilemez).
+      void notifyMentions(extractMentions(text), { postId: post.id, excerpt: text })
     } catch (err) {
       pushToast({ message: err instanceof Error ? err.message : 'Gönderi paylaşılamadı.', tone: 'error' })
     } finally {
@@ -325,11 +329,14 @@ function PostRow({
   const sendReply = async () => {
     if (sending || !replyDraft.trim()) return
     setSending(true)
+    const text = replyDraft
     try {
-      const reply = await createForumReply(post.id, replyDraft)
+      const reply = await createForumReply(post.id, text)
       setReplies((prev) => [...(prev ?? []), reply])
       setReplyDraft('')
       onReplyCount(post.id, 1)
+      // Etiketlenenlere bildirim (best-effort, akışı etkilemez).
+      void notifyMentions(extractMentions(text), { postId: post.id, replyId: reply.id, excerpt: text })
     } catch (err) {
       pushToast({ message: err instanceof Error ? err.message : 'Yanıt gönderilemedi.', tone: 'error' })
     } finally {
@@ -406,7 +413,7 @@ function PostRow({
             )}
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-exchange-text">
-            {post.content}
+            {renderContentWithMentions(post.content)}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1">
             <button
@@ -493,7 +500,7 @@ function PostRow({
                           ) : null}
                         </div>
                         <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-exchange-text">
-                          {reply.content}
+                          {renderContentWithMentions(reply.content)}
                         </p>
                       </div>
                     </div>
@@ -527,6 +534,34 @@ function PostRow({
       </div>
     </li>
   )
+}
+
+/**
+ * @kullanıcı etiketlerini vurgulama: metni parçalayıp etiketleri renkli
+ * gösterir. Eşleşme kuralı `extractMentions` ile birebir aynıdır
+ * (e-postalar etiket sayılmaz).
+ */
+const MENTION_SPLIT_RE = /(^|[^A-Za-z0-9_çÇğĞıİöÖşŞüÜ])(@[A-Za-z0-9_çÇğĞıİöÖşŞüÜ]{3,20})/gu
+
+export function renderContentWithMentions(content: string): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  MENTION_SPLIT_RE.lastIndex = 0
+  let last = 0
+  let i = 0
+  let m: RegExpExecArray | null
+  while ((m = MENTION_SPLIT_RE.exec(content)) !== null) {
+    const at = m.index + m[1].length
+    if (at > last) out.push(content.slice(last, at))
+    out.push(
+      <span key={`m${i++}`} className="font-semibold text-exchange-yellow">
+        {m[2]}
+      </span>,
+    )
+    last = at + m[2].length
+  }
+  if (last < content.length) out.push(content.slice(last))
+  if (out.length === 0) out.push(content)
+  return out
 }
 
 /**

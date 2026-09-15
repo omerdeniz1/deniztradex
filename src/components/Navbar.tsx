@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore, type ToastTone } from '@/store/toastStore'
+import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+import {
+  listMentionNotifications,
+  markMentionsRead,
+  type MentionNotification,
+} from '@/services/notificationService'
 import { checkIsAdmin } from '@/services/adminService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Logo } from '@/components/ui/Logo'
@@ -103,10 +109,54 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
 function NotificationBell() {
   const [open, setOpen] = useState(false)
   const scopeRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
   const notifications = useToastStore((s) => s.notifications)
   const unread = useToastStore((s) => s.unread)
   const markAllRead = useToastStore((s) => s.markAllRead)
   const clearNotifications = useToastStore((s) => s.clearNotifications)
+  const userId = useAuthStore((s) => s.user?.id ?? null)
+  const [mentions, setMentions] = useState<MentionNotification[]>([])
+  const [unreadMentions, setUnreadMentions] = useState(0)
+
+  const fetchMentions = useCallback(async () => {
+    const list = await listMentionNotifications()
+    setMentions(list)
+    setUnreadMentions(list.filter((n) => !n.isRead).length)
+  }, [])
+
+  // Sunucu bahsetmeleri (@etiket): açılışta + 30 sn'de bir + realtime
+  // INSERT'te tazelenir. Çevrimdışı/oturumsuzken sessizce atlanır.
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured || !supabase) {
+      setMentions([])
+      setUnreadMentions(0)
+      return
+    }
+    const client = supabase
+    void fetchMentions()
+    const timer = window.setInterval(() => {
+      void fetchMentions()
+    }, 30000)
+    const channel = client
+      .channel('mention-bell')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          void fetchMentions()
+        },
+      )
+      .subscribe()
+    return () => {
+      window.clearInterval(timer)
+      void client.removeChannel(channel)
+    }
+  }, [userId, fetchMentions])
 
   useEffect(() => {
     if (!open) return
@@ -120,11 +170,26 @@ function NotificationBell() {
   }, [open ])
 
   const toggle = () => {
-    setOpen((v) => {
-      if (!v) markAllRead()
-      return !v
-    })
+    if (!open) {
+      markAllRead()
+      // Bahsetmeler tazelenir, sonra okundu işaretlenir (liste kapanana
+      // dek ekranda kalır, rozet hemen sıfırlanır).
+      void (async () => {
+        const list = await listMentionNotifications()
+        setMentions(list)
+        await markMentionsRead()
+        setUnreadMentions(0)
+      })()
+    }
+    setOpen((v) => !v)
   }
+
+  const goForum = () => {
+    setOpen(false)
+    navigate('/forum')
+  }
+
+  const totalUnread = unread + unreadMentions
 
   return (
     <div ref={scopeRef} className="relative">
@@ -139,9 +204,9 @@ function NotificationBell() {
           <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
         </svg>
-        {unread > 0 && (
+        {totalUnread > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-exchange-sell px-1 text-[10px] font-bold leading-none text-white">
-            {unread > 99 ? '99+' : unread}
+            {totalUnread > 99 ? '99+' : totalUnread}
           </span>
         )}
       </button>
@@ -169,7 +234,45 @@ function NotificationBell() {
                 </button>
               )}
             </div>
-            {notifications.length === 0 ? (
+            {mentions.length > 0 && (
+              <div className="border-b border-exchange-border">
+                <div className="px-4 pb-1 pt-2.5 text-[11px] font-bold uppercase tracking-wide text-exchange-muted">
+                  Bahsetmeler
+                </div>
+                <ul>
+                  {mentions.slice(0, 5).map((m) => (
+                    <li key={m.id} className="border-b border-exchange-border/40 last:border-0">
+                      <button
+                        type="button"
+                        onClick={goForum}
+                        className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-exchange-surface"
+                      >
+                        <span
+                          className="mt-1 h-2 w-2 shrink-0 rounded-full bg-exchange-yellow"
+                          aria-hidden
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-xs leading-relaxed text-exchange-text">
+                            <span className="font-bold">{m.actorUsername}</span> senden bahsetti
+                          </p>
+                          {m.excerpt && (
+                            <p className="mt-0.5 line-clamp-2 break-words text-[11px] leading-relaxed text-exchange-muted">
+                              “{m.excerpt}”
+                            </p>
+                          )}
+                          <p className="mt-0.5 text-[10px] text-exchange-muted">
+                            {m.createdAt > 0
+                              ? new Date(m.createdAt).toLocaleString('tr-TR')
+                              : ''}
+                          </p>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {notifications.length === 0 && mentions.length === 0 ? (
               <div className="px-4 py-8 text-center text-xs text-exchange-muted">
                 Henüz bildiriminiz yok.
               </div>

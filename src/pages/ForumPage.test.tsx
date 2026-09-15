@@ -62,4 +62,15 @@ describe('ForumPage', () => {
     await screen.findByText(/Topluluğa hoş geldin/)
     expect(screen.getByLabelText('Onaylı hesap')).toBeInTheDocument()
   })
+
+  it('highlights @mentions in published posts', async () => {
+    const user = userEvent.setup()
+    render(<ForumPage />)
+    await screen.findByText(/Topluluğa hoş geldin/)
+
+    await user.type(screen.getByLabelText('Yeni gönderi'), 'selam @denizbak nasılsın')
+    await user.click(screen.getByRole('button', { name: 'Paylaş' }))
+
+    expect(await screen.findByText('@denizbak')).toBeInTheDocument()
+  })
 })
