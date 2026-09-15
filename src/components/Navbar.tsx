@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAuthStore } from '@/store/authStore'
-import { useUiStore } from '@/store/uiStore'
 import { useToastStore, type ToastTone } from '@/store/toastStore'
 import { cn, formatNumber } from '@/lib/utils'
-import { Button } from '@/components/ui/Button'
 import { Logo } from '@/components/ui/Logo'
 
 interface Props {
@@ -21,8 +19,6 @@ const NAV_ITEMS = [
 ] as const
 
 export function Navbar({ balance, username }: Props) {
-  const openWithdraw = useUiStore((s) => s.openWithdraw)
-
   return (
     <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-exchange-border bg-exchange-surface px-3 pt-safe sm:gap-3 sm:px-4 md:h-14">
       <Link
@@ -61,9 +57,6 @@ export function Navbar({ balance, username }: Props) {
             {formatNumber(balance, 2)} <span className="text-exchange-yellow">USDT</span>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={openWithdraw} className="hidden whitespace-nowrap px-2.5 sm:inline-flex sm:px-3">
-          - Para Çek
-        </Button>
         <NotificationBell />
         <UserMenu username={username} />
       </div>
@@ -98,7 +91,7 @@ function NotificationBell() {
   }
 
   return (
-    <div ref={scopeRef} className="relative sm:hidden">
+    <div ref={scopeRef} className="relative">
       <button
         type="button"
         onClick={toggle}

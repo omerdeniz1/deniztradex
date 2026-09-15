@@ -335,12 +335,12 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
         </div>
       )}
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-exchange-muted">
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+          <span className="min-w-0 flex-1 basis-24 truncate text-exchange-muted">
             {mode === 'spot' && side === 'sell' ? `Available (${coin})` : 'Kullanılabilir Bakiye'}
           </span>
-          <span className={cn('font-mono font-semibold', mode === 'spot' && side === 'sell' ? 'text-exchange-buy' : 'text-exchange-text')}>
+          <span className={cn('shrink-0 whitespace-nowrap font-mono font-semibold', mode === 'spot' && side === 'sell' ? 'text-exchange-buy' : 'text-exchange-text')}>
             {mode === 'spot' && side === 'sell'
               ? `${formatPrice(heldCoin)} ${coin}`
               : `${formatNumber(balance, 2)} ${currency}`}
