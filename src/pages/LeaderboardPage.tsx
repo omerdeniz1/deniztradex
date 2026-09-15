@@ -73,7 +73,7 @@ export function LeaderboardPage() {
               {error ? 'Sıralama gösterilemiyor.' : 'Henüz sıralanacak kullanıcı yok.'}
             </div>
           ) : (
-            <div className="max-h-[70dvh] overflow-auto">
+            <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-exchange-border text-[10px] uppercase tracking-wide text-exchange-muted sm:text-[11px]">

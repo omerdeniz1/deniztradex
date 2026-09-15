@@ -330,11 +330,6 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                 </span>
               )}
             </h2>
-            {filtered.length > 6 && (
-              <span className="shrink-0 animate-bounce text-[11px] font-bold text-exchange-muted" aria-hidden>
-                ↓ kaydır
-              </span>
-            )}
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -353,11 +348,9 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
               {users.length === 0 ? 'Kayıtlı kullanıcı bulunamadı.' : 'Aramaya uygun kullanıcı yok.'}
             </div>
           ) : (
-            // Scroll düzeltmesi: kayıt çokken tablo kendi bölgesinde
-            // dikey kayar (başlık sabit), sayfa akışı bozulmaz. Alt
-            // gölge, listenin devam ettiğini belli eder.
-            <div className="relative">
-              <div className="max-h-[70dvh] overflow-auto">
+            // Uzun listeler sayfa kaymasıyla akar (iç kutu yok — mobilde
+            // iç-dış kaydırma çakışması olmaz, en alttaki satıra inilir).
+            <div className="overflow-x-auto">
               <table className="w-full min-w-[880px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-exchange-border text-[11px] uppercase tracking-wide text-exchange-muted">
@@ -491,13 +484,6 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                   })}
                 </tbody>
               </table>
-              </div>
-              {filtered.length > 6 && (
-                <div
-                  className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-exchange-card to-transparent"
-                  aria-hidden
-                />
-              )}
             </div>
           )}
         </div>
@@ -524,7 +510,6 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                 Henüz yönetici yok.
               </div>
             ) : (
-              <div className="max-h-[40dvh] overflow-auto">
               <ul>
                 {admins.map((u) => {
                   const isSelf = myId !== null && u.id === myId
@@ -575,7 +560,6 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                   )
                 })}
               </ul>
-              </div>
             )}
           </div>
         )}
@@ -840,9 +824,9 @@ function ForumModeration() {
           Silinecek yazı yok.
         </div>
       ) : (
-        <div className="max-h-[50dvh] overflow-auto">
+        <div>
           <ul>
-            <li className="sticky top-0 z-10 flex items-center gap-2 border-b border-exchange-border bg-exchange-card px-3 py-2 sm:px-4">
+            <li className="flex items-center gap-2 border-b border-exchange-border bg-exchange-card px-3 py-2 sm:px-4">
               <input
                 type="checkbox"
                 checked={posts.length > 0 && selected.size === posts.length}
