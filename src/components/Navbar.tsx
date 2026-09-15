@@ -3,6 +3,7 @@ import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAuthStore } from '@/store/authStore'
 import { useUiStore } from '@/store/uiStore'
+import { useToastStore, type ToastTone } from '@/store/toastStore'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Logo } from '@/components/ui/Logo'
@@ -60,12 +61,126 @@ export function Navbar({ balance, username }: Props) {
             {formatNumber(balance, 2)} <span className="text-exchange-yellow">USDT</span>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={openWithdraw} className="whitespace-nowrap px-2.5 sm:px-3">
+        <Button size="sm" variant="outline" onClick={openWithdraw} className="hidden whitespace-nowrap px-2.5 sm:inline-flex sm:px-3">
           - Para Çek
         </Button>
+        <NotificationBell />
         <UserMenu username={username} />
       </div>
     </header>
+  )
+}
+
+function NotificationBell() {
+  const [open, setOpen] = useState(false)
+  const scopeRef = useRef<HTMLDivElement>(null)
+  const notifications = useToastStore((s) => s.notifications)
+  const unread = useToastStore((s) => s.unread)
+  const markAllRead = useToastStore((s) => s.markAllRead)
+  const clearNotifications = useToastStore((s) => s.clearNotifications)
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (scopeRef.current && !scopeRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open ])
+
+  const toggle = () => {
+    setOpen((v) => {
+      if (!v) markAllRead()
+      return !v
+    })
+  }
+
+  return (
+    <div ref={scopeRef} className="relative sm:hidden">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label="Bildirimler"
+        aria-expanded={open}
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-exchange-muted transition-colors hover:bg-exchange-border/30 hover:text-exchange-text"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+          <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+        </svg>
+        {unread > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-exchange-sell px-1 text-[10px] font-bold leading-none text-white">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.97 }}
+            transition={{ duration: 0.12 }}
+            role="menu"
+            aria-label="Bildirimler"
+            className="absolute right-0 top-full z-50 mt-2 max-h-[60dvh] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-exchange-border px-4 py-2.5">
+              <span className="text-sm font-bold text-exchange-text">Bildirimler</span>
+              {notifications.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearNotifications}
+                  className="text-xs font-semibold text-exchange-muted hover:text-exchange-sell"
+                >
+                  Temizle
+                </button>
+              )}
+            </div>
+            {notifications.length === 0 ? (
+              <div className="px-4 py-8 text-center text-xs text-exchange-muted">
+                Henüz bildiriminiz yok.
+              </div>
+            ) : (
+              <ul>
+                {notifications.map((n) => (
+                  <li
+                    key={n.id}
+                    className="flex items-start gap-2.5 border-b border-exchange-border/40 px-4 py-2.5 last:border-0"
+                  >
+                    <ToneDot tone={n.tone} />
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-xs leading-relaxed text-exchange-text">
+                        {n.message}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-exchange-muted">
+                        {new Date(n.at).toLocaleString('tr-TR')}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function ToneDot({ tone }: { tone: ToastTone }) {
+  return (
+    <span
+      className={cn(
+        'mt-1 h-2 w-2 shrink-0 rounded-full',
+        tone === 'success' && 'bg-exchange-buy',
+        tone === 'error' && 'bg-exchange-sell',
+        tone === 'info' && 'bg-exchange-yellow',
+      )}
+    />
   )
 }
 

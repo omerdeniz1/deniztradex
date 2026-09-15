@@ -455,7 +455,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-2">
               <div className="min-w-0">
                 <div className="mb-1 text-xs text-exchange-muted">Kar Al (TP)</div>
                 <input
