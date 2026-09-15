@@ -42,4 +42,18 @@ describe('ForumPage', () => {
     await screen.findByText(/Topluluğa hoş geldin/)
     expect(screen.getByRole('button', { name: 'Paylaş' })).toBeDisabled()
   })
+
+  it('expands replies and posts a reply with counter', async () => {
+    const user = userEvent.setup()
+    render(<ForumPage />)
+    await screen.findByText(/Topluluğa hoş geldin/)
+
+    await user.click(screen.getByRole('button', { name: 'Yanıtları göster' }))
+    expect(await screen.findByLabelText('Yanıt yaz')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Yanıt yaz'), 'Katılıyorum!')
+    await user.click(screen.getByRole('button', { name: 'Gönder' }))
+
+    expect(await screen.findByText('Katılıyorum!')).toBeInTheDocument()
+  })
 })

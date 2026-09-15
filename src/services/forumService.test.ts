@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   createForumPost,
+  createForumReply,
   deleteForumPost,
+  deleteForumReply,
   formatTimeAgo,
   listForumPosts,
+  listForumReplies,
   toggleForumLike,
 } from '@/services/forumService'
 import type { User } from '@/types'
@@ -56,6 +59,40 @@ describe('forumService (offline backend)', () => {
     await deleteForumPost(post.id)
     const list = await listForumPosts()
     expect(list.some((p) => p.id === post.id)).toBe(false)
+  })
+})
+
+describe('forum replies (offline backend)', () => {
+  it('rejects empty and overlong replies', async () => {
+    loginAs(alice)
+    const post = await createForumPost('Yanıtlanacak')
+    await expect(createForumReply(post.id, '   ')).rejects.toThrow('boş')
+    await expect(createForumReply(post.id, 'x'.repeat(281))).rejects.toThrow('280')
+  })
+
+  it('creates, lists oldest-first and counts replies', async () => {
+    loginAs(alice)
+    const post = await createForumPost('Ana gönderi')
+    loginAs(bob)
+    await createForumReply(post.id, 'ilk yanıt')
+    await createForumReply(post.id, 'ikinci yanıt')
+    const replies = await listForumReplies(post.id)
+    expect(replies).toHaveLength(2)
+    expect(replies[0].content).toBe('ilk yanıt')
+    expect(replies[1].username).toBe('bob')
+    const list = await listForumPosts()
+    expect(list.find((p) => p.id === post.id)?.replyCount).toBe(2)
+  })
+
+  it('deletes own replies but not others', async () => {
+    loginAs(alice)
+    const post = await createForumPost('Ana gönderi')
+    const reply = await createForumReply(post.id, 'alice yanıtı')
+    loginAs(bob)
+    await expect(deleteForumReply(post.id, reply.id)).rejects.toThrow('kendi yanıtını')
+    loginAs(alice)
+    await deleteForumReply(post.id, reply.id)
+    expect(await listForumReplies(post.id)).toHaveLength(0)
   })
 })
 

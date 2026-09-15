@@ -21,6 +21,24 @@ export interface ForumPost {
   content: string
   likeCount: number
   likedByMe: boolean
+  replyCount: number
+  createdAt: number
+}
+
+export interface ForumReply {
+  id: string
+  postId: string
+  userId: string
+  username: string
+  content: string
+  createdAt: number
+}
+
+interface LocalStoredReply {
+  id: string
+  userId: string
+  username: string
+  content: string
   createdAt: number
 }
 
@@ -30,6 +48,7 @@ interface LocalStoredPost {
   username: string
   content: string
   likedBy: string[]
+  replies: LocalStoredReply[]
   createdAt: number
 }
 
@@ -96,6 +115,7 @@ function ensureLocalSeed(): LocalStoredPost[] {
       username: 'DenizTradeX',
       content: 'Topluluğa hoş geldin! 🎉 Piyasa görüşlerini buradan paylaşabilirsin.',
       likedBy: [],
+      replies: [],
       createdAt: Date.now(),
     },
   ]
@@ -111,6 +131,18 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
     content: row.content,
     likeCount: row.likedBy.length,
     likedByMe: myId !== null && row.likedBy.includes(myId),
+    replyCount: row.replies.length,
+    createdAt: row.createdAt,
+  }
+}
+
+function toForumReply(postId: string, row: LocalStoredReply): ForumReply {
+  return {
+    id: row.id,
+    postId,
+    userId: row.userId,
+    username: row.username,
+    content: row.content,
     createdAt: row.createdAt,
   }
 }
@@ -150,10 +182,10 @@ async function listRemote(): Promise<ForumPost[]> {
   if (!supabase) throw new Error('no-backend')
   const myId = getSessionUser()?.id ?? null
   const { data, error } = await supabase
-    .from('forum_posts')
-    .select('id,user_id,username,content,like_count,created_at')
-    .order('created_at', { ascending: false })
-    .limit(FORUM_FEED_LIMIT)
+      .from('forum_posts')
+      .select('id,user_id,username,content,like_count,reply_count,created_at')
+      .order('created_at', { ascending: false })
+      .limit(FORUM_FEED_LIMIT)
   if (error || !Array.isArray(data)) throw new Error('feed-failed')
   let liked = new Set<string>()
   if (myId && data.length > 0) {
@@ -173,6 +205,7 @@ async function listRemote(): Promise<ForumPost[]> {
     username: string
     content: string
     like_count: number
+    reply_count: number
     created_at: string
   }[]).map((r) => ({
     id: r.id,
@@ -181,6 +214,7 @@ async function listRemote(): Promise<ForumPost[]> {
     content: r.content,
     likeCount: r.like_count ?? 0,
     likedByMe: liked.has(r.id),
+    replyCount: r.reply_count ?? 0,
     createdAt: Date.parse(r.created_at) || Date.now(),
   }))
 }
@@ -192,6 +226,7 @@ function createLocal(user: { id: string; username: string }, content: string): P
     username: user.username,
     content,
     likedBy: [],
+    replies: [],
     createdAt: Date.now(),
   }
   writeLocalPosts([post, ...readLocalPosts()])
@@ -218,28 +253,30 @@ async function createRemote(
 ): Promise<ForumPost> {
   if (!supabase) throw new Error('no-backend')
   const { data, error } = await supabase
-    .from('forum_posts')
-    .insert({ user_id: user.id, username: user.username, content })
-    .select('id,user_id,username,content,like_count,created_at')
-    .single()
-  if (error || !data) throw new Error('paylasim-failed')
-  const row = data as {
-    id: string
-    user_id: string
-    username: string
-    content: string
-    like_count: number
-    created_at: string
-  }
-  return {
-    id: row.id,
-    userId: row.user_id,
-    username: row.username,
-    content: row.content,
-    likeCount: row.like_count ?? 0,
-    likedByMe: false,
-    createdAt: Date.parse(row.created_at) || Date.now(),
-  }
+      .from('forum_posts')
+      .insert({ user_id: user.id, username: user.username, content })
+      .select('id,user_id,username,content,like_count,reply_count,created_at')
+      .single()
+    if (error || !data) throw new Error('paylasim-failed')
+    const row = data as {
+      id: string
+      user_id: string
+      username: string
+      content: string
+      like_count: number
+      reply_count: number
+      created_at: string
+    }
+    return {
+      id: row.id,
+      userId: row.user_id,
+      username: row.username,
+      content: row.content,
+      likeCount: row.like_count ?? 0,
+      likedByMe: false,
+      replyCount: row.reply_count ?? 0,
+      createdAt: Date.parse(row.created_at) || Date.now(),
+    }
 }
 
 function toggleLocal(
@@ -307,4 +344,124 @@ export async function deleteForumPost(postId: string): Promise<void> {
     }
   }
   return deleteLocal(user, postId)
+}
+
+// ---------------------------------------------------------------
+// Yanıtlar
+// ---------------------------------------------------------------
+
+function validateReply(raw: string): string {
+  const content = raw.trim()
+  if (!content) throw new Error('Yanıt boş olamaz.')
+  if (content.length > FORUM_POST_MAX_LENGTH) {
+    throw new Error(`Yanıt en fazla ${FORUM_POST_MAX_LENGTH} karakter olmalı.`)
+  }
+  return content
+}
+
+export async function listForumReplies(postId: string): Promise<ForumReply[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('forum_replies')
+        .select('id,post_id,user_id,username,content,created_at')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true })
+        .limit(100)
+      if (error || !Array.isArray(data)) throw new Error('yanit-liste-failed')
+      return (data as {
+        id: string
+        post_id: string
+        user_id: string
+        username: string
+        content: string
+        created_at: string
+      }[]).map((r) => ({
+        id: r.id,
+        postId: r.post_id,
+        userId: r.user_id,
+        username: r.username,
+        content: r.content,
+        createdAt: Date.parse(r.created_at) || Date.now(),
+      }))
+    } catch {
+      // tablo yok / ağ hatası → yerel yanıtlar
+    }
+  }
+  const post = readLocalPosts().find((p) => p.id === postId)
+  if (!post) return []
+  return [...post.replies]
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((r) => toForumReply(postId, r))
+}
+
+export async function createForumReply(postId: string, rawContent: string): Promise<ForumReply> {
+  const content = validateReply(rawContent)
+  const user = requireSessionUser()
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('forum_replies')
+        .insert({ post_id: postId, user_id: user.id, username: user.username, content })
+        .select('id,post_id,user_id,username,content,created_at')
+        .single()
+      if (error || !data) throw new Error('yanit-failed')
+      const row = data as {
+        id: string
+        post_id: string
+        user_id: string
+        username: string
+        content: string
+        created_at: string
+      }
+      return {
+        id: row.id,
+        postId: row.post_id,
+        userId: row.user_id,
+        username: row.username,
+        content: row.content,
+        createdAt: Date.parse(row.created_at) || Date.now(),
+      }
+    } catch {
+      // tablo yok / ağ hatası → yerel yanıt
+    }
+  }
+
+  const posts = readLocalPosts()
+  const post = posts.find((p) => p.id === postId)
+  if (!post) throw new Error('Gönderi bulunamadı.')
+  const reply: LocalStoredReply = {
+    id: makeId('reply'),
+    userId: user.id,
+    username: user.username,
+    content,
+    createdAt: Date.now(),
+  }
+  post.replies = [...post.replies, reply]
+  writeLocalPosts(posts)
+  return toForumReply(postId, reply)
+}
+
+export async function deleteForumReply(postId: string, replyId: string): Promise<void> {
+  const user = requireSessionUser()
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase.from('forum_replies').delete().eq('id', replyId)
+      if (error) throw error
+      return
+    } catch {
+      // tablo yok / ağ hatası → yerel silme
+    }
+  }
+
+  const posts = readLocalPosts()
+  const post = posts.find((p) => p.id === postId)
+  if (!post) return
+  const reply = post.replies.find((r) => r.id === replyId)
+  if (!reply) return
+  if (reply.userId !== user.id) throw new Error('Yalnızca kendi yanıtını silebilirsin.')
+  post.replies = post.replies.filter((r) => r.id !== replyId)
+  writeLocalPosts(posts)
 }
