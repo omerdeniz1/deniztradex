@@ -306,15 +306,15 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                     {spotPositions.map((p) => (
                       <div
                         key={p.id}
-                        className="flex items-center justify-between gap-3 py-1.5 text-xs"
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-xs"
                       >
-                        <span className="font-mono font-semibold text-exchange-text">
+                        <span className="shrink-0 font-mono font-semibold text-exchange-text">
                           {p.symbol}
                         </span>
-                        <span className="text-exchange-muted">
+                        <span className="min-w-0 truncate text-exchange-muted">
                           {formatNumber(p.quantity, 6)} adet
                         </span>
-                        <span className="font-mono">
+                        <span className="whitespace-nowrap font-mono">
                           <span className="text-exchange-buy">
                             {p.tpPrice ? formatPrice(p.tpPrice) : '—'}
                           </span>
@@ -328,7 +328,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                           onClick={() =>
                             closeSpotPosition(p.id, livePrices[p.symbol] ?? p.entryPrice)
                           }
-                          className="shrink-0 font-semibold text-exchange-yellow hover:underline"
+                          className="ml-auto shrink-0 font-semibold text-exchange-yellow hover:underline"
                         >
                           İptal
                         </button>

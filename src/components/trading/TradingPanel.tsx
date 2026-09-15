@@ -456,55 +456,51 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <div>
-                <div className="mb-1 flex flex-wrap items-center gap-1 text-xs">
-                  <span className="mr-auto shrink-0 text-exchange-muted">Kar Al (TP)</span>
-                  <div className="flex flex-wrap gap-1">
-                    {[5, 10, 20].map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        onClick={() => applyTpSlPct('tp', k, price)}
-                        className="rounded bg-exchange-surface px-1 text-[10px] font-semibold text-exchange-muted hover:text-exchange-buy"
-                      >
-                        %{k}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div className="min-w-0">
+                <div className="mb-1 text-xs text-exchange-muted">Kar Al (TP)</div>
                 <input
                   value={tpStr}
                   onChange={(e) => setTpStr(e.target.value)}
                   inputMode="decimal"
                   placeholder="—"
                   aria-label="Take profit price"
-                  className="h-9 w-full rounded border border-exchange-buy/30 bg-exchange-surface px-2 font-mono text-sm text-exchange-buy outline-none focus:border-exchange-buy"
+                  className="h-9 w-full min-w-0 rounded border border-exchange-buy/30 bg-exchange-surface px-2 font-mono text-sm text-exchange-buy outline-none focus:border-exchange-buy"
                 />
-              </div>
-              <div>
-                <div className="mb-1 flex flex-wrap items-center gap-1 text-xs">
-                  <span className="mr-auto shrink-0 text-exchange-muted">Zarar Durdur (SL)</span>
-                  <div className="flex flex-wrap gap-1">
-                    {[5, 10, 20].map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        onClick={() => applyTpSlPct('sl', k, price)}
-                        className="rounded bg-exchange-surface px-1 text-[10px] font-semibold text-exchange-muted hover:text-exchange-sell"
-                      >
-                        %{k}
-                      </button>
-                    ))}
-                  </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {[5, 10, 20].map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => applyTpSlPct('tp', k, price)}
+                      className="min-h-[1.75rem] rounded bg-exchange-surface px-1.5 text-[10px] font-semibold text-exchange-muted hover:text-exchange-buy"
+                    >
+                      %{k}
+                    </button>
+                  ))}
                 </div>
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1 text-xs text-exchange-muted">Zarar Durdur (SL)</div>
                 <input
                   value={slStr}
                   onChange={(e) => setSlStr(e.target.value)}
                   inputMode="decimal"
                   placeholder="—"
                   aria-label="Stop loss price"
-                  className="h-9 w-full rounded border border-exchange-sell/30 bg-exchange-surface px-2 font-mono text-sm text-exchange-sell outline-none focus:border-exchange-sell"
+                  className="h-9 w-full min-w-0 rounded border border-exchange-sell/30 bg-exchange-surface px-2 font-mono text-sm text-exchange-sell outline-none focus:border-exchange-sell"
                 />
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {[5, 10, 20].map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => applyTpSlPct('sl', k, price)}
+                      className="min-h-[1.75rem] rounded bg-exchange-surface px-1.5 text-[10px] font-semibold text-exchange-muted hover:text-exchange-sell"
+                    >
+                      %{k}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -742,9 +738,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
 
 function OrdersummariesRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between rounded-lg bg-exchange-surface px-3 py-2">
-      <span className="text-exchange-muted">{label}</span>
-      <span className="font-mono font-medium text-exchange-text">{value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-exchange-surface px-3 py-2">
+      <span className="shrink-0 text-exchange-muted">{label}</span>
+      <span className="min-w-0 text-right font-mono font-medium break-words text-exchange-text">{value}</span>
     </div>
   )
 }

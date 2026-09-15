@@ -20,7 +20,6 @@ const NAV_ITEMS = [
 ] as const
 
 export function Navbar({ balance, username }: Props) {
-  const openDeposit = useUiStore((s) => s.openDeposit)
   const openWithdraw = useUiStore((s) => s.openWithdraw)
 
   return (
@@ -61,10 +60,7 @@ export function Navbar({ balance, username }: Props) {
             {formatNumber(balance, 2)} <span className="text-exchange-yellow">USDT</span>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={openDeposit} className="whitespace-nowrap px-2.5 sm:px-3">
-          + Para Yatır
-        </Button>
-        <Button size="sm" variant="outline" onClick={openWithdraw} className="hidden whitespace-nowrap sm:inline-flex">
+        <Button size="sm" variant="outline" onClick={openWithdraw} className="whitespace-nowrap px-2.5 sm:px-3">
           - Para Çek
         </Button>
         <UserMenu username={username} />
