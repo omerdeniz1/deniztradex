@@ -27,7 +27,7 @@ export function SettingsPage() {
             <ThemeOption
               active={theme === 'dark'}
               title="Karanlık"
-              preview="bg-[#0b0e11]"
+              preview="bg-[#0B0E14]"
               onClick={() => setTheme('dark')}
             />
             <ThemeOption

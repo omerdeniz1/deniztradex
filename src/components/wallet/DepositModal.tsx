@@ -173,7 +173,7 @@ export function DepositModal({ open, onClose }: Props) {
         particleCount: 140,
         spread: 75,
         origin: { y: 0.6 },
-        colors: ['#f0b90b', '#0ecb81', '#ffffff'],
+          colors: ['#00e5ff', '#00c853', '#ffffff'],
       })
     }, bankWait.ms)
   }

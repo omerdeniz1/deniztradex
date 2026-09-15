@@ -1,16 +1,34 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-exchange-bg: #0b0e11;
-  --color-exchange-surface: #12161a;
-  --color-exchange-card: #161a20;
+  --color-exchange-bg: #0b0e14;
+  --color-exchange-surface: #151a23;
+  --color-exchange-card: #151a23;
   --color-exchange-border: #2a2e35;
-  --color-exchange-text: #eaecef;
-  --color-exchange-muted: #848e9c;
-  --color-exchange-sell: #f6465d;
-  --color-exchange-buy: #0ecb81;
-  --color-exchange-yellow: #f0b90b;
+  --color-exchange-text: #f1f5f9;
+  --color-exchange-muted: #8b95a1;
+  --color-exchange-sell: #ff3d00;
+  --color-exchange-buy: #00c853;
+  /* Primary vurgu (butonlar, aktif sekmeler, ikonlar, logo). Token adı
+   * tarihsel (`exchange-yellow`) ama değer artık cyan — dosyalarca
+   * `exchange-yellow` sınıfını yeniden adlandırmamak için isim korundu. */
+  --color-exchange-yellow: #00e5ff;
 }
+
+/*
+ * ESKİ PALET (sarı/siyah Binance konsepti) — geri dönüş için saklanıyor:
+ *   --color-exchange-bg: #0b0e11;
+ *   --color-exchange-surface: #12161a;
+ *   --color-exchange-card: #161a20;
+ *   --color-exchange-border: #2a2e35;
+ *   --color-exchange-text: #eaecef;
+ *   --color-exchange-muted: #848e9c;
+ *   --color-exchange-sell: #f6465d;
+ *   --color-exchange-buy: #0ecb81;
+ *   --color-exchange-yellow: #f0b90b;
+ * Grafik (TradingChart): bg #12161a, yazı #848e9c, yeşil #0ecb81, kırmızı #f6465d.
+ * Konfeti: ['#f0b90b', '#0ecb81', '#ffffff']. index.html theme-color #0b0e11.
+ */
 
 @custom-variant dark (&:where(.dark, .dark *));
 

@@ -11,7 +11,7 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantClasses: Record<Variant, string> = {
-  default: 'bg-exchange-yellow text-black hover:bg-yellow-400',
+  default: 'bg-exchange-yellow text-black hover:brightness-110',
   buy: 'bg-exchange-buy text-black hover:opacity-90',
   sell: 'bg-exchange-sell text-white hover:opacity-90',
   ghost: 'bg-transparent text-exchange-muted hover:bg-exchange-border/40 hover:text-exchange-text',

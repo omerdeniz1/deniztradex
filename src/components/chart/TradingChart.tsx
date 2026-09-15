@@ -17,9 +17,9 @@ interface Props {
 
 const PALETTE = {
   dark: {
-    bg: '#12161a',
+    bg: '#151a23',
     border: '#2a2e35',
-    text: '#848e9c',
+    text: '#8b95a1',
   },
   light: {
     bg: '#f1f3f5',
@@ -28,8 +28,8 @@ const PALETTE = {
   },
 } as const
 
-const COLOR_GREEN = '#0ecb81'
-const COLOR_RED = '#f6465d'
+const COLOR_GREEN = '#00c853'
+const COLOR_RED = '#ff3d00'
 
 function TradingChartInner({ klines, className }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
