@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   ALL_ADMIN_PERMISSION_KEYS,
   checkIsAdmin,
+  deleteForumPostsBulk,
   getMyAdminAccess,
   getPlatformStats,
   hasAdminPermission,
   listAdminUsers,
+  listForumAdminPosts,
   setUserBanned,
   setUserFrozen,
   updateUserBalance,
@@ -37,6 +39,8 @@ describe('adminService (offline — Supabase yok)', () => {
     loginAs(alice)
     await expect(listAdminUsers()).rejects.toThrow()
     await expect(getPlatformStats()).rejects.toThrow()
+    await expect(listForumAdminPosts()).rejects.toThrow()
+    await expect(deleteForumPostsBulk(['post_1'])).rejects.toThrow()
   })
 
   it('validates balance input', () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
+import { getMyAdminAccess } from '@/services/adminService'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import {
   FORUM_POST_MAX_LENGTH,
@@ -28,6 +29,19 @@ export function ForumPage() {
   const [liking, setLiking] = useState<Record<string, boolean>>({})
 
   const myId = getSessionUser()?.id ?? null
+
+  // Forum moderasyonu: süper admin veya ban yetkili alt yönetici
+  // herkesin yazısını silebilir (sunucu RLS ile denetler).
+  const [canModerate, setCanModerate] = useState(false)
+  useEffect(() => {
+    let live = true
+    void getMyAdminAccess().then((a) => {
+      if (live) setCanModerate(a.isSuperAdmin || a.permissions.includes('ban_users'))
+    })
+    return () => {
+      live = false
+    }
+  }, [])
   const [feedError, setFeedError] = useState<string | null>(null)
 
   const refresh = useCallback(
@@ -250,6 +264,7 @@ export function ForumPage() {
                   key={post.id}
                   post={post}
                   isMine={myId !== null && post.userId === myId}
+                  canModerate={canModerate}
                   myId={myId}
                   liking={!!liking[post.id]}
                   onLike={() => void toggleLike(post)}
@@ -268,6 +283,7 @@ export function ForumPage() {
 function PostRow({
   post,
   isMine,
+  canModerate,
   myId,
   liking,
   onLike,
@@ -276,6 +292,7 @@ function PostRow({
 }: {
   post: ForumPost
   isMine: boolean
+  canModerate: boolean
   myId: string | null
   liking: boolean
   onLike: () => void
@@ -336,12 +353,32 @@ function PostRow({
   // satırlarda yanlışlıkla uid yazmış kayıtları da UI'da temizler.
   const displayName = forumDisplayName(post.username, post.userId)
 
+  const handleDeletePost = () => {
+    // Başkasının yazısını silen moderatörden onay alınır.
+    if (!isMine && !window.confirm(`"${displayName}" kullanıcısının gönderisi silinsin mi?`)) return
+    onDelete()
+  }
+
+  const handleDeleteReply = (reply: ForumReply) => {
+    const mine = myId !== null && reply.userId === myId
+    if (!mine && !window.confirm('Bu yanıt silinsin mi?')) return
+    void removeReply(reply)
+  }
+
   return (
     <li className="border-b border-exchange-border px-3 py-3 last:border-0 sm:px-4">
       <div className="flex min-w-0 items-start gap-2.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-sm font-extrabold text-exchange-yellow" aria-hidden>
-          {(displayName.charAt(0) || '?').toUpperCase()}
-        </span>
+        {post.avatarUrl ? (
+          <img
+            src={post.avatarUrl}
+            alt=""
+            className="h-9 w-9 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-sm font-extrabold text-exchange-yellow" aria-hidden>
+            {(displayName.charAt(0) || '?').toUpperCase()}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="flex min-w-0 flex-1 items-center gap-1">
@@ -355,10 +392,10 @@ function PostRow({
             <span className="shrink-0 whitespace-nowrap text-[11px] text-exchange-muted">
               {formatTimeAgo(post.createdAt)}
             </span>
-            {isMine && (
+            {(isMine || canModerate) && (
               <button
                 type="button"
-                onClick={onDelete}
+                onClick={handleDeletePost}
                 aria-label="Gönderiyi sil"
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-exchange-muted transition-colors hover:bg-exchange-sell/10 hover:text-exchange-sell"
               >
@@ -417,9 +454,17 @@ function PostRow({
                 <>
                   {(replies ?? []).map((reply) => (
                     <div key={reply.id} className="flex min-w-0 items-start gap-2 py-2">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-exchange-surface text-[11px] font-extrabold text-exchange-muted" aria-hidden>
-                        {(forumDisplayName(reply.username, reply.userId).charAt(0) || '?').toUpperCase()}
-                      </span>
+                      {reply.avatarUrl ? (
+                        <img
+                          src={reply.avatarUrl}
+                          alt=""
+                          className="h-7 w-7 shrink-0 rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-exchange-surface text-[11px] font-extrabold text-exchange-muted" aria-hidden>
+                          {(forumDisplayName(reply.username, reply.userId).charAt(0) || '?').toUpperCase()}
+                        </span>
+                      )}
                       <div className="min-w-0 flex-1 rounded-xl bg-exchange-surface/60 px-2.5 py-1.5">
                         <div className="flex min-w-0 items-baseline gap-1.5">
                           <span className="flex min-w-0 flex-1 items-center gap-1">
@@ -436,16 +481,16 @@ function PostRow({
                           <span className="shrink-0 whitespace-nowrap text-[10px] text-exchange-muted">
                             {formatTimeAgo(reply.createdAt)}
                           </span>
-                          {myId !== null && reply.userId === myId && (
+                          {(myId !== null && reply.userId === myId) || canModerate ? (
                             <button
                               type="button"
-                              onClick={() => void removeReply(reply)}
+                              onClick={() => handleDeleteReply(reply)}
                               aria-label="Yanıtı sil"
                               className="shrink-0 text-[11px] font-semibold text-exchange-muted hover:text-exchange-sell"
                             >
                               Sil
                             </button>
-                          )}
+                          ) : null}
                         </div>
                         <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-exchange-text">
                           {reply.content}
@@ -485,9 +530,10 @@ function PostRow({
 }
 
 /**
- * Resmi onay rozeti: super → sarı tik (süper admin / sistem hesabı),
- * admin → mavi tik (izinli alt yönetici). Rozet kararı sunucudan gelir
- * (`verified_tier`); istemci yalnızca çizer.
+ * Resmi onay rozeti: super → altın sarısı tik (süper admin / sistem
+ * hesabı), admin → mavi tik (izinli alt yönetici). Renkler bilerek tema
+ * token'ı değil sabit markadır (temadaki `exchange-yellow` camgöbeğidir).
+ * Rozet kararı sunucudan gelir (`verified_tier`); istemci yalnızca çizer.
  */
 export function VerifiedBadge({ small, tone }: { small?: boolean; tone: 'gold' | 'blue' }) {
   const size = small ? 13 : 15
@@ -497,7 +543,7 @@ export function VerifiedBadge({ small, tone }: { small?: boolean; tone: 'gold' |
       aria-label="Onaylı hesap"
       title="Onaylı hesap"
       className="inline-flex shrink-0 items-center"
-      style={{ color: tone === 'gold' ? 'var(--color-exchange-yellow)' : '#1d9bf0' }}
+      style={{ color: tone === 'gold' ? '#ffc107' : '#1d9bf0' }}
     >
       <svg
         width={size}

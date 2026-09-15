@@ -9,6 +9,8 @@ export interface User {
   readonly username: string
   readonly email: string
   readonly createdAt: number
+  /** Profil fotoğrafı (Supabase Storage herkese-açık URL'i). Yoksa null. */
+  readonly avatarUrl?: string | null
 }
 
 export interface Kline {

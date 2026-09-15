@@ -179,6 +179,19 @@ function setSession(user: User) {
   safeSet(SESSION_KEY, JSON.stringify(user))
 }
 
+/** Oturumdaki avatar URL'ini günceller (profil fotoğrafı yükleme/silme sonrası). */
+export function updateSessionAvatarUrl(url: string | null): void {
+  try {
+    const raw = safeGet(SESSION_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as User
+    if (!parsed || typeof parsed.id !== 'string') return
+    safeSet(SESSION_KEY, JSON.stringify({ ...parsed, avatarUrl: url }))
+  } catch {
+    // yoksay — bir sonraki girişte profilden tazelenir
+  }
+}
+
 function toCreatedAt(iso: string | undefined): number {
   const t = iso ? Date.parse(iso) : Number.NaN
   return Number.isFinite(t) ? t : Date.now()
@@ -379,6 +392,7 @@ export async function login(identifier: string, password: string): Promise<User>
       username: profile.username || email.split('@')[0],
       email: profile.email || authUser.email || email,
       createdAt: toCreatedAt(profile.created_at ?? authUser.created_at),
+      avatarUrl: profile.avatar_url ?? null,
     }
     // Eksik/gecikmiş profil satırını kalıcı olarak onar ve bu cihazın
     // haritasını tazele — bir sonraki çıkış->giriş döngüsü DB'ye

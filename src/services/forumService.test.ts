@@ -149,9 +149,10 @@ describe('forum verified badge', () => {
   it('flags the local welcome seed as verified, normal posts as not', async () => {
     loginAs(alice)
     const list = await listForumPosts()
-    expect(list.find((p) => p.id === 'seed_welcome')).toMatchObject({ verifiedTier: 'super' })
+    expect(list.find((p) => p.id === 'seed_welcome')).toMatchObject({ verifiedTier: 'super', avatarUrl: null })
     const post = await createForumPost('sıradan gönderi')
     expect(post.verifiedTier).toBe('none')
+    expect(post.avatarUrl).toBeNull()
   })
 
   it('parses remote tiers safely', () => {

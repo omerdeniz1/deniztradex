@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getProfileBalanceWithRetry } from '@/services/supabaseWallet'
+import { getProfileBalanceWithRetry, validateAvatarFile } from '@/services/supabaseWallet'
 
 const mocks = vi.hoisted(() => {
   const maybeSingle = vi.fn()
@@ -64,5 +64,24 @@ describe('getProfileBalanceWithRetry', () => {
     const balance = await getProfileBalanceWithRetry('')
     expect(balance).toBeNull()
     expect(mocks.from).not.toHaveBeenCalled()
+  })
+})
+
+describe('validateAvatarFile', () => {
+  it('accepts common image types with correct extensions', () => {
+    expect(validateAvatarFile(new File(['x'], 'a.jpg', { type: 'image/jpeg' }))).toBe('jpg')
+    expect(validateAvatarFile(new File(['x'], 'a.png', { type: 'image/png' }))).toBe('png')
+    expect(validateAvatarFile(new File(['x'], 'a.webp', { type: 'image/webp' }))).toBe('webp')
+  })
+
+  it('rejects non-image files', () => {
+    expect(() => validateAvatarFile(new File(['x'], 'a.txt', { type: 'text/plain' }))).toThrow()
+    expect(() => validateAvatarFile(new File(['x'], 'a.pdf', { type: 'application/pdf' }))).toThrow()
+  })
+
+  it('rejects files larger than 2MB', () => {
+    const big = new File(['x'], 'a.png', { type: 'image/png' })
+    Object.defineProperty(big, 'size', { value: 3 * 1024 * 1024 })
+    expect(() => validateAvatarFile(big)).toThrow('2MB')
   })
 })

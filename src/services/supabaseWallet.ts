@@ -466,3 +466,86 @@ export async function fetchUsedPromos(userId: string): Promise<string[]> {
     return []
   }
 }
+
+// ---------------------------------------------------------------
+// Profil fotoğrafı (avatar): `storage.avatars` kovası, herkese-açık
+// okuma. Dosya `<userId>/avatar_<zaman>.<uzantı>` yoluna yazılır;
+// her yüklemede eski dosyalar temizlenir (artık dosya birikmez).
+// Profil satırındaki `avatar_url`, forum yazılarına tetikleyiciyle
+// kopyalanır — ayrıca okuma gerekmez.
+// ---------------------------------------------------------------
+
+export const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+
+const AVATAR_EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+export function validateAvatarFile(file: File): string {
+  const mime = (file.type || '').toLowerCase()
+  const ext = AVATAR_EXT_BY_MIME[mime]
+  if (!ext) {
+    throw new Error('Yalnızca JPG, PNG, WEBP veya GIF fotoğrafı yükleyebilirsin.')
+  }
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    throw new Error('Dosya okunamadı. Başka bir fotoğraf dene.')
+  }
+  if (file.size > AVATAR_MAX_BYTES) {
+    throw new Error('Fotoğraf en fazla 2MB olabilir.')
+  }
+  return ext
+}
+
+export async function uploadAvatarFile(userId: string, file: File): Promise<string> {
+  const ext = validateAvatarFile(file)
+  if (!supabase || !userId) {
+    throw new Error('Fotoğraf yüklemek için giriş yapmalısın.')
+  }
+  const path = `${userId}/avatar_${Date.now()}.${ext}`
+  const { error: uploadError } = await supabase.storage
+    .from('avatars')
+    .upload(path, file, { contentType: file.type, upsert: false })
+  if (uploadError) throw new Error('Fotoğraf yüklenemedi. Lütfen tekrar dene.')
+
+  // Eski avatar dosyalarını temizle (en iyisi: kalan artıklar zararsız).
+  try {
+    const { data: listed } = await supabase.storage.from('avatars').list(userId)
+    const stale = (listed ?? []).map((f) => f.name).filter((n) => n && `${userId}/${n}` !== path)
+    if (stale.length > 0) {
+      await supabase.storage.from('avatars').remove(stale.map((n) => `${userId}/${n}`))
+    }
+  } catch {
+    // best effort
+  }
+
+  const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+  const publicUrl = data?.publicUrl ?? ''
+  if (!publicUrl) throw new Error('Fotoğraf adresi alınamadı. Lütfen tekrar dene.')
+
+  const { error: profileError } = await supabase
+    .from('profiles')
+    .update({ avatar_url: publicUrl })
+    .eq('id', userId)
+  if (profileError) throw new Error('Fotoğraf profile işlenemedi. Lütfen tekrar dene.')
+  return publicUrl
+}
+
+export async function removeAvatarFile(userId: string): Promise<void> {
+  if (!supabase || !userId) {
+    throw new Error('Fotoğraf silmek için giriş yapmalısın.')
+  }
+  try {
+    const { data: listed } = await supabase.storage.from('avatars').list(userId)
+    const names = (listed ?? []).map((f) => f.name).filter(Boolean)
+    if (names.length > 0) {
+      await supabase.storage.from('avatars').remove(names.map((n) => `${userId}/${n}`))
+    }
+  } catch {
+    // best effort — profil satırı yine temizlenir
+  }
+  const { error } = await supabase.from('profiles').update({ avatar_url: null }).eq('id', userId)
+  if (error) throw new Error('Fotoğraf silinemedi. Lütfen tekrar dene.')
+}

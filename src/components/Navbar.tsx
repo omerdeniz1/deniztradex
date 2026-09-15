@@ -10,6 +10,7 @@ import { Logo } from '@/components/ui/Logo'
 interface Props {
   balance: number
   username: string
+  avatarUrl?: string | null
 }
 
 const NAV_ITEMS = [
@@ -20,7 +21,7 @@ const NAV_ITEMS = [
   { to: '/forum', label: 'Forum', end: false },
 ] as const
 
-export function Navbar({ balance, username }: Props) {
+export function Navbar({ balance, username, avatarUrl }: Props) {
   // Admin bağlantısı yalnızca yöneticilere gösterilir (görünürlük
   // kolaylığıdır; gerçek koruma /admin içindeki guard + RLS'dedir).
   const [isAdmin, setIsAdmin] = useState(false)
@@ -93,7 +94,7 @@ export function Navbar({ balance, username }: Props) {
           </div>
         </div>
         <NotificationBell />
-        <UserMenu username={username} isAdmin={isAdmin} />
+        <UserMenu username={username} isAdmin={isAdmin} avatarUrl={avatarUrl ?? null} />
       </div>
     </header>
   )
@@ -212,7 +213,7 @@ function ToneDot({ tone }: { tone: ToastTone }) {
   )
 }
 
-function UserMenu({ username, isAdmin }: { username: string; isAdmin: boolean }) {
+function UserMenu({ username, isAdmin, avatarUrl }: { username: string; isAdmin: boolean; avatarUrl: string | null }) {
   const [open, setOpen] = useState(false)
   const scopeRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -243,8 +244,12 @@ function UserMenu({ username, isAdmin }: { username: string; isAdmin: boolean })
         aria-expanded={open}
         className="flex items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-exchange-border/30"
       >
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-exchange-yellow text-xs font-extrabold text-black">
-          {username.charAt(0).toUpperCase()}
+        <span className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-exchange-yellow text-xs font-extrabold text-black">
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            username.charAt(0).toUpperCase()
+          )}
         </span>
         <span className="hidden text-sm font-semibold text-exchange-text sm:block">{username}</span>
         <svg

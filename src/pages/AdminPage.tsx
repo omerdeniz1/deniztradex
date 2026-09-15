@@ -4,10 +4,12 @@ import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
 import {
   ADMIN_PERMISSIONS,
+  deleteForumPostsBulk,
   getMyAdminAccess,
   getPlatformStats,
   hasAdminPermission,
   listAdminUsers,
+  listForumAdminPosts,
   sendPasswordReset,
   setAdminPrivileges,
   setUserBanned,
@@ -15,6 +17,7 @@ import {
   updateUserBalance,
   validateBalanceInput,
   type AdminAccess,
+  type AdminForumPost,
   type AdminPermission,
   type AdminUser,
   type PlatformStats,
@@ -345,12 +348,20 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                       <tr key={u.id} className="border-b border-exchange-border/50 last:border-0">
                         <td className="px-3 py-2.5 sm:px-4">
                           <div className="flex min-w-0 items-center gap-2">
-                            <span
-                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-xs font-extrabold text-exchange-yellow"
-                              aria-hidden
-                            >
-                              {(u.username.charAt(0) || '?').toUpperCase()}
-                            </span>
+                            {u.avatarUrl ? (
+                              <img
+                                src={u.avatarUrl}
+                                alt=""
+                                className="h-8 w-8 shrink-0 rounded-full object-cover"
+                              />
+                            ) : (
+                              <span
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-xs font-extrabold text-exchange-yellow"
+                                aria-hidden
+                              >
+                                {(u.username.charAt(0) || '?').toUpperCase()}
+                              </span>
+                            )}
                             <div className="min-w-0">
                               <div className="truncate font-bold text-exchange-text">{u.username}</div>
                               {u.isAdmin ? (
@@ -449,9 +460,11 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           )}
         </div>
 
+        {/* Forum denetimi: tekli + toplu silme (ban yetkisi gerekir) */}
+        {can('ban_users') && <ForumModeration />}
+
         {/* Yönetici yetkileri (yalnızca admin ekleyebilenler) */}
-        {can('manage_admins') && (
-          <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+        {can('manage_admins') && (          <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
             <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
               <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
                 Yöneticiler
@@ -666,6 +679,180 @@ function StatusPill({ user }: { user: AdminUser }) {
     >
       {banned ? 'Yasaklı' : frozen ? 'Dondurulmuş' : 'Aktif'}
     </span>
+  )
+}
+
+function ForumModeration() {
+  const pushToast = useToastStore((s) => s.push)
+  const [posts, setPosts] = useState<AdminForumPost[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmIds, setConfirmIds] = useState<string[] | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setPosts(await listForumAdminPosts(50))
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Forum yazıları yüklenemedi.', tone: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }, [pushToast])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    setSelected((prev) => (prev.size === posts.length ? new Set() : new Set(posts.map((p) => p.id))))
+  }
+
+  const removeMany = async (ids: string[]) => {
+    if (ids.length === 0 || busy) return
+    setBusy(true)
+    try {
+      const { deleted, failed } = await deleteForumPostsBulk(ids)
+      setPosts((list) => list.filter((p) => !ids.includes(p.id)))
+      setSelected(new Set())
+      setConfirmIds(null)
+      if (deleted > 0) {
+        pushToast({
+          message:
+            failed > 0
+              ? `${deleted} gönderi silindi, ${failed} tanesi silinemedi.`
+              : `${deleted} gönderi silindi.`,
+          tone: failed > 0 ? 'error' : 'success',
+        })
+      } else {
+        pushToast({ message: 'Hiçbir gönderi silinemedi.', tone: 'error' })
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+      <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
+        <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
+          Forum Denetimi
+          <span className="ml-2 font-mono text-xs font-semibold text-exchange-muted">
+            son {posts.length}
+          </span>
+        </h2>
+        {selected.size > 0 && (
+          <Button
+            size="sm"
+            variant="sell"
+            disabled={busy}
+            onClick={() => setConfirmIds([...selected])}
+          >
+            Seçilenleri Sil ({selected.size})
+          </Button>
+        )}
+        <Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
+          {loading ? 'Yükleniyor…' : 'Yenile'}
+        </Button>
+      </div>
+
+      {loading && posts.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+          Forum yazıları yükleniyor…
+        </div>
+      ) : posts.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+          Silinecek yazı yok.
+        </div>
+      ) : (
+        <div className="max-h-[50dvh] overflow-auto">
+          <ul>
+            <li className="sticky top-0 z-10 flex items-center gap-2 border-b border-exchange-border bg-exchange-card px-3 py-2 sm:px-4">
+              <input
+                type="checkbox"
+                checked={posts.length > 0 && selected.size === posts.length}
+                onChange={toggleAll}
+                aria-label="Tümünü seç"
+                className="h-4 w-4 shrink-0 accent-yellow-400"
+              />
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-exchange-muted">
+                Tümünü seç
+              </span>
+            </li>
+            {posts.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-start gap-2 border-b border-exchange-border/50 px-3 py-2.5 last:border-0 sm:px-4"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(p.id)}
+                  onChange={() => toggle(p.id)}
+                  aria-label={`${p.username} gönderisini seç`}
+                  className="mt-1 h-4 w-4 shrink-0 accent-yellow-400"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-baseline gap-1.5">
+                    <span className="truncate text-xs font-bold text-exchange-text">
+                      {p.username}
+                    </span>
+                    <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-exchange-muted">
+                      {p.likeCount} beğeni · {p.replyCount} yanıt
+                      {p.createdAt > 0 ? ` · ${new Date(p.createdAt).toLocaleString('tr-TR')}` : ''}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 line-clamp-2 break-words text-xs leading-relaxed text-exchange-muted">
+                    {p.content}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmIds([p.id])}
+                  disabled={busy}
+                  aria-label={`${p.username} gönderisini sil`}
+                  className="shrink-0 whitespace-nowrap rounded-lg border border-exchange-sell/40 px-2.5 py-1.5 text-xs font-bold text-exchange-sell transition-colors hover:bg-exchange-sell/10 disabled:opacity-40"
+                >
+                  Sil
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {confirmIds && (
+        <ConfirmModal
+          title={confirmIds.length > 1 ? 'Toplu silme onayı' : 'Gönderiyi sil'}
+          busy={busy}
+          onClose={() => setConfirmIds(null)}
+          onConfirm={() => void removeMany(confirmIds)}
+          confirmLabel={confirmIds.length > 1 ? `${confirmIds.length} Gönderiyi Sil` : 'Sil'}
+          variant="sell"
+        >
+          {confirmIds.length > 1 ? (
+            <>
+              <span className="font-bold">{confirmIds.length} gönderi</span> ve altındaki tüm
+              yanıtlar kalıcı olarak silinecek. Bu işlem geri alınamaz.
+            </>
+          ) : (
+            <>
+              Bu gönderi ve altındaki tüm yanıtlar kalıcı olarak silinecek. Bu işlem geri
+              alınamaz.
+            </>
+          )}
+        </ConfirmModal>
+      )}
+    </div>
   )
 }
 

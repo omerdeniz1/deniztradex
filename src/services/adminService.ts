@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { getSessionUser } from '@/services/authService'
+import { deleteForumPost } from '@/services/forumService'
 
 /**
  * Admin Panel veri katmanı — SADECE Supabase.
@@ -60,6 +61,7 @@ export interface AdminUser {
   isFrozen: boolean
   isBanned: boolean
   permissions: AdminPermission[]
+  avatarUrl: string | null
   createdAt: number
 }
 
@@ -152,6 +154,7 @@ interface AdminRow {
   is_frozen: unknown
   is_banned: unknown
   admin_permissions: unknown
+  avatar_url: unknown
   created_at: string
 }
 
@@ -165,6 +168,7 @@ function toAdminUser(row: AdminRow): AdminUser {
     isFrozen: row.is_frozen === true,
     isBanned: row.is_banned === true,
     permissions: sanitizePermissions(row.admin_permissions),
+    avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : null,
     createdAt: Date.parse(row.created_at) || 0,
   }
 }
@@ -174,7 +178,7 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
   const { client } = await requireAccess()
   const { data, error } = await client
     .from('profiles')
-    .select('id,username,email,balance,is_admin,is_frozen,is_banned,admin_permissions,created_at')
+    .select('id,username,email,balance,is_admin,is_frozen,is_banned,admin_permissions,avatar_url,created_at')
     .order('created_at', { ascending: false })
     .limit(500)
   if (error) throw new Error('Kullanıcılar yüklenemedi. Lütfen tekrar dene.')
@@ -295,4 +299,64 @@ export async function sendPasswordReset(email: string): Promise<void> {
   const { client } = await requireAccess('change_password')
   const { error } = await client.auth.resetPasswordForEmail(target)
   if (error) throw new Error('Sıfırlama e-postası gönderilemedi. Lütfen tekrar dene.')
+}
+
+// ---------------------------------------------------------------
+// Forum denetimi: moderasyon yetkisi (`ban_users`) olan yöneticiler
+// tüm yazıları tek tek veya toplu silebilir. Silme, forum
+// servisinin RLS denetimli yolunu kullanır (satır dönmezse hata).
+// ---------------------------------------------------------------
+
+export interface AdminForumPost {
+  id: string
+  username: string
+  content: string
+  replyCount: number
+  likeCount: number
+  createdAt: number
+}
+
+/** Denetim için en yeni forum yazıları (panelei görebilen yöneticiler). */
+export async function listForumAdminPosts(limit = 50): Promise<AdminForumPost[]> {
+  const { client } = await requireAccess()
+  const safeLimit = Math.min(Math.max(limit, 1), 100)
+  const { data, error } = await client
+    .from('forum_posts')
+    .select('id,username,content,like_count,reply_count,created_at')
+    .order('created_at', { ascending: false })
+    .limit(safeLimit)
+  if (error) throw new Error('Forum yazıları yüklenemedi. Lütfen tekrar dene.')
+  if (!Array.isArray(data)) return []
+  return (data as {
+    id: string
+    username: string
+    content: string
+    like_count: number
+    reply_count: number
+    created_at: string
+  }[]).map((r) => ({
+    id: r.id,
+    username: (r.username ?? '').trim() || 'Kullanıcı',
+    content: r.content ?? '',
+    replyCount: r.reply_count ?? 0,
+    likeCount: r.like_count ?? 0,
+    createdAt: Date.parse(r.created_at) || 0,
+  }))
+}
+
+/** Toplu silme (`ban_users` gerekir). Başarısızlar sayılır, yutulmaz. */
+export async function deleteForumPostsBulk(ids: string[]): Promise<{ deleted: number; failed: number }> {
+  await requireAccess('ban_users')
+  const unique = [...new Set(ids.filter(Boolean))]
+  let deleted = 0
+  let failed = 0
+  for (const id of unique) {
+    try {
+      await deleteForumPost(id)
+      deleted += 1
+    } catch {
+      failed += 1
+    }
+  }
+  return { deleted, failed }
 }

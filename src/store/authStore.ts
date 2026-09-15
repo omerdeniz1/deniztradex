@@ -4,6 +4,7 @@ import {
   login as serviceLogin,
   logout as serviceLogout,
   register as serviceRegister,
+  updateSessionAvatarUrl,
 } from '@/services/authService'
 import { getProfileBalanceWithRetry, fetchUsedPromos, claimPromoRemote } from '@/services/supabaseWallet'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -20,6 +21,8 @@ interface AuthState {
     referralCode?: string
   }) => Promise<User>
   logout: () => void
+  /** Profil fotoğrafı değişince oturumu + arayüzü tazeler. */
+  setAvatarUrl: (url: string | null) => void
 }
 
 /**
@@ -112,6 +115,11 @@ export const useAuthStore = create<AuthState>()((set) => ({
     useSettingsStore.setState({ theme: 'dark', confirmOrders: false })
     // Clear in-memory wallet without persisting (wallet storage is session-scoped).
     useTradeStore.getState().resetWallet()
+  },
+
+  setAvatarUrl: (url) => {
+    updateSessionAvatarUrl(url)
+    set({ user: getSessionUser() })
   },
 }))
 

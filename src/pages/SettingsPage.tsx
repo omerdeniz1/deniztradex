@@ -1,6 +1,11 @@
+import { useRef, useState } from 'react'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useAuthStore } from '@/store/authStore'
+import { useToastStore } from '@/store/toastStore'
+import { removeAvatarFile, uploadAvatarFile } from '@/services/supabaseWallet'
 import { cn } from '@/lib/utils'
 import { Toggle } from '@/components/ui/Toggle'
+import { Button } from '@/components/ui/Button'
 
 export function SettingsPage() {
   const theme = useSettingsStore((s) => s.theme)
@@ -39,6 +44,8 @@ export function SettingsPage() {
           </div>
         </section>
 
+        <AvatarSection />
+
         <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <div>
@@ -64,6 +71,90 @@ export function SettingsPage() {
         </section>
       </div>
     </div>
+  )
+}
+function AvatarSection() {
+  const user = useAuthStore((s) => s.user)
+  const setAvatarUrl = useAuthStore((s) => s.setAvatarUrl)
+  const pushToast = useToastStore((s) => s.push)
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  if (!user) return null
+  const avatarUrl = user.avatarUrl ?? null
+
+  const onPick = async (file: File | undefined) => {
+    if (!file || busy) return
+    setBusy(true)
+    try {
+      const url = await uploadAvatarFile(user.id, file)
+      setAvatarUrl(url)
+      pushToast({ message: 'Profil fotoğrafın güncellendi.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Fotoğraf yüklenemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const onRemove = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await removeAvatarFile(user.id)
+      setAvatarUrl(null)
+      pushToast({ message: 'Profil fotoğrafın kaldırıldı.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Fotoğraf silinemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
+        Profil Fotoğrafı
+      </h2>
+      <p className="mt-1 text-xs text-exchange-muted">
+        Fotoğrafın forumda ve menüde görünür. JPG, PNG, WEBP veya GIF — en fazla 2MB.
+      </p>
+      <div className="mt-4 flex items-center gap-4">
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={`${user.username} profil fotoğrafı`}
+            className="h-16 w-16 shrink-0 rounded-full border border-exchange-border object-cover"
+          />
+        ) : (
+          <span
+            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-2xl font-extrabold text-exchange-yellow"
+            aria-hidden
+          >
+            {(user.username.charAt(0) || '?').toUpperCase()}
+          </span>
+        )}
+        <div className="flex min-w-0 flex-1 flex-wrap gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            aria-label="Profil fotoğrafı seç"
+            className="hidden"
+            onChange={(e) => void onPick(e.target.files?.[0])}
+          />
+          <Button size="sm" onClick={() => fileRef.current?.click()} disabled={busy}>
+            {busy ? 'Yükleniyor…' : avatarUrl ? 'Değiştir' : 'Fotoğraf Yükle'}
+          </Button>
+          {avatarUrl && (
+            <Button size="sm" variant="ghost" onClick={() => void onRemove()} disabled={busy}>
+              Kaldır
+            </Button>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }
 
