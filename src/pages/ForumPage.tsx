@@ -33,12 +33,17 @@ export function ForumPage() {
   const myId = getSessionUser()?.id ?? null
 
   // Forum moderasyonu: süper admin veya ban yetkili alt yönetici
-  // herkesin yazısını silebilir (sunucu RLS ile denetler).
+  // herkesin yazısını silebilir (sunucu RLS ile denetler). Süper admin
+  // yazılarına yalnız süper admin dokunur (rozet seviyesinden anlaşılır).
   const [canModerate, setCanModerate] = useState(false)
+  const [isSuperViewer, setIsSuperViewer] = useState(false)
   useEffect(() => {
     let live = true
     void getMyAdminAccess().then((a) => {
-      if (live) setCanModerate(a.isSuperAdmin || a.permissions.includes('ban_users'))
+      if (live) {
+        setCanModerate(a.isSuperAdmin || a.permissions.includes('ban_users'))
+        setIsSuperViewer(a.isSuperAdmin)
+      }
     })
     return () => {
       live = false
@@ -270,6 +275,7 @@ export function ForumPage() {
                   post={post}
                   isMine={myId !== null && post.userId === myId}
                   canModerate={canModerate}
+                  isSuperViewer={isSuperViewer}
                   myId={myId}
                   liking={!!liking[post.id]}
                   onLike={() => void toggleLike(post)}
@@ -289,6 +295,7 @@ function PostRow({
   post,
   isMine,
   canModerate,
+  isSuperViewer,
   myId,
   liking,
   onLike,
@@ -298,6 +305,7 @@ function PostRow({
   post: ForumPost
   isMine: boolean
   canModerate: boolean
+  isSuperViewer: boolean
   myId: string | null
   liking: boolean
   onLike: () => void
@@ -361,6 +369,12 @@ function PostRow({
   // satırlarda yanlışlıkla uid yazmış kayıtları da UI'da temizler.
   const displayName = forumDisplayName(post.username, post.userId)
 
+  // Silme görünürlüğü: kendin + (yetkili moderatör ve hedef süper değil).
+  const canDeletePost = isMine || (canModerate && (isSuperViewer || post.verifiedTier !== 'super'))
+  const canDeleteReply = (reply: ForumReply) =>
+    (myId !== null && reply.userId === myId) ||
+    (canModerate && (isSuperViewer || reply.verifiedTier !== 'super'))
+
   const handleDeletePost = () => {
     // Başkasının yazısını silen moderatörden onay alınır.
     if (!isMine && !window.confirm(`"${displayName}" kullanıcısının gönderisi silinsin mi?`)) return
@@ -400,7 +414,7 @@ function PostRow({
             <span className="shrink-0 whitespace-nowrap text-[11px] text-exchange-muted">
               {formatTimeAgo(post.createdAt)}
             </span>
-            {(isMine || canModerate) && (
+            {canDeletePost && (
               <button
                 type="button"
                 onClick={handleDeletePost}
@@ -489,7 +503,7 @@ function PostRow({
                           <span className="shrink-0 whitespace-nowrap text-[10px] text-exchange-muted">
                             {formatTimeAgo(reply.createdAt)}
                           </span>
-                          {(myId !== null && reply.userId === myId) || canModerate ? (
+                          {canDeleteReply(reply) ? (
                             <button
                               type="button"
                               onClick={() => handleDeleteReply(reply)}

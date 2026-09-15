@@ -8,6 +8,7 @@ import {
   hasAdminPermission,
   listAdminUsers,
   listForumAdminPosts,
+  sendPasswordReset,
   setMoneyRestrictions,
   setUserBanned,
   setUserFrozen,
@@ -42,6 +43,8 @@ describe('adminService (offline — Supabase yok)', () => {
     await expect(getPlatformStats()).rejects.toThrow()
     await expect(listForumAdminPosts()).rejects.toThrow()
     await expect(deleteForumPostsBulk(['post_1'])).rejects.toThrow()
+    await expect(sendPasswordReset('a@x.com')).rejects.toThrow()
+    await expect(sendPasswordReset('geçersiz')).rejects.toThrow()
   })
 
   it('validates balance input', () => {

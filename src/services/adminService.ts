@@ -139,11 +139,16 @@ async function requireAccess(perm?: AdminPermission): Promise<{
 function toRpcError(err: unknown, fallback: string): Error {
   const msg = (err as { message?: unknown } | null)?.message
   if (typeof msg === 'string' && msg.trim()) {
-    // RPC raise'leri Türkçe gelir ("yetkisiz işlem: ...", "kendi ...").
-    // PostgREST sarmalayıcısını temizleyip aynen göster.
+    // RPC/trigger raise'leri Türkçe gelir ("yetkisiz işlem: ...",
+    // "kendi ...", "süper admin ..."). PostgREST sarmalayıcısını
+    // temizleyip aynen göster.
     const clean = msg.replace(/^.*?:\s*\{?"message":"?/, '').replace(/"?\}?\s*$/, '')
-    if (/yetkisiz|kendi|bulunamadı|geçersiz|giriş gerekli/i.test(clean)) return new Error(clean)
-    if (/yetkisiz|kendi|bulunamadı|geçersiz|giriş gerekli/i.test(msg)) return new Error(msg)
+    if (/yetkisiz|kendi|bulunamadı|geçersiz|giriş gerekli|süper admin/i.test(clean)) {
+      return new Error(clean)
+    }
+    if (/yetkisiz|kendi|bulunamadı|geçersiz|giriş gerekli|süper admin/i.test(msg)) {
+      return new Error(msg)
+    }
   }
   return new Error(fallback)
 }
@@ -322,7 +327,25 @@ export async function setAdminPrivileges(
 export async function sendPasswordReset(email: string): Promise<void> {
   const target = email.trim()
   if (!target.includes('@')) throw new Error('Geçerli bir e-posta bulunamadı.')
-  const { client } = await requireAccess('change_password')
+  const { client, access } = await requireAccess('change_password')
+  // Süper admin hesabına yalnız süper admin dokunur (taciz/zarar koruması).
+  if (!access.isSuperAdmin) {
+    try {
+      const { data } = await client
+        .from('profiles')
+        .select('is_admin')
+        .ilike('email', target)
+        .maybeSingle()
+      if ((data as { is_admin?: unknown } | null)?.is_admin === true) {
+        throw new Error('Süper admin hesabına müdahale edemezsin.')
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Süper admin hesabına müdahale edemezsin.') {
+        throw err
+      }
+      // Okuma hatası = engel değil (asıl denetim sunucuda); devam et.
+    }
+  }
   const { error } = await client.auth.resetPasswordForEmail(target)
   if (error) throw new Error('Sıfırlama e-postası gönderilemedi. Lütfen tekrar dene.')
 }
@@ -339,6 +362,8 @@ export interface AdminForumPost {
   content: string
   replyCount: number
   likeCount: number
+  /** Yazar süper admin mi? (süper olmayan moderatör dokunamaz) */
+  authorIsAdmin: boolean
   createdAt: number
 }
 
@@ -348,24 +373,47 @@ export async function listForumAdminPosts(limit = 50): Promise<AdminForumPost[]>
   const safeLimit = Math.min(Math.max(limit, 1), 100)
   const { data, error } = await client
     .from('forum_posts')
-    .select('id,username,content,like_count,reply_count,created_at')
+    .select('id,user_id,username,content,like_count,reply_count,created_at')
     .order('created_at', { ascending: false })
     .limit(safeLimit)
   if (error) throw new Error('Forum yazıları yüklenemedi. Lütfen tekrar dene.')
   if (!Array.isArray(data)) return []
-  return (data as {
+  const rows = data as {
     id: string
+    user_id: string
     username: string
     content: string
     like_count: number
     reply_count: number
     created_at: string
-  }[]).map((r) => ({
+  }[]
+  // Yazarların süper admin bayrağı tek sorguda (görünürlük kapısı için).
+  let superIds = new Set<string>()
+  const authorIds = [...new Set(rows.map((r) => r.user_id).filter(Boolean))]
+  if (authorIds.length > 0) {
+    try {
+      const { data: profs } = await client
+        .from('profiles')
+        .select('id,is_admin')
+        .in('id', authorIds)
+      if (Array.isArray(profs)) {
+        superIds = new Set(
+          (profs as { id: string; is_admin?: unknown }[])
+            .filter((p) => p.is_admin === true)
+            .map((p) => p.id),
+        )
+      }
+    } catch {
+      // Okunamazsa hepsi dokunulabilir sayılır; asıl denetim sunucuda.
+    }
+  }
+  return rows.map((r) => ({
     id: r.id,
     username: (r.username ?? '').trim() || 'Kullanıcı',
     content: r.content ?? '',
     replyCount: r.reply_count ?? 0,
     likeCount: r.like_count ?? 0,
+    authorIsAdmin: superIds.has(r.user_id),
     createdAt: Date.parse(r.created_at) || 0,
   }))
 }

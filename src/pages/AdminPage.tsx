@@ -82,6 +82,13 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   const can = useCallback((perm: AdminPermission) => hasAdminPermission(access, perm), [access])
 
+  // Süper admin hedef dokunulmazlığı: süper admin satırlarına yalnız
+  // süper admin dokunur (sunucu da aynı kuralı zorunlu kılar).
+  const canTouch = useCallback(
+    (u: AdminUser) => access.isSuperAdmin || !u.isAdmin,
+    [access.isSuperAdmin],
+  )
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -409,7 +416,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                         </td>
                         <td className="px-3 py-2.5 sm:px-4">
                           <div className="flex justify-end gap-1.5">
-                            {can('edit_balance') && (
+                            {can('edit_balance') && canTouch(u) && (
                               <RowButton
                                 label="Bakiye"
                                 title={`${u.username} bakiyesini düzenle`}
@@ -417,7 +424,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                                 onClick={() => setModal({ mode: 'balance', user: u })}
                               />
                             )}
-                            {can('ban_users') && (
+                            {can('ban_users') && canTouch(u) && (
                               <>
                                 <button
                                   type="button"
@@ -461,7 +468,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                                 </button>
                               </>
                             )}
-                            {can('change_password') && u.email && (
+                            {can('change_password') && u.email && canTouch(u) && (
                               <RowButton
                                 label="Şifre"
                                 title={`${u.username} için şifre sıfırlama e-postası gönder`}
@@ -469,7 +476,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                                 onClick={() => setModal({ mode: 'password', user: u })}
                               />
                             )}
-                            {can('restrict_money') && (
+                            {can('restrict_money') && canTouch(u) && (
                               <RowButton
                                 label="Kısıtla"
                                 title={`${u.username} için para yatırma/çekme kısıtları`}
@@ -489,7 +496,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
         </div>
 
         {/* Forum denetimi: tekli + toplu silme (ban yetkisi gerekir) */}
-        {can('ban_users') && <ForumModeration />}
+        {can('ban_users') && <ForumModeration isSuper={access.isSuperAdmin} />}
 
         {/* Yönetici yetkileri (yalnızca admin ekleyebilenler) */}
         {can('manage_admins') && (
@@ -731,7 +738,7 @@ function StatusPill({ user }: { user: AdminUser }) {
   )
 }
 
-function ForumModeration() {
+function ForumModeration({ isSuper }: { isSuper: boolean }) {
   const pushToast = useToastStore((s) => s.push)
   const [posts, setPosts] = useState<AdminForumPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -763,8 +770,15 @@ function ForumModeration() {
     })
   }
 
+  // Korumalı (süper admin) satırlar toplu seçime girmez.
+  const touchableIds = posts.filter((p) => isSuper || !p.authorIsAdmin).map((p) => p.id)
+
   const toggleAll = () => {
-    setSelected((prev) => (prev.size === posts.length ? new Set() : new Set(posts.map((p) => p.id))))
+    setSelected((prev) =>
+      prev.size === touchableIds.length && touchableIds.length > 0
+        ? new Set<string>()
+        : new Set<string>(touchableIds),
+    )
   }
 
   const removeMany = async (ids: string[]) => {
@@ -829,7 +843,7 @@ function ForumModeration() {
             <li className="flex items-center gap-2 border-b border-exchange-border bg-exchange-card px-3 py-2 sm:px-4">
               <input
                 type="checkbox"
-                checked={posts.length > 0 && selected.size === posts.length}
+                checked={touchableIds.length > 0 && selected.size === touchableIds.length}
                 onChange={toggleAll}
                 aria-label="Tümünü seç"
                 className="h-4 w-4 shrink-0 accent-yellow-400"
@@ -838,7 +852,10 @@ function ForumModeration() {
                 Tümünü seç
               </span>
             </li>
-            {posts.map((p) => (
+            {posts.map((p) => {
+              // Süper admin yazılarına yalnız süper admin dokunur.
+              const locked = !isSuper && p.authorIsAdmin
+              return (
               <li
                 key={p.id}
                 className="flex items-start gap-2 border-b border-exchange-border/50 px-3 py-2.5 last:border-0 sm:px-4"
@@ -847,14 +864,20 @@ function ForumModeration() {
                   type="checkbox"
                   checked={selected.has(p.id)}
                   onChange={() => toggle(p.id)}
+                  disabled={locked}
                   aria-label={`${p.username} gönderisini seç`}
-                  className="mt-1 h-4 w-4 shrink-0 accent-yellow-400"
+                  className="mt-1 h-4 w-4 shrink-0 accent-yellow-400 disabled:opacity-40"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-baseline gap-1.5">
                     <span className="truncate text-xs font-bold text-exchange-text">
                       {p.username}
                     </span>
+                    {locked && (
+                      <span className="shrink-0 whitespace-nowrap text-[10px] font-bold uppercase text-exchange-muted">
+                        korumalı
+                      </span>
+                    )}
                     <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-exchange-muted">
                       {p.likeCount} beğeni · {p.replyCount} yanıt
                       {p.createdAt > 0 ? ` · ${new Date(p.createdAt).toLocaleString('tr-TR')}` : ''}
@@ -867,14 +890,16 @@ function ForumModeration() {
                 <button
                   type="button"
                   onClick={() => setConfirmIds([p.id])}
-                  disabled={busy}
+                  disabled={busy || locked}
+                  title={locked ? 'Süper admin yazısına müdahale edemezsin' : `${p.username} gönderisini sil`}
                   aria-label={`${p.username} gönderisini sil`}
                   className="shrink-0 whitespace-nowrap rounded-lg border border-exchange-sell/40 px-2.5 py-1.5 text-xs font-bold text-exchange-sell transition-colors hover:bg-exchange-sell/10 disabled:opacity-40"
                 >
                   Sil
                 </button>
               </li>
-            ))}
+              )
+            })}
           </ul>
         </div>
       )}
