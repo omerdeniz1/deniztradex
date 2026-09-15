@@ -75,7 +75,7 @@ export function AuthScreen() {
         className="relative w-full max-w-md"
       >
         <div className="mb-6 flex justify-center">
-          <Logo iconClassName="h-10 w-10" />
+          <Logo />
         </div>
 
         <div className="rounded-2xl border border-exchange-border bg-exchange-card p-5 shadow-2xl sm:p-8">
