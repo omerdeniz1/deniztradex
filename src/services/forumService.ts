@@ -116,87 +116,76 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
 }
 
 // ---------------------------------------------------------------
-// Açık API
+// Açık API — Supabase öncelikli, hata durumunda yerel yedekli.
+//
+// Neden yedek? Tablolar/RPC henüz veritabanında yoksa (migration
+// uygulanmamışsa) Supabase çağrısı patlar. O durumda hata fırlatıp
+// sayfayı kilitlemek yerine yerel depolamaya düşülür: gönderi
+// paylaşma/beğenme/silme anında çalışır. Migration uygulanınca aynı
+// kod paylaşılan akışa geçer (yerel kayıtlar taşınmaz).
 // ---------------------------------------------------------------
+
+function listLocal(): Promise<ForumPost[]> {
+  const myId = getSessionUser()?.id ?? null
+  return Promise.resolve(
+    readLocalPosts()
+      .map((p) => toForumPost(p, myId))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, FORUM_FEED_LIMIT),
+  )
+}
 
 export async function listForumPosts(): Promise<ForumPost[]> {
   if (isSupabaseConfigured && supabase) {
-    const myId = getSessionUser()?.id ?? null
-    const { data, error } = await supabase
-      .from('forum_posts')
-      .select('id,user_id,username,content,like_count,created_at')
-      .order('created_at', { ascending: false })
-      .limit(FORUM_FEED_LIMIT)
-    if (error || !Array.isArray(data)) return []
-    let liked = new Set<string>()
-    if (myId && data.length > 0) {
-      const ids = (data as { id: string }[]).map((r) => r.id)
-      const { data: likes } = await supabase
-        .from('forum_likes')
-        .select('post_id')
-        .eq('user_id', myId)
-        .in('post_id', ids)
-      if (Array.isArray(likes)) {
-        liked = new Set((likes as { post_id: string }[]).map((l) => l.post_id))
-      }
+    try {
+      return await listRemote()
+    } catch {
+      // tablo yok / ağ hatası → yerel akış
     }
-    return (data as {
-      id: string
-      user_id: string
-      username: string
-      content: string
-      like_count: number
-      created_at: string
-    }[]).map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      username: r.username,
-      content: r.content,
-      likeCount: r.like_count ?? 0,
-      likedByMe: liked.has(r.id),
-      createdAt: Date.parse(r.created_at) || Date.now(),
-    }))
   }
-
-  const myId = getSessionUser()?.id ?? null
-  return readLocalPosts()
-    .map((p) => toForumPost(p, myId))
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, FORUM_FEED_LIMIT)
+  return listLocal()
 }
 
-export async function createForumPost(rawContent: string): Promise<ForumPost> {
-  const content = validateContent(rawContent)
-  const user = requireSessionUser()
-
-  if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase
-      .from('forum_posts')
-      .insert({ user_id: user.id, username: user.username, content })
-      .select('id,user_id,username,content,like_count,created_at')
-      .single()
-    if (error || !data) {
-      throw new Error('Gönderi paylaşılamadı. Lütfen tekrar dene.')
-    }
-    const row = data as {
-      id: string
-      user_id: string
-      username: string
-      content: string
-      like_count: number
-      created_at: string
-    }
-    return {
-      id: row.id,
-      userId: row.user_id,
-      username: row.username,
-      content: row.content,
-      likeCount: row.like_count ?? 0,
-      likedByMe: false,
-      createdAt: Date.parse(row.created_at) || Date.now(),
+async function listRemote(): Promise<ForumPost[]> {
+  if (!supabase) throw new Error('no-backend')
+  const myId = getSessionUser()?.id ?? null
+  const { data, error } = await supabase
+    .from('forum_posts')
+    .select('id,user_id,username,content,like_count,created_at')
+    .order('created_at', { ascending: false })
+    .limit(FORUM_FEED_LIMIT)
+  if (error || !Array.isArray(data)) throw new Error('feed-failed')
+  let liked = new Set<string>()
+  if (myId && data.length > 0) {
+    const ids = (data as { id: string }[]).map((r) => r.id)
+    const { data: likes } = await supabase
+      .from('forum_likes')
+      .select('post_id')
+      .eq('user_id', myId)
+      .in('post_id', ids)
+    if (Array.isArray(likes)) {
+      liked = new Set((likes as { post_id: string }[]).map((l) => l.post_id))
     }
   }
+  return (data as {
+    id: string
+    user_id: string
+    username: string
+    content: string
+    like_count: number
+    created_at: string
+  }[]).map((r) => ({
+    id: r.id,
+    userId: r.user_id,
+    username: r.username,
+    content: r.content,
+    likeCount: r.like_count ?? 0,
+    likedByMe: liked.has(r.id),
+    createdAt: Date.parse(r.created_at) || Date.now(),
+  }))
+}
 
+function createLocal(user: { id: string; username: string }, content: string): Promise<ForumPost> {
   const post: LocalStoredPost = {
     id: makeId('post'),
     userId: user.id,
@@ -206,25 +195,57 @@ export async function createForumPost(rawContent: string): Promise<ForumPost> {
     createdAt: Date.now(),
   }
   writeLocalPosts([post, ...readLocalPosts()])
-  return toForumPost(post, user.id)
+  return Promise.resolve(toForumPost(post, user.id))
 }
 
-export async function toggleForumLike(
-  postId: string,
-): Promise<{ liked: boolean; likeCount: number }> {
+export async function createForumPost(rawContent: string): Promise<ForumPost> {
+  const content = validateContent(rawContent)
   const user = requireSessionUser()
 
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.rpc('toggle_forum_like', {
-      p_post_id: postId,
-    })
-    if (error || !data) {
-      throw new Error('Beğeni işlenemedi. Lütfen tekrar dene.')
+    try {
+      return await createRemote(user, content)
+    } catch {
+      // tablo yok / ağ hatası → yerel paylaşım
     }
-    const res = data as { liked?: boolean; like_count?: number }
-    return { liked: res.liked === true, likeCount: res.like_count ?? 0 }
   }
+  return createLocal(user, content)
+}
 
+async function createRemote(
+  user: { id: string; username: string },
+  content: string,
+): Promise<ForumPost> {
+  if (!supabase) throw new Error('no-backend')
+  const { data, error } = await supabase
+    .from('forum_posts')
+    .insert({ user_id: user.id, username: user.username, content })
+    .select('id,user_id,username,content,like_count,created_at')
+    .single()
+  if (error || !data) throw new Error('paylasim-failed')
+  const row = data as {
+    id: string
+    user_id: string
+    username: string
+    content: string
+    like_count: number
+    created_at: string
+  }
+  return {
+    id: row.id,
+    userId: row.user_id,
+    username: row.username,
+    content: row.content,
+    likeCount: row.like_count ?? 0,
+    likedByMe: false,
+    createdAt: Date.parse(row.created_at) || Date.now(),
+  }
+}
+
+function toggleLocal(
+  user: { id: string },
+  postId: string,
+): Promise<{ liked: boolean; likeCount: number }> {
   const posts = readLocalPosts()
   const post = posts.find((p) => p.id === postId)
   if (!post) throw new Error('Gönderi bulunamadı.')
@@ -234,21 +255,56 @@ export async function toggleForumLike(
     ? [...post.likedBy, user.id]
     : post.likedBy.filter((id) => id !== user.id)
   writeLocalPosts(posts)
-  return { liked, likeCount: post.likedBy.length }
+  return Promise.resolve({ liked, likeCount: post.likedBy.length })
+}
+
+export async function toggleForumLike(
+  postId: string,
+): Promise<{ liked: boolean; likeCount: number }> {
+  const user = requireSessionUser()
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase.rpc('toggle_forum_like', {
+        p_post_id: postId,
+      })
+      if (error || !data) throw new Error('begeni-failed')
+      const res = data as { liked?: boolean; like_count?: number }
+      return { liked: res.liked === true, likeCount: res.like_count ?? 0 }
+    } catch (err) {
+      // "Gönderi bulunamadı" gibi gerçek hatalar da buraya düşer — ancak
+      // migration'sız DB'de her şey başarısız olacağı için yereli dene;
+      // yerel de bulamazsa hatayı aynen iletir.
+      try {
+        return await toggleLocal(user, postId)
+      } catch {
+        throw err instanceof Error ? err : new Error('Beğeni işlenemedi. Lütfen tekrar dene.')
+      }
+    }
+  }
+  return toggleLocal(user, postId)
+}
+
+function deleteLocal(user: { id: string }, postId: string): Promise<void> {
+  const posts = readLocalPosts()
+  const post = posts.find((p) => p.id === postId)
+  if (!post) return Promise.resolve()
+  if (post.userId !== user.id) return Promise.reject(new Error('Yalnızca kendi gönderini silebilirsin.'))
+  writeLocalPosts(posts.filter((p) => p.id !== postId))
+  return Promise.resolve()
 }
 
 export async function deleteForumPost(postId: string): Promise<void> {
   const user = requireSessionUser()
 
   if (isSupabaseConfigured && supabase) {
-    const { error } = await supabase.from('forum_posts').delete().eq('id', postId)
-    if (error) throw new Error('Gönderi silinemedi. Lütfen tekrar dene.')
-    return
+    try {
+      const { error } = await supabase.from('forum_posts').delete().eq('id', postId)
+      if (error) throw error
+      return
+    } catch {
+      // tablo yok / ağ hatası → yerel silme
+    }
   }
-
-  const posts = readLocalPosts()
-  const post = posts.find((p) => p.id === postId)
-  if (!post) return
-  if (post.userId !== user.id) throw new Error('Yalnızca kendi gönderini silebilirsin.')
-  writeLocalPosts(posts.filter((p) => p.id !== postId))
+  return deleteLocal(user, postId)
 }
