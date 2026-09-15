@@ -25,6 +25,17 @@ const NAV_ITEMS = [
   { to: '/spot', label: 'Al-Sat', end: false },
   { to: '/futures', label: 'Vadeli', end: false },
   { to: '/forum', label: 'Forum', end: false },
+  { to: '/leaderboard', label: 'Sıralama', end: false },
+] as const
+
+/** Mobil menüde listelenen sayfalar (alt menüde olmayanlar dahil). */
+const MENU_ITEMS = [
+  { to: '/', label: 'Ana Sayfa', end: true },
+  { to: '/markets', label: 'Piyasalar', end: false },
+  { to: '/spot', label: 'Al-Sat', end: false },
+  { to: '/futures', label: 'Vadeli', end: false },
+  { to: '/forum', label: 'Forum', end: false },
+  { to: '/leaderboard', label: 'Sıralama', end: false },
 ] as const
 
 export function Navbar({ balance, username, avatarUrl }: Props) {
@@ -93,6 +104,7 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
       </nav>
 
       <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-3">
+        <MenuDropdown />
         <div className="hidden text-right sm:block">
           <div className="text-[10px] uppercase text-exchange-muted">Bakiye</div>
           <div className="whitespace-nowrap font-mono text-sm font-bold">
@@ -303,8 +315,91 @@ function NotificationBell() {
   )
 }
 
-function ToneDot({ tone }: { tone: ToastTone }) {
+/**
+ * Mobil Menü: dar ekranlarda üst barın sıkışmaması için sayfa bağlantıları
+ * bu açılır menüde toplanır (Forum + Sıralama dahil). Masaüstünde gizlidir;
+ * dışarı dokununca veya seçim yapınca kapanır.
+ */
+function MenuDropdown() {
+  const [open, setOpen] = useState(false)
+  const scopeRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (scopeRef.current && !scopeRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
   return (
+    <div ref={scopeRef} className="relative md:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Menü"
+        className="flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-bold text-exchange-text transition-colors hover:bg-exchange-border/30"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+        Menü
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          className={cn('text-exchange-muted transition-transform', open && 'rotate-180')}
+          aria-hidden
+        >
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.97 }}
+            transition={{ duration: 0.12 }}
+            role="menu"
+            aria-label="Sayfa menüsü"
+            className="absolute left-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+          >
+            {MENU_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                onClick={() => setOpen(false)}
+                className={({ isActive }) =>
+                  cn(
+                    'block px-4 py-2.5 text-left text-sm font-semibold transition-colors active:scale-[0.98]',
+                    isActive
+                      ? 'bg-exchange-yellow/12 text-exchange-yellow'
+                      : 'text-exchange-text hover:bg-exchange-surface',
+                  )
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function ToneDot({ tone }: { tone: ToastTone }) {  return (
     <span
       className={cn(
         'mt-1 h-2 w-2 shrink-0 rounded-full',
