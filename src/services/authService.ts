@@ -339,6 +339,13 @@ export async function login(identifier: string, password: string): Promise<User>
       username: authUser.user_metadata?.username as string | undefined,
       created_at: authUser.created_at,
     })
+    // Yönetici tarafından dondurulan hesaplar giriş yapamaz: az önce
+    // açılan Supabase oturumu kapatılıp yerel oturum yazılmadan hata
+    // fırlatılır.
+    if (profile.is_frozen === true) {
+      await logout()
+      throw new Error('Hesabın yönetici tarafından dondurulmuş. Destek ile iletişime geç.')
+    }
     const user: User = {
       id: authUser.id,
       username: profile.username || email.split('@')[0],

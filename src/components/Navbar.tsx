@@ -3,6 +3,7 @@ import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore, type ToastTone } from '@/store/toastStore'
+import { checkIsAdmin } from '@/services/adminService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Logo } from '@/components/ui/Logo'
 
@@ -20,6 +21,23 @@ const NAV_ITEMS = [
 ] as const
 
 export function Navbar({ balance, username }: Props) {
+  // Admin bağlantısı yalnızca yöneticilere gösterilir (görünürlük
+  // kolaylığıdır; gerçek koruma /admin içindeki guard + RLS'dedir).
+  const [isAdmin, setIsAdmin] = useState(false)
+  useEffect(() => {
+    let live = true
+    setIsAdmin(false)
+    if (!username) return () => {
+      live = false
+    }
+    void checkIsAdmin().then((ok) => {
+      if (live) setIsAdmin(ok)
+    })
+    return () => {
+      live = false
+    }
+  }, [username])
+
   return (
     <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-exchange-border bg-exchange-surface px-3 pt-safe sm:gap-3 sm:px-4 md:h-14">
       <Link
@@ -49,6 +67,22 @@ export function Navbar({ balance, username }: Props) {
             {item.label}
           </NavLink>
         ))}
+        {isAdmin && (
+          <NavLink
+            to="/admin"
+            end={false}
+            className={({ isActive }) =>
+              cn(
+                'whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
+                isActive
+                  ? 'bg-exchange-yellow/12 text-exchange-yellow'
+                  : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
+              )
+            }
+          >
+            Admin
+          </NavLink>
+        )}
       </nav>
 
       <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-3">
@@ -59,7 +93,7 @@ export function Navbar({ balance, username }: Props) {
           </div>
         </div>
         <NotificationBell />
-        <UserMenu username={username} />
+        <UserMenu username={username} isAdmin={isAdmin} />
       </div>
     </header>
   )
@@ -178,7 +212,7 @@ function ToneDot({ tone }: { tone: ToastTone }) {
   )
 }
 
-function UserMenu({ username }: { username: string }) {
+function UserMenu({ username, isAdmin }: { username: string; isAdmin: boolean }) {
   const [open, setOpen] = useState(false)
   const scopeRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
@@ -242,6 +276,9 @@ function UserMenu({ username }: { username: string }) {
             </div>
             <MenuItem label="Cüzdan" onClick={() => go('/wallet')} icon="👛" />
             <MenuItem label="Ayarlar" onClick={() => go('/settings')} icon="⚙️" />
+            {isAdmin && (
+              <MenuItem label="Admin Panel" onClick={() => go('/admin')} icon="🛡️" />
+            )}
             <div className="border-t border-exchange-border" />
             <MenuItem
               label="Çıkış Yap"

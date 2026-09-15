@@ -14,6 +14,7 @@ import { TradeScreen } from '@/components/trading/TradeScreen'
 import { HomePage } from '@/pages/HomePage'
 import { MarketsPage } from '@/pages/MarketsPage'
 import { ForumPage } from '@/pages/ForumPage'
+import { AdminPage } from '@/pages/AdminPage'
 import { WalletPage } from '@/pages/WalletPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
@@ -60,6 +61,9 @@ function Shell() {
           <Route path="/futures" element={<TradeScreen mode="futures" />} />
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          {/* Yetki kontrolü sayfanın içindeki Admin Guard'dadır:
+              yöneticiler girer, diğerleri ana sayfaya yönlendirilir. */}
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
