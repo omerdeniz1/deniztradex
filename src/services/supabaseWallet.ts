@@ -321,6 +321,22 @@ export async function setProfileBalance(
   }
 }
 
+/**
+ * İşlem sonrası bakiye itme: trade kapanışları/açılışları yalnızca yerel
+ * bakiyeyi değiştirirdi; sunucu geride kalır, girişteki senkron da oturum
+ * kârını silerdi. Kapanıştan hemen sonra yerel tutar aynen yazılır —
+ * sunucu her zaman güncel kalır, giriş senkronu ve admin paneli doğru
+ * görür. Sessizdir (best-effort), asla fırlatmaz.
+ */
+export async function pushBalanceToServer(userId: string, balance: number): Promise<void> {
+  if (!supabase || !userId || !Number.isFinite(balance) || balance < 0) return
+  try {
+    await supabase.from('profiles').update({ balance }).eq('id', userId)
+  } catch {
+    // best effort — yerel bakiye zaten güncel, sunucu sonra yakalar
+  }
+}
+
 export interface DepositInput {
   userId: string
   amountUsdt: number

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useTradeStore } from '@/store/tradeStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useUiStore } from '@/store/uiStore'
+import { useProfileSync } from '@/hooks/useProfileSync'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { Navbar } from '@/components/Navbar'
 import { BottomNav } from '@/components/BottomNav'
@@ -47,6 +48,8 @@ function Shell() {
   const closeDeposit = useUiStore((s) => s.closeDeposit)
   const withdrawOpen = useUiStore((s) => s.withdrawOpen)
   const closeWithdraw = useUiStore((s) => s.closeWithdraw)
+  // Profil canlı senkronu: admin bakiye/dondurma değişikliği anında yansır.
+  useProfileSync()
 
   return (
     <div className="flex h-dvh min-h-dvh w-full max-w-full flex-col overflow-x-clip bg-exchange-bg text-exchange-text">

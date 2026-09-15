@@ -4,6 +4,7 @@ import {
   assertWithdrawAllowed,
   getMoneyRestrictions,
   getProfileBalanceWithRetry,
+  pushBalanceToServer,
   validateAvatarFile,
 } from '@/services/supabaseWallet'
 
@@ -115,5 +116,13 @@ describe('money restrictions', () => {
     expect(() =>
       assertWithdrawAllowed({ depositBlocked: true, withdrawBlocked: false }),
     ).not.toThrow()
+  })
+})
+
+describe('pushBalanceToServer', () => {
+  it('resolves silently without a usable backend', async () => {
+    await expect(pushBalanceToServer('', 100)).resolves.toBeUndefined()
+    await expect(pushBalanceToServer('user-1', 100)).resolves.toBeUndefined()
+    await expect(pushBalanceToServer('user-1', -5)).resolves.toBeUndefined()
   })
 })

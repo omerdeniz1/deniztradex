@@ -7,7 +7,7 @@ import {
   type OrderInput,
 } from '@/engine/calculations'
 import { getSessionUserId, WALLET_STORAGE_KEY } from '@/services/authService'
-import { claimPromoRemote, getMoneyRestrictions, recordTransaction } from '@/services/supabaseWallet'
+import { claimPromoRemote, getMoneyRestrictions, pushBalanceToServer, recordTransaction } from '@/services/supabaseWallet'
 import { roundTo } from '@/lib/utils'
 import type { OrderSide, Position, TradingMode } from '@/types'
 
@@ -247,6 +247,8 @@ export const useTradeStore = create<TradeState>()(
           balance: Math.max(0, roundTo(balance - marginNeeded)),
           positions: [...positions, position],
         }))
+        // Marjin kilidi sunucuya da yansır (giriş senkronu tutarlı kalır).
+        void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
         return { ok: true, position }
       },
 
@@ -280,6 +282,8 @@ export const useTradeStore = create<TradeState>()(
           positions: positions.filter((p) => p.id !== id),
           trades: [record, ...get().trades].slice(0, 200),
         }))
+        // Kapanış kâr/zararı sunucuya da yazılır (oturum kârı korunur).
+        void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
 
         void recordTransaction({
           userId: getSessionUserId() ?? '',
@@ -295,6 +299,7 @@ export const useTradeStore = create<TradeState>()(
       forceLiquidate: (id, liquidationPrice) => {
         get().closePosition(id, liquidationPrice, 'liquidation')
         set({ balance: 0 })
+        void pushBalanceToServer(getSessionUserId() ?? '', 0)
       },
 
       closeSpotPosition: (id, marketPrice) => {
@@ -325,6 +330,7 @@ export const useTradeStore = create<TradeState>()(
           balance: roundTo(s.balance + proceeds),
           spotTrades: [trade, ...s.spotTrades].slice(0, 200),
         }))
+        void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
       },
 
       fillNow: (input) => {
@@ -396,6 +402,7 @@ export const useTradeStore = create<TradeState>()(
                 : p,
             ),
           }))
+          void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
           return { ok: true }
         }
 
@@ -521,6 +528,7 @@ export const useTradeStore = create<TradeState>()(
           },
           spotTrades: [trade, ...spotTrades].slice(0, 200),
         })
+        void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
         void recordTransaction({
           userId: getSessionUserId() ?? '',
           type: 'trade_buy',
@@ -561,6 +569,7 @@ export const useTradeStore = create<TradeState>()(
           },
           spotTrades: [trade, ...spotTrades].slice(0, 200),
         })
+        void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
         void recordTransaction({
           userId: getSessionUserId() ?? '',
           type: 'trade_sell',
