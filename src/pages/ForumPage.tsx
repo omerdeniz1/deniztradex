@@ -55,19 +55,31 @@ export function ForumPage() {
   }, [refresh])
 
   // Canlı akış: başka cihazda paylaşılan gönderi bu ekrana da düşsün.
-  // Birincil kanal realtime'dır (<1 sn); periyodik yoklama yalnızca
-  // yedektir (realtime bağlanamazsa devreye girer). Mobil özellikle
-  // kapsanır: wifi/hücre geçişinde kopan soket yeniden bağlanınca,
-  // bfcache'den dönünce (geri tuşu) ve ağ geri gelince anında yakala.
-  // Sessiz yenileme — yükleniyor göstergesiyle akışı boşaltıp "silindi"
-  // izlenimi vermez, hata durumunda toast spam'i yapmaz (hata inline
-  // banner'da durur).
+  // Birincil kanal realtime'dır (<1 sn). Soket sağlığı izlenir:
+  // bağlanana/kopunca yoklama agresifleşir (1 sn), sağlıklı realtime'da
+  // yedeğe gevşer (5 sn). Böylece websocket'i engelleyen/koparan
+  // hücresel ağlarda bile gecikme ~1 sn tavanında kalır.
+  // Mobil özellikle kapsanır: wifi/hücre geçişinde kopan soket yeniden
+  // bağlanınca, bfcache'den dönünce (geri tuşu) ve ağ geri gelince
+  // anında yakala. Sessiz yenileme — yükleniyor göstergesiyle akışı
+  // boşaltıp "silindi" izlenimi vermez, hata durumunda toast spam'i
+  // yapmaz (hata inline banner'da durur).
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return
     const client = supabase
     const quiet = () => {
       void refresh({ silent: true })
     }
+    // Abort edilene kadar geçerli tek interval — hız değişiminde
+    // yeniden kurulur, üst üste binme olmaz.
+    let timer: number | undefined
+    const armPoll = (ms: number) => {
+      window.clearInterval(timer)
+      timer = window.setInterval(quiet, ms)
+    }
+    // İlk bağlanana kadar agresif başla: soket hiç kurulamazsa
+    // (bazı hücresel ağlar wss'yi engeller) bu hızda devam eder.
+    armPoll(1000)
     const channel = client
       .channel('forum-feed')
       .on(
@@ -81,10 +93,15 @@ export function ForumPage() {
         quiet,
       )
       .subscribe((status) => {
-        // Soket (yeniden) bağlanır bağlanmaz kaçırılanları çek.
-        if (status === 'SUBSCRIBED') quiet()
+        if (status === 'SUBSCRIBED') {
+          // (Yeniden) bağlanınca kaçırılanları anında çek, yedeği gevşet.
+          quiet()
+          armPoll(5000)
+        } else if (status === 'TIMED_OUT' || status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+          // Soket koptu/engellendi: yoklamayı agresifleştir.
+          armPoll(1000)
+        }
       })
-    const timer = window.setInterval(quiet, 2000)
     const onFocus = quiet
     const onVisibility = () => {
       if (document.visibilityState === 'visible') quiet()
