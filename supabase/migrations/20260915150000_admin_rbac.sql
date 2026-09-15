@@ -59,6 +59,33 @@ revoke all on function public.has_admin_permission(uuid, text) from public;
 grant execute on function public.has_admin_permission(uuid, text) to anon, authenticated;
 
 -- ------------------------------------------------------------
+-- Rozet yardımcısı (forum tier dosyasıyla birebir aynı; hangi
+-- migration önce çalışırsa çalışsın RPC bağımsız olsun diye
+-- burada da tanımlı — create or replace ile idempotent).
+-- ------------------------------------------------------------
+create or replace function public.forum_verified_tier(p_user_id uuid, p_username text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when lower(coalesce(p_username, '')) = 'deniztradex' then 'super'
+    when exists (select 1 from public.profiles where id = p_user_id and is_admin = true) then 'super'
+    when exists (
+      select 1 from public.profiles
+      where id = p_user_id
+        and coalesce(array_length(admin_permissions, 1), 0) > 0
+    ) then 'admin'
+    else 'none'
+  end;
+$$;
+
+revoke all on function public.forum_verified_tier(uuid, text) from public;
+grant execute on function public.forum_verified_tier(uuid, text) to anon, authenticated;
+
+-- ------------------------------------------------------------
 -- 3) Ayrıcalık korumasını yeni alanlarla güncelle: yönetici
 --    olmayan hiç kimse is_admin / admin_permissions / is_frozen /
 --    is_banned alanlarına dokunamaz. Alt yöneticiler yalnızca
@@ -199,6 +226,17 @@ begin
     set is_admin = coalesce(p_is_admin, is_admin),
         admin_permissions = coalesce(p_permissions, admin_permissions)
     where id = p_user_id;
+
+    -- Yazarın eski forum yazılarının rozetlerini yeni yetkiye göre tazele.
+    update public.forum_posts
+    set verified_tier = public.forum_verified_tier(user_id, username),
+        is_verified = (public.forum_verified_tier(user_id, username) <> 'none')
+    where user_id = p_user_id;
+
+    update public.forum_replies
+    set verified_tier = public.forum_verified_tier(user_id, username),
+        is_verified = (public.forum_verified_tier(user_id, username) <> 'none')
+    where user_id = p_user_id;
   end if;
 end;
 $$;

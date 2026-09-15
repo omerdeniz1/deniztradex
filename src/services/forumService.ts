@@ -135,6 +135,13 @@ function resolveWriteUsername(user: { id: string; username: string; email?: stri
   return 'Kullanıcı'
 }
 
+export type VerifiedTier = 'none' | 'admin' | 'super'
+
+/** Sunucudan gelen rozet değerini güvenli aralığa indirger. */
+export function parseVerifiedTier(value: unknown): VerifiedTier {
+  return value === 'super' || value === 'admin' ? value : 'none'
+}
+
 export interface ForumPost {
   id: string
   userId: string
@@ -143,8 +150,8 @@ export interface ForumPost {
   likeCount: number
   likedByMe: boolean
   replyCount: number
-  /** Resmi onay rozeti (sarı tik): süper admin veya sistem hesabı. */
-  verified: boolean
+  /** Rozet seviyesi: super → sarı tik, admin → mavi tik, none → rozetsiz. */
+  verifiedTier: VerifiedTier
   createdAt: number
 }
 
@@ -154,8 +161,8 @@ export interface ForumReply {
   userId: string
   username: string
   content: string
-  /** Resmi onay rozeti (sarı tik): süper admin veya sistem hesabı. */
-  verified: boolean
+  /** Rozet seviyesi: super → sarı tik, admin → mavi tik, none → rozetsiz. */
+  verifiedTier: VerifiedTier
   createdAt: number
 }
 
@@ -295,7 +302,7 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
     likeCount: row.likedBy.length,
     likedByMe: myId !== null && row.likedBy.includes(myId),
     replyCount: row.replies.length,
-    verified: isVerifiedUsername(username) || isVerifiedUsername(row.username),
+    verifiedTier: isVerifiedUsername(username) || isVerifiedUsername(row.username) ? 'super' : 'none',
     createdAt: row.createdAt,
   }
 }
@@ -308,7 +315,7 @@ function toForumReply(postId: string, row: LocalStoredReply): ForumReply {
     userId: row.userId,
     username,
     content: row.content,
-    verified: isVerifiedUsername(username) || isVerifiedUsername(row.username),
+    verifiedTier: isVerifiedUsername(username) || isVerifiedUsername(row.username) ? 'super' : 'none',
     createdAt: row.createdAt,
   }
 }
@@ -343,7 +350,7 @@ async function listRemote(): Promise<ForumPost[]> {
     const myId = getSessionUser()?.id ?? null
     const { data, error } = await supabase
         .from('forum_posts')
-        .select('id,user_id,username,content,like_count,reply_count,is_verified,created_at')
+        .select('id,user_id,username,content,like_count,reply_count,verified_tier,created_at')
         .order('created_at', { ascending: false })
         .limit(FORUM_FEED_LIMIT)
     if (error) throw error
@@ -367,7 +374,7 @@ async function listRemote(): Promise<ForumPost[]> {
       content: string
       like_count: number
       reply_count: number
-      is_verified: unknown
+      verified_tier: unknown
       created_at: string
     }[]).map((r) => ({
       id: r.id,
@@ -377,7 +384,7 @@ async function listRemote(): Promise<ForumPost[]> {
       likeCount: r.like_count ?? 0,
       likedByMe: liked.has(r.id),
       replyCount: r.reply_count ?? 0,
-      verified: r.is_verified === true,
+      verifiedTier: parseVerifiedTier(r.verified_tier),
       createdAt: Date.parse(r.created_at) || Date.now(),
     }))
   } catch (err) {
@@ -422,7 +429,7 @@ async function createRemote(
     const { data, error } = await supabase
         .from('forum_posts')
         .insert({ user_id: user.id, username, content })
-        .select('id,user_id,username,content,like_count,reply_count,is_verified,created_at')
+        .select('id,user_id,username,content,like_count,reply_count,verified_tier,created_at')
         .single()
       if (error) throw error
       if (!data) throw new Error('unexpected-create-shape')
@@ -433,7 +440,7 @@ async function createRemote(
         content: string
         like_count: number
         reply_count: number
-        is_verified: unknown
+        verified_tier: unknown
         created_at: string
       }
       return {
@@ -444,7 +451,7 @@ async function createRemote(
         likeCount: row.like_count ?? 0,
         likedByMe: false,
         replyCount: row.reply_count ?? 0,
-        verified: row.is_verified === true,
+        verifiedTier: parseVerifiedTier(row.verified_tier),
         createdAt: Date.parse(row.created_at) || Date.now(),
       }
   } catch (err) {
@@ -546,7 +553,7 @@ export async function listForumReplies(postId: string): Promise<ForumReply[]> {
     try {
       const { data, error } = await supabase
         .from('forum_replies')
-        .select('id,post_id,user_id,username,content,is_verified,created_at')
+        .select('id,post_id,user_id,username,content,verified_tier,created_at')
         .eq('post_id', postId)
         .order('created_at', { ascending: true })
         .limit(100)
@@ -558,7 +565,7 @@ export async function listForumReplies(postId: string): Promise<ForumReply[]> {
         user_id: string
         username: string
         content: string
-        is_verified: unknown
+        verified_tier: unknown
         created_at: string
       }[]).map((r) => ({
         id: r.id,
@@ -566,7 +573,7 @@ export async function listForumReplies(postId: string): Promise<ForumReply[]> {
         userId: r.user_id,
         username: forumDisplayName(r.username, r.user_id),
         content: r.content,
-        verified: r.is_verified === true,
+        verifiedTier: parseVerifiedTier(r.verified_tier),
         createdAt: Date.parse(r.created_at) || Date.now(),
       }))
     } catch (err) {
@@ -591,7 +598,7 @@ export async function createForumReply(postId: string, rawContent: string): Prom
       const { data, error } = await supabase
         .from('forum_replies')
         .insert({ post_id: postId, user_id: user.id, username, content })
-        .select('id,post_id,user_id,username,content,is_verified,created_at')
+        .select('id,post_id,user_id,username,content,verified_tier,created_at')
         .single()
       if (error) throw error
       if (!data) throw new Error('unexpected-reply-shape')
@@ -601,7 +608,7 @@ export async function createForumReply(postId: string, rawContent: string): Prom
         user_id: string
         username: string
         content: string
-        is_verified: unknown
+        verified_tier: unknown
         created_at: string
       }
       return {
@@ -610,7 +617,7 @@ export async function createForumReply(postId: string, rawContent: string): Prom
         userId: row.user_id,
         username: forumDisplayName(row.username, row.user_id),
         content: row.content,
-        verified: row.is_verified === true,
+        verifiedTier: parseVerifiedTier(row.verified_tier),
         createdAt: Date.parse(row.created_at) || Date.now(),
       }
     } catch (err) {

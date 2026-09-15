@@ -146,3 +146,19 @@ input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/*
+ * İmleç: Tailwind v4 preflight'ı butonlara `cursor: default` verir; bu
+ * yüzden tema seçenekleri, anahtarlar (toggle), kayıtlı kartlar gibi
+ * tıklanabilir öğelerin üstünde el imleci görünmüyordu. Tıklanabilir
+ * her şeyde el imleci göster (devre dışı öğeler hariç).
+ */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+select:not(:disabled),
+input[type='checkbox']:not(:disabled),
+input[type='radio']:not(:disabled),
+label:has(input[type='checkbox']:not(:disabled)),
+label:has(input[type='radio']:not(:disabled)) {
+  cursor: pointer;
+}

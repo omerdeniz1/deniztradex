@@ -608,6 +608,33 @@ revoke all on function public.has_admin_permission(uuid, text) from public;
 grant execute on function public.has_admin_permission(uuid, text) to anon, authenticated;
 
 -- ------------------------------------------------------------
+-- Rozet yardımcısı (forum tier dosyasıyla birebir aynı; hangi
+-- migration önce çalışırsa çalışsın RPC bağımsız olsun diye
+-- burada da tanımlı — create or replace ile idempotent).
+-- ------------------------------------------------------------
+create or replace function public.forum_verified_tier(p_user_id uuid, p_username text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when lower(coalesce(p_username, '')) = 'deniztradex' then 'super'
+    when exists (select 1 from public.profiles where id = p_user_id and is_admin = true) then 'super'
+    when exists (
+      select 1 from public.profiles
+      where id = p_user_id
+        and coalesce(array_length(admin_permissions, 1), 0) > 0
+    ) then 'admin'
+    else 'none'
+  end;
+$$;
+
+revoke all on function public.forum_verified_tier(uuid, text) from public;
+grant execute on function public.forum_verified_tier(uuid, text) to anon, authenticated;
+
+-- ------------------------------------------------------------
 -- 3) Ayrıcalık korumasını yeni alanlarla güncelle: yönetici
 --    olmayan hiç kimse is_admin / admin_permissions / is_frozen /
 --    is_banned alanlarına dokunamaz. Alt yöneticiler yalnızca
@@ -748,6 +775,17 @@ begin
     set is_admin = coalesce(p_is_admin, is_admin),
         admin_permissions = coalesce(p_permissions, admin_permissions)
     where id = p_user_id;
+
+    -- Yazarın eski forum yazılarının rozetlerini yeni yetkiye göre tazele.
+    update public.forum_posts
+    set verified_tier = public.forum_verified_tier(user_id, username),
+        is_verified = (public.forum_verified_tier(user_id, username) <> 'none')
+    where user_id = p_user_id;
+
+    update public.forum_replies
+    set verified_tier = public.forum_verified_tier(user_id, username),
+        is_verified = (public.forum_verified_tier(user_id, username) <> 'none')
+    where user_id = p_user_id;
   end if;
 end;
 $$;
@@ -817,5 +855,317 @@ where r.is_verified = false
       select 1 from public.profiles as pr
       where pr.id = r.user_id and pr.is_admin = true
     )
+  );
+
+
+-- >>> supabase/migrations/20260915160000_rls_hardening.sql
+-- ============================================================
+-- DenizTradeX — RLS sıkılaştırma (profil sızıntısı kapatma)
+--
+-- Durum: `profiles` tablosu anonim anahtarla herkese açık okunuyordu
+-- (tüm kullanıcıların e-posta + bakiyeleri sızıyordu). Bu dosya tabloyu
+-- tasarım durumuna döndürür:
+--   - SELECT/UPDATE: yalnızca kendi satırı + yöneticiler,
+--   - INSERT: yalnızca kendi satırı (upsert dayanıklılığı için),
+--   - DELETE: kimse (varsayılan ret),
+--   - Ayrıcalık kolonları INSERT'te de korunur (kendini admin yapma
+--     koruması INSERT yolunu da kapatır).
+--
+-- Bilinmeyen adlı, herkese açık politikalar pg_policies üzerinden
+-- temizlenir; iyi bilinen politikalar korunur. RLS tüm tablolarda
+-- zorunlu kılınır. Uygulama akışları (anon giriş-öncesi RPC, kendi
+-- satırı okuma/yazma, admin paneli) bu kuralla birebir uyumludur.
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) profiles: izin listesindeki politikalar dışındaki tüm
+--    SELECT/UPDATE/INSERT/DELETE politikalarını kaldır.
+-- ------------------------------------------------------------
+do $$
+declare
+  r record;
+begin
+  for r in
+    select policyname, cmd from pg_policies
+    where schemaname = 'public' and tablename = 'profiles'
+  loop
+    if r.cmd = 'SELECT' and r.policyname not in ('profiles_select_own', 'profiles_admin_select') then
+      execute format('drop policy if exists %I on public.profiles', r.policyname);
+    elsif r.cmd = 'UPDATE' and r.policyname not in ('profiles_update_own', 'profiles_admin_update') then
+      execute format('drop policy if exists %I on public.profiles', r.policyname);
+    elsif r.cmd = 'INSERT' and r.policyname not in ('profiles_insert_own') then
+      execute format('drop policy if exists %I on public.profiles', r.policyname);
+    elsif r.cmd = 'DELETE' then
+      execute format('drop policy if exists %I on public.profiles', r.policyname);
+    end if;
+  end loop;
+end;
+$$;
+
+-- ------------------------------------------------------------
+-- 2) Kendi-satırı politikaları (init ile birebir) + upsert için
+--    INSERT politikası.
+-- ------------------------------------------------------------
+drop policy if exists profiles_select_own on public.profiles;
+create policy profiles_select_own
+  on public.profiles for select
+  using (auth.uid() = id);
+
+drop policy if exists profiles_update_own on public.profiles;
+create policy profiles_update_own
+  on public.profiles for update
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
+
+drop policy if exists profiles_insert_own on public.profiles;
+create policy profiles_insert_own
+  on public.profiles for insert
+  with check (auth.uid() = id);
+
+-- Admin politikaları (yoksa kur, varsa tazele).
+drop policy if exists profiles_admin_select on public.profiles;
+create policy profiles_admin_select
+  on public.profiles for select
+  using (public.is_admin());
+
+drop policy if exists profiles_admin_update on public.profiles;
+create policy profiles_admin_update
+  on public.profiles for update
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- ------------------------------------------------------------
+-- 3) INSERT ayrıcalık koruması: yönetici olmayan hiç kimse satır
+--    oluştururken is_admin / is_frozen / is_banned /
+--    admin_permissions değerlerini yükseltemez (varsayılanlara çekilir).
+-- ------------------------------------------------------------
+create or replace function public.protect_profile_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    NEW.is_admin := false;
+    NEW.is_frozen := false;
+    NEW.is_banned := false;
+    NEW.admin_permissions := '{}';
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists profiles_insert_guard on public.profiles;
+create trigger profiles_insert_guard
+  before insert on public.profiles
+  for each row execute function public.protect_profile_insert();
+
+-- ------------------------------------------------------------
+-- 4) Defter tabloları: kendi-satırı + admin okuma (init ile birebir).
+-- ------------------------------------------------------------
+drop policy if exists transactions_select_own on public.transactions;
+create policy transactions_select_own
+  on public.transactions for select
+  using (auth.uid() = user_id);
+
+drop policy if exists transactions_insert_own on public.transactions;
+create policy transactions_insert_own
+  on public.transactions for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists transactions_admin_select on public.transactions;
+create policy transactions_admin_select
+  on public.transactions for select
+  using (public.is_admin());
+
+drop policy if exists deposit_history_select_own on public.deposit_history;
+create policy deposit_history_select_own
+  on public.deposit_history for select
+  using (auth.uid() = user_id);
+
+drop policy if exists deposit_history_insert_own on public.deposit_history;
+create policy deposit_history_insert_own
+  on public.deposit_history for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists deposit_history_admin_select on public.deposit_history;
+create policy deposit_history_admin_select
+  on public.deposit_history for select
+  using (public.is_admin());
+
+-- ------------------------------------------------------------
+-- 5) RLS'yi tüm uygulama tablolarında zorunlu kıl.
+-- ------------------------------------------------------------
+alter table public.profiles        enable row level security;
+alter table public.transactions    enable row level security;
+alter table public.deposit_history enable row level security;
+alter table public.forum_posts     enable row level security;
+alter table public.forum_likes     enable row level security;
+alter table public.forum_replies   enable row level security;
+
+-- ------------------------------------------------------------
+-- 6) Grant sıkılaştırma: anon artık profiles/defter okuyamaz.
+--    Forum herkese-açık okuma korunur (tasarım gereği).
+-- ------------------------------------------------------------
+revoke all on public.profiles from anon;
+grant select, insert, update on public.profiles to authenticated;
+
+revoke all on public.transactions from anon;
+grant select, insert on public.transactions to authenticated;
+
+revoke all on public.deposit_history from anon;
+grant select, insert on public.deposit_history to authenticated;
+
+grant select on public.forum_posts to anon, authenticated;
+grant insert, delete on public.forum_posts to authenticated;
+grant select, insert, delete on public.forum_likes to authenticated;
+grant select on public.forum_replies to anon, authenticated;
+grant insert, delete on public.forum_replies to authenticated;
+
+
+-- >>> supabase/migrations/20260915170000_forum_verified_tiers.sql
+-- ============================================================
+-- DenizTradeX — Forum rozet seviyeleri (sarı + mavi tik)
+--
+-- `forum_posts.verified_tier` / `forum_replies.verified_tier`:
+--   'super' → sarı tik (süper admin veya sistem hesabı deniztradex),
+--   'admin' → mavi tik (izinli alt yönetici),
+--   'none'  → rozetsiz (normal kullanıcı).
+--
+-- Karar sunucuda verilir (`forum_verified_tier` yardımcısı +
+-- tetikleyici); istemcinin gönderdiği değer ezilir. Yönetici yetkisi
+-- değişince (`admin_update_profile`) yazarın eski yazılarının
+-- rozetleri de tazelenir. Eski `is_verified` kolonu geriye uyumluluk
+-- için yazılmaya devam eder (tier <> 'none' demek).
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+alter table public.forum_posts
+  add column if not exists verified_tier text not null default 'none';
+
+alter table public.forum_replies
+  add column if not exists verified_tier text not null default 'none';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'forum_posts_verified_tier_check'
+  ) then
+    alter table public.forum_posts
+      add constraint forum_posts_verified_tier_check
+      check (verified_tier in ('none', 'admin', 'super'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'forum_replies_verified_tier_check'
+  ) then
+    alter table public.forum_replies
+      add constraint forum_replies_verified_tier_check
+      check (verified_tier in ('none', 'admin', 'super'));
+  end if;
+end;
+$$;
+
+-- ------------------------------------------------------------
+-- Rozet yardımcısı: tek doğruluk kaynağı (tetikleyici + RPC ortak).
+-- (RBAC dosyasında da birebir tanımlı; create or replace ile güvenli.)
+-- ------------------------------------------------------------
+create or replace function public.forum_verified_tier(p_user_id uuid, p_username text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when lower(coalesce(p_username, '')) = 'deniztradex' then 'super'
+    when exists (select 1 from public.profiles where id = p_user_id and is_admin = true) then 'super'
+    when exists (
+      select 1 from public.profiles
+      where id = p_user_id
+        and coalesce(array_length(admin_permissions, 1), 0) > 0
+    ) then 'admin'
+    else 'none'
+  end;
+$$;
+
+revoke all on function public.forum_verified_tier(uuid, text) from public;
+grant execute on function public.forum_verified_tier(uuid, text) to anon, authenticated;
+
+-- ------------------------------------------------------------
+-- Tetikleyici: yazı eklenirken/güncellenirken rozeti damgala.
+-- ------------------------------------------------------------
+create or replace function public.sync_forum_verified()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  NEW.verified_tier := public.forum_verified_tier(NEW.user_id, NEW.username);
+  NEW.is_verified := (NEW.verified_tier <> 'none');
+  return NEW;
+end;
+$$;
+
+drop trigger if exists forum_posts_verified_trigger on public.forum_posts;
+create trigger forum_posts_verified_trigger
+  before insert or update of username, user_id on public.forum_posts
+  for each row execute function public.sync_forum_verified();
+
+drop trigger if exists forum_replies_verified_trigger on public.forum_replies;
+create trigger forum_replies_verified_trigger
+  before insert or update of username, user_id on public.forum_replies
+  for each row execute function public.sync_forum_verified();
+
+-- ------------------------------------------------------------
+-- Geriye dönük işaretle (idempotent): önce süper, sonra alt yönetici.
+-- ------------------------------------------------------------
+update public.forum_posts as p
+set verified_tier = 'super',
+    is_verified = true
+where p.verified_tier <> 'super'
+  and (
+    lower(p.username) = 'deniztradex'
+    or exists (
+      select 1 from public.profiles as pr
+      where pr.id = p.user_id and pr.is_admin = true
+    )
+  );
+
+update public.forum_replies as r
+set verified_tier = 'super',
+    is_verified = true
+where r.verified_tier <> 'super'
+  and (
+    lower(r.username) = 'deniztradex'
+    or exists (
+      select 1 from public.profiles as pr
+      where pr.id = r.user_id and pr.is_admin = true
+    )
+  );
+
+update public.forum_posts as p
+set verified_tier = 'admin',
+    is_verified = true
+where p.verified_tier = 'none'
+  and exists (
+    select 1 from public.profiles as pr
+    where pr.id = p.user_id
+      and coalesce(array_length(pr.admin_permissions, 1), 0) > 0
+  );
+
+update public.forum_replies as r
+set verified_tier = 'admin',
+    is_verified = true
+where r.verified_tier = 'none'
+  and exists (
+    select 1 from public.profiles as pr
+    where pr.id = r.user_id
+      and coalesce(array_length(pr.admin_permissions, 1), 0) > 0
   );
 

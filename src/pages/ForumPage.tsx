@@ -348,7 +348,9 @@ function PostRow({
               <span className="truncate text-sm font-bold text-exchange-text">
                 {displayName}
               </span>
-              {post.verified && <VerifiedBadge />}
+              {post.verifiedTier !== 'none' && (
+                <VerifiedBadge tone={post.verifiedTier === 'super' ? 'gold' : 'blue'} />
+              )}
             </span>
             <span className="shrink-0 whitespace-nowrap text-[11px] text-exchange-muted">
               {formatTimeAgo(post.createdAt)}
@@ -424,7 +426,12 @@ function PostRow({
                             <span className="truncate text-xs font-bold text-exchange-text">
                               {forumDisplayName(reply.username, reply.userId)}
                             </span>
-                            {reply.verified && <VerifiedBadge small />}
+                            {reply.verifiedTier !== 'none' && (
+                              <VerifiedBadge
+                                small
+                                tone={reply.verifiedTier === 'super' ? 'gold' : 'blue'}
+                              />
+                            )}
                           </span>
                           <span className="shrink-0 whitespace-nowrap text-[10px] text-exchange-muted">
                             {formatTimeAgo(reply.createdAt)}
@@ -478,18 +485,19 @@ function PostRow({
 }
 
 /**
- * Resmi onay rozeti (sarı tik): süper admin / sistem hesabı adının
- * yanında gösterilir. Rozet kararı sunucudan gelir (`is_verified`);
- * istemci yalnızca çizer.
+ * Resmi onay rozeti: super → sarı tik (süper admin / sistem hesabı),
+ * admin → mavi tik (izinli alt yönetici). Rozet kararı sunucudan gelir
+ * (`verified_tier`); istemci yalnızca çizer.
  */
-export function VerifiedBadge({ small }: { small?: boolean }) {
+export function VerifiedBadge({ small, tone }: { small?: boolean; tone: 'gold' | 'blue' }) {
   const size = small ? 13 : 15
   return (
     <span
       role="img"
       aria-label="Onaylı hesap"
       title="Onaylı hesap"
-      className="inline-flex shrink-0 items-center text-exchange-yellow"
+      className="inline-flex shrink-0 items-center"
+      style={{ color: tone === 'gold' ? 'var(--color-exchange-yellow)' : '#1d9bf0' }}
     >
       <svg
         width={size}

@@ -56,4 +56,10 @@ describe('ForumPage', () => {
 
     expect(await screen.findByText('Katılıyorum!')).toBeInTheDocument()
   })
+
+  it('shows the gold verified badge on the official welcome post', async () => {
+    render(<ForumPage />)
+    await screen.findByText(/Topluluğa hoş geldin/)
+    expect(screen.getByLabelText('Onaylı hesap')).toBeInTheDocument()
+  })
 })

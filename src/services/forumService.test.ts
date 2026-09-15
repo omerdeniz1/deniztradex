@@ -10,6 +10,7 @@ import {
   isVerifiedUsername,
   listForumPosts,
   listForumReplies,
+  parseVerifiedTier,
   toggleForumLike,
 } from '@/services/forumService'
 import type { User } from '@/types'
@@ -148,9 +149,18 @@ describe('forum verified badge', () => {
   it('flags the local welcome seed as verified, normal posts as not', async () => {
     loginAs(alice)
     const list = await listForumPosts()
-    expect(list.find((p) => p.id === 'seed_welcome')).toMatchObject({ verified: true })
+    expect(list.find((p) => p.id === 'seed_welcome')).toMatchObject({ verifiedTier: 'super' })
     const post = await createForumPost('sıradan gönderi')
-    expect(post.verified).toBe(false)
+    expect(post.verifiedTier).toBe('none')
+  })
+
+  it('parses remote tiers safely', () => {
+    expect(parseVerifiedTier('super')).toBe('super')
+    expect(parseVerifiedTier('admin')).toBe('admin')
+    expect(parseVerifiedTier('none')).toBe('none')
+    expect(parseVerifiedTier(true)).toBe('none')
+    expect(parseVerifiedTier('gold')).toBe('none')
+    expect(parseVerifiedTier(undefined)).toBe('none')
   })
 })
 
