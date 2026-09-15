@@ -7,7 +7,7 @@ import {
   type OrderInput,
 } from '@/engine/calculations'
 import { getSessionUserId, WALLET_STORAGE_KEY } from '@/services/authService'
-import { recordTransaction } from '@/services/supabaseWallet'
+import { claimPromoRemote, recordTransaction } from '@/services/supabaseWallet'
 import { roundTo } from '@/lib/utils'
 import type { OrderSide, Position, TradingMode } from '@/types'
 
@@ -149,6 +149,18 @@ interface TradeState {
   forceLiquidate: (id: string, liquidationPrice: number) => void
   fillNow: (input: FillNowInput) => TradeActionResult
   redeemPromo: (code: string) => RedeemPromoResult
+  /**
+   * Supabase korumalı promosyon kullanımı: önce hesap bazında hak
+   * `claim_promo` ile işaretlenir, sonra yerel bakiye işlenir. Başka
+   * cihazda kullanılmışsa bakiye İŞLENMEZ. Supabase yoksa (test/offline)
+   * yerel mantığa düşer.
+   */
+  redeemPromoAsync: (code: string) => Promise<RedeemPromoResult>
+  /**
+   * Uzakta (başka cihazda) kullanılmış kodları bakiye işlemeden yerel
+   * listeyle birleştirir — giriş sonrası senkron için.
+   */
+  syncPromos: (codes: string[]) => void
   spotBuy: (input: { symbol: string; quantity: number; price: number }) => TradeActionResult
   spotSell: (input: { symbol: string; quantity: number; price: number }) => TradeActionResult
   setBalance: (value: number) => void
@@ -439,6 +451,41 @@ export const useTradeStore = create<TradeState>()(
           ],
         }))
         return { ok: true, amount }
+      },
+
+      redeemPromoAsync: async (rawCode) => {
+        const code = rawCode.trim().toLowerCase()
+        const amount = PROMO_CODES[code]
+        if (!amount) {
+          return { ok: false, error: 'Geçersiz promosyon kodu.' }
+        }
+        if (get().promos.includes(code)) {
+          return { ok: false, error: 'Bu promosyon kodu daha önce kullanıldı.' }
+        }
+        const userId = getSessionUserId()
+        if (userId) {
+          const claim = await claimPromoRemote(userId, code)
+          if (claim === 'already') {
+            // Başka cihazda kullanılmış: bakiye işlemeden listeyi işaretle.
+            get().syncPromos([code])
+            return { ok: false, error: 'Bu promosyon kodu daha önce kullanıldı.' }
+          }
+          if (claim === 'error') {
+            return { ok: false, error: 'Bağlantı kurulamadı. Lütfen tekrar deneyin.' }
+          }
+          // 'claimed' | 'offline' → yerel bakiye işlemeye devam et.
+        }
+        return get().redeemPromo(rawCode)
+      },
+
+      syncPromos: (codes) => {
+        const clean = codes
+          .map((c) => c.trim().toLowerCase())
+          .filter((c) => c && PROMO_CODES[c])
+        if (clean.length === 0) return
+        set((state) => ({
+          promos: Array.from(new Set([...state.promos, ...clean])),
+        }))
       },
 
       spotBuy: (input) => {

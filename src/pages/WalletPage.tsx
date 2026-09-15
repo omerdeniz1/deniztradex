@@ -15,13 +15,14 @@ export function WalletPage() {
   const withdrawals = useTradeStore((s) => s.withdrawals)
   const redeemedPromos = useTradeStore((s) => s.promos)
   const spotBalances = useTradeStore((s) => s.spotBalances)
-  const redeemPromo = useTradeStore((s) => s.redeemPromo)
+  const redeemPromoAsync = useTradeStore((s) => s.redeemPromoAsync)
   const openDeposit = useUiStore((s) => s.openDeposit)
   const openWithdraw = useUiStore((s) => s.openWithdraw)
 
   const { tickers } = useAllTickers()
 
   const [code, setCode] = useState('')
+  const [applying, setApplying] = useState(false)
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(
     null,
   )
@@ -42,24 +43,32 @@ export function WalletPage() {
 
   const totalValue = holdings.reduce((sum, h) => sum + h.qty * h.price, 0)
 
-  const apply = () => {
-    const result = redeemPromo(code)
-    if (result.ok) {
-      setCode('')
-      setMessage({ kind: 'success', text: `Tebrikler! +${result.amount} USDT hesabınıza eklendi.` })
-      void syncDepositToSupabase({
-        userId: getSessionUserId() ?? '',
-        amountUsdt: result.amount,
-        source: 'promo',
-      })
-      confetti({
-        particleCount: 160,
-        spread: 85,
-        origin: { y: 0.6 },
-        colors: ['#f0b90b', '#0ecb81', '#ffffff'],
-      })
-    } else {
-      setMessage({ kind: 'error', text: result.error })
+  const apply = async () => {
+    if (applying) return
+    setApplying(true)
+    try {
+      // Hesap bazında tek-kullanım: hak önce Supabase'te işaretlenir
+      // (başka cihazda kullanıldıysa bakiye işlenmez).
+      const result = await redeemPromoAsync(code)
+      if (result.ok) {
+        setCode('')
+        setMessage({ kind: 'success', text: `Tebrikler! +${result.amount} USDT hesabınıza eklendi.` })
+        void syncDepositToSupabase({
+          userId: getSessionUserId() ?? '',
+          amountUsdt: result.amount,
+          source: 'promo',
+        })
+        confetti({
+          particleCount: 160,
+          spread: 85,
+          origin: { y: 0.6 },
+          colors: ['#f0b90b', '#0ecb81', '#ffffff'],
+        })
+      } else {
+        setMessage({ kind: 'error', text: result.error })
+      }
+    } finally {
+      setApplying(false)
     }
   }
 
@@ -83,11 +92,11 @@ export function WalletPage() {
           <div className="mt-1 text-xs text-exchange-muted">
             Kullanılan promosyon: {redeemedPromos.length} kod
           </div>
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <Button className="flex-1" size="lg" onClick={openDeposit}>
+          <div className="mt-6 flex flex-row gap-2 sm:gap-3">
+            <Button className="min-w-0 flex-1 whitespace-nowrap" size="lg" onClick={openDeposit}>
               + Para Yatır
             </Button>
-            <Button variant="outline" className="flex-1" size="lg" onClick={openWithdraw}>
+            <Button variant="outline" className="min-w-0 flex-1 whitespace-nowrap" size="lg" onClick={openWithdraw}>
               - Para Çek
             </Button>
           </div>
@@ -227,7 +236,7 @@ export function WalletPage() {
               setMessage(null)
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') apply()
+              if (e.key === 'Enter') void apply()
             }}
             placeholder="Örn. dnztrd100"
             autoCapitalize="none"
@@ -235,8 +244,8 @@ export function WalletPage() {
             spellCheck={false}
             className="h-11 w-full rounded border border-exchange-border bg-exchange-bg px-3 text-base text-exchange-text outline-none focus:border-exchange-yellow placeholder:text-exchange-muted/60 sm:h-10 sm:w-56 sm:text-sm"
           />
-          <Button onClick={apply} disabled={!code.trim()} className="w-full sm:w-auto">
-            Uygula
+          <Button onClick={() => void apply()} disabled={!code.trim() || applying} className="w-full sm:w-auto">
+            {applying ? 'Kontrol ediliyor…' : 'Uygula'}
           </Button>
         </div>
         <AnimatePresence>

@@ -56,7 +56,7 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live }: Props) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-bold transition-colors',
+          'flex max-w-[10rem] items-center gap-1.5 overflow-hidden rounded-lg border px-2.5 py-1.5 text-sm font-bold transition-colors sm:max-w-none sm:px-3',
           open
             ? 'border-exchange-yellow/60 bg-exchange-yellow/10 text-exchange-text'
             : 'border-exchange-border text-exchange-text hover:border-exchange-muted',
@@ -64,17 +64,17 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live }: Props) {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span>{base}/USDT</span>
+        <span className="min-w-0 truncate">{base}/USDT</span>
         <span
           className={cn(
-            'text-[10px] text-exchange-muted transition-transform',
+            'shrink-0 text-[10px] text-exchange-muted transition-transform',
             open && 'rotate-180',
           )}
         >
           ▼
         </span>
         {!live && (
-          <span className="ml-1 h-1.5 w-1.5 animate-pulse rounded-full bg-exchange-yellow" />
+          <span className="ml-1 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-exchange-yellow" />
         )}
       </button>
 

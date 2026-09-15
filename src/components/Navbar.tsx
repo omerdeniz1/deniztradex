@@ -31,7 +31,7 @@ export function Navbar({ balance, username }: Props) {
         aria-label="DenizTradeX ana sayfa"
         className="shrink-0 cursor-pointer rounded-lg transition-opacity hover:opacity-80"
       >
-        <Logo />
+        <Logo className="[&>span]:text-xl [&>span]:sm:text-2xl" />
       </Link>
 
       <nav className="hidden min-w-0 items-center gap-1 md:flex">

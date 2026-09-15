@@ -5,7 +5,7 @@ import {
   logout as serviceLogout,
   register as serviceRegister,
 } from '@/services/authService'
-import { getProfileBalanceWithRetry } from '@/services/supabaseWallet'
+import { getProfileBalanceWithRetry, fetchUsedPromos, claimPromoRemote } from '@/services/supabaseWallet'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useTradeStore } from '@/store/tradeStore'
 import type { User } from '@/types'
@@ -48,17 +48,41 @@ async function syncProfileBalance(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Promosyon haklarını hesap bazında eşitler (cihazlar arası tek-kullanım):
+ * 1) bu cihazda önceden yerel kullanılmış kodları sunucuya işaretler
+ *    (migration öncesi dönemden kalan haklar korunur),
+ * 2) sunucudaki (başka cihazlarda kullanılmış) kodları bakiye işlemeden
+ *    yerel listeye ekler.
+ */
+async function syncPromosWithSupabase(userId: string): Promise<void> {
+  try {
+    for (const code of useTradeStore.getState().promos) {
+      await claimPromoRemote(userId, code)
+    }
+    const remote = await fetchUsedPromos(userId)
+    if (remote.length > 0) {
+      useTradeStore.getState().syncPromos(remote)
+    }
+  } catch {
+    // best effort — yerel liste zaten girişi engeller
+  }
+}
+
 export const useAuthStore = create<AuthState>()((set) => ({
   user: getSessionUser(),
 
   login: async (identifier, password) => {
     const user = await serviceLogin(identifier, password)
     set({ user })
-    void useTradeStore.persist.rehydrate()
+    // Yerel cüzdan (ve yerel promo listesi) önce yüklensin ki sunucuyla
+    // eşitlerken migration-öncesi haklar kaybolmasın.
+    await useTradeStore.persist.rehydrate()
     // The account's theme / confirmation preferences live under the user's
     // own storage key — reload them once the session is active.
     void useSettingsStore.persist.rehydrate()
     await syncProfileBalance(user.id)
+    await syncPromosWithSupabase(user.id)
     return user
   },
 
@@ -69,6 +93,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     await useTradeStore.persist.rehydrate()
     void useSettingsStore.persist.rehydrate()
     await syncProfileBalance(user.id)
+    await syncPromosWithSupabase(user.id)
     return user
   },
 

@@ -15,6 +15,7 @@ export function HomePage() {
   const balance = useTradeStore((s) => s.balance)
   const positions = useTradeStore((s) => s.positions)
   const openDeposit = useUiStore((s) => s.openDeposit)
+  const openWithdraw = useUiStore((s) => s.openWithdraw)
   const navigate = useNavigate()
   const { tickers } = useAllTickers()
 
@@ -61,9 +62,12 @@ export function HomePage() {
             <Button
               variant="buy"
               onClick={openDeposit}
-              className="col-span-2 whitespace-nowrap border border-exchange-buy/50 sm:col-span-1"
+              className="whitespace-nowrap border border-exchange-buy/50"
             >
               + Para Yatır
+            </Button>
+            <Button variant="outline" onClick={openWithdraw} className="whitespace-nowrap">
+              - Para Çek
             </Button>
           </div>
         </div>

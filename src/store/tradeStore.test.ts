@@ -229,6 +229,23 @@ describe('redeemPromo', () => {
     expect(useTradeStore.getState().promos).toHaveLength(0)
     expect(useTradeStore.getState().balance).toBe(0)
   })
+
+  it('syncPromos marks remote codes used without crediting balance', () => {
+    useTradeStore.getState().syncPromos(['dnztrd100'])
+    expect(useTradeStore.getState().promos).toContain('dnztrd100')
+    expect(useTradeStore.getState().balance).toBe(0)
+    expect(useTradeStore.getState().deposits).toHaveLength(0)
+    // Artık yerel kullanım da engellenir (çift bakiye yok).
+    const result = useTradeStore.getState().redeemPromo('dnztrd100')
+    expect(result.ok).toBe(false)
+    expect(useTradeStore.getState().balance).toBe(0)
+  })
+
+  it('redeemPromoAsync credits when offline (no Supabase backend)', async () => {
+    const result = await useTradeStore.getState().redeemPromoAsync('DNZTRD100')
+    expect(result.ok).toBe(true)
+    expect(useTradeStore.getState().balance).toBe(100)
+  })
 })
 
 describe('spot TP/SL (Oto-Kar Al / Oto-Zarar Durdur)', () => {

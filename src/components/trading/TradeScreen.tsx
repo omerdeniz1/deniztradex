@@ -238,14 +238,14 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         {/* Left: chart + positions */}
         <section className="flex min-h-0 w-full min-w-0 max-w-full flex-col md:flex-1 md:overflow-y-auto md:border-r md:border-exchange-border">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-exchange-border px-3 py-2 sm:px-4">
-            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">
               <PairSelector
                 symbol={symbol}
                 onSymbolChange={handleSymbolChange}
                 tickers={tickers}
                 live={marketStatus === 'live'}
               />
-              <span className="font-mono text-lg font-bold text-exchange-text sm:text-2xl">
+              <span className="min-w-0 flex-1 basis-24 truncate font-mono text-lg font-bold text-exchange-text sm:flex-none sm:basis-auto sm:text-2xl">
                 {livePrice ? formatPrice(livePrice) : '—'}
               </span>
               {ticker && (

@@ -285,12 +285,12 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      <div className="flex h-11 items-center gap-1 border-b border-exchange-border px-1">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-exchange-border px-1">
         <button
           type="button"
           onClick={() => setSide(mode === 'spot' ? 'buy' : 'long')}
           className={cn(
-            'flex-1 rounded px-3 py-1.5 text-center text-sm font-semibold transition-colors',
+            'min-w-0 flex-1 truncate whitespace-nowrap rounded px-3 py-1.5 text-center text-sm font-semibold transition-colors',
             isBuy
               ? 'bg-exchange-buy/10 text-exchange-buy'
               : 'text-exchange-muted hover:text-exchange-text',
@@ -302,7 +302,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
           type="button"
           onClick={() => setSide(mode === 'spot' ? 'sell' : 'short')}
           className={cn(
-            'flex-1 rounded px-3 py-1.5 text-center text-sm font-semibold transition-colors',
+            'min-w-0 flex-1 truncate whitespace-nowrap rounded px-3 py-1.5 text-center text-sm font-semibold transition-colors',
             isBuy
               ? 'text-exchange-muted hover:text-exchange-text'
               : 'bg-exchange-sell/10 text-exchange-sell',
@@ -398,9 +398,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
                 }}
                 inputMode="decimal"
                 aria-label="Order price"
-                className="h-10 w-full rounded border border-exchange-border bg-exchange-surface px-3 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
+                className="h-10 w-full min-w-0 rounded border border-exchange-border bg-exchange-surface px-3 pr-14 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
               />
-              <span className="-ml-14 mr-3 text-xs text-exchange-muted">{currency}</span>
+              <span className="-ml-14 mr-3 shrink-0 text-xs text-exchange-muted">{currency}</span>
             </div>
           </div>
         )}
@@ -434,9 +434,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
               onChange={(e) => setAmountStr(e.target.value)}
               inputMode="decimal"
               aria-label="Order amount"
-              className="h-10 w-full rounded border border-exchange-border bg-exchange-surface px-3 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
+              className="h-10 w-full min-w-0 rounded border border-exchange-border bg-exchange-surface px-3 pr-14 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
             />
-            <span className="-ml-14 mr-3 text-xs text-exchange-muted">{currency}</span>
+            <span className="-ml-14 mr-3 shrink-0 text-xs text-exchange-muted">{currency}</span>
           </div>
         </div>
 
@@ -457,9 +457,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <div className="mb-1 flex items-center justify-between gap-1 text-xs">
-                  <span className="w-[4.5rem] truncate text-exchange-muted">Kar Al (TP)</span>
-                  <div className="flex gap-1">
+                <div className="mb-1 flex flex-wrap items-center gap-1 text-xs">
+                  <span className="mr-auto shrink-0 text-exchange-muted">Kar Al (TP)</span>
+                  <div className="flex flex-wrap gap-1">
                     {[5, 10, 20].map((k) => (
                       <button
                         key={k}
@@ -482,9 +482,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
                 />
               </div>
               <div>
-                <div className="mb-1 flex items-center justify-between gap-1 text-xs">
-                  <span className="w-[4.5rem] truncate text-exchange-muted">Zarar Durdur (SL)</span>
-                  <div className="flex gap-1">
+                <div className="mb-1 flex flex-wrap items-center gap-1 text-xs">
+                  <span className="mr-auto shrink-0 text-exchange-muted">Zarar Durdur (SL)</span>
+                  <div className="flex flex-wrap gap-1">
                     {[5, 10, 20].map((k) => (
                       <button
                         key={k}
@@ -509,28 +509,28 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
             </div>
           </div>
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-exchange-muted">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
+          <label className="flex min-w-0 cursor-pointer items-center gap-2 text-xs leading-5 text-exchange-muted">
             <input
               type="checkbox"
               checked={reduceOnly}
               onChange={(e) => setReduceOnly(e.target.checked)}
-              className="h-3.5 w-3.5 accent-exchange-yellow"
+              className="h-4 w-4 shrink-0 accent-exchange-yellow"
               disabled={mode === 'spot'}
             />
-            Sadece Azalt
+            <span>Sadece Azalt</span>
           </label>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-exchange-muted">
+          <label className="flex min-w-0 cursor-pointer items-center gap-2 text-xs leading-5 text-exchange-muted">
             <input
               type="checkbox"
               checked={postOnly}
               onChange={(e) => setPostOnly(e.target.checked)}
-              className="h-3.5 w-3.5 accent-exchange-yellow"
+              className="h-4 w-4 shrink-0 accent-exchange-yellow"
             />
-            Post-Only
+            <span>Post-Only</span>
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-exchange-muted">
-            Geçerlilik
+          <label className="flex min-w-0 items-center gap-1.5 text-xs leading-5 text-exchange-muted">
+            <span className="shrink-0">Geçerlilik</span>
             <CustomSelect
               value={tif}
               onChange={setTif}
@@ -542,28 +542,28 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
         </div>
 
         <div className="space-y-1.5 rounded bg-exchange-card px-3 py-3 text-xs">
-          <div className="flex justify-between">
-            <span className="text-exchange-muted">Qtty ({coin})</span>
-            <span className="font-mono text-exchange-text">
+          <div className="flex items-center justify-between gap-3">
+            <span className="shrink-0 text-exchange-muted">Qtty ({coin})</span>
+            <span className="min-w-0 text-right font-mono text-exchange-text">
               {draft ? formatPrice(draft.quantity) : '—'}
             </span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-exchange-muted">Notional</span>
-            <span className="font-mono text-exchange-text">
+          <div className="flex items-center justify-between gap-3">
+            <span className="shrink-0 text-exchange-muted">Notional</span>
+            <span className="min-w-0 text-right font-mono text-exchange-text">
               {formatNumber(notional, 2)} {currency}
             </span>
           </div>
           {orderType !== 'market' && stopPrice > 0 && (
-            <div className="flex justify-between">
-              <span className="text-exchange-muted">Stop Fiyatı</span>
-              <span className="font-mono text-exchange-text">{formatPrice(stopPrice)}</span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="shrink-0 text-exchange-muted">Stop Fiyatı</span>
+              <span className="min-w-0 text-right font-mono text-exchange-text">{formatPrice(stopPrice)}</span>
             </div>
           )}
           {(tpValue > 0 || slValue > 0) && (
-            <div className="flex justify-between">
-              <span className="text-exchange-muted">TP / SL</span>
-              <span className="font-mono text-exchange-text">
+            <div className="flex items-center justify-between gap-3">
+              <span className="shrink-0 text-exchange-muted">TP / SL</span>
+              <span className="min-w-0 text-right font-mono text-exchange-text">
                 {tpValue > 0 ? formatPrice(tpValue) : '—'} /{' '}
                 {slValue > 0 ? formatPrice(slValue) : '—'}
               </span>
@@ -571,15 +571,15 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
           )}
           {mode === 'futures' && (
             <>
-              <div className="flex justify-between">
-                <span className="text-exchange-muted">Margin / Lev</span>
-                <span className="font-mono text-exchange-text">
+              <div className="flex items-center justify-between gap-3">
+                <span className="shrink-0 text-exchange-muted">Margin / Lev</span>
+                <span className="min-w-0 text-right font-mono text-exchange-text">
                   {formatNumber(margin, 2)} USDT · {levDisplay}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-exchange-muted">Max qty ({leverage}x)</span>
-                <span className="font-mono text-exchange-text">{formatPrice(maxValue)}</span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="shrink-0 text-exchange-muted">Max qty ({leverage}x)</span>
+                <span className="min-w-0 text-right font-mono text-exchange-text">{formatPrice(maxValue)}</span>
               </div>
             </>
           )}

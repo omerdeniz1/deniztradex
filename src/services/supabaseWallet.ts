@@ -7,6 +7,9 @@ export interface Profile {
   full_name: string | null
   avatar_url: string | null
   balance: number
+  /** Hesabın kullandığı promosyon kodları (küçük harf). Cihazlar arası
+   *  tek-kullanım kuralının kaynağı. */
+  used_promos: string[]
   created_at: string
 }
 
@@ -40,6 +43,7 @@ interface DbProfile {
   full_name: string | null
   avatar_url: string | null
   balance: number | string | null
+  used_promos: unknown
   created_at: string
 }
 
@@ -55,6 +59,12 @@ function toBalance(value: number | string | null): number | null {
 function parseProfile(row: DbProfile): Profile | null {
   const balance = toBalance(row.balance)
   if (balance === null) return null
+  const used_promos = Array.isArray(row.used_promos)
+    ? row.used_promos
+        .filter((c): c is string => typeof c === 'string')
+        .map((c) => c.trim().toLowerCase())
+        .filter(Boolean)
+    : []
   return {
     id: row.id,
     username: row.username,
@@ -62,6 +72,7 @@ function parseProfile(row: DbProfile): Profile | null {
     full_name: row.full_name,
     avatar_url: row.avatar_url,
     balance,
+    used_promos,
     created_at: row.created_at,
   }
 }
@@ -151,6 +162,7 @@ export function buildFallbackProfile(authUser: AuthUserLike): Profile {
     full_name: null,
     avatar_url: null,
     balance: DEFAULT_PROFILE_BALANCE,
+    used_promos: [],
     created_at: authUser.created_at ?? new Date().toISOString(),
   }
 }
@@ -392,4 +404,53 @@ export async function syncWithdrawToSupabase(input: {
     balanceAfter: after ?? undefined,
   })
   if (after !== null) await setProfileBalance(input.userId, after)
+}
+
+export type PromoClaimResult = 'claimed' | 'already' | 'offline' | 'error'
+
+/**
+ * Hesap bazında tek-kullanımlık promosyon hakkı: `claim_promo` RPC'si
+ * profil satırını kilitleyerek işaretler. İki cihaz aynı anda istese
+ * bile biri `claimed`, diğeri `already` alır — çift bakiye geçmez.
+ *
+ * - `'offline'`: Supabase yok (test/offline) veya RPC henüz DB'de yok
+ *   (migration uygulanmamış) — arayan yerel mantığa düşer.
+ * - `'error'`: ağ/RLS hatası — arayan bakiye işlemesin (fail-closed).
+ */
+export async function claimPromoRemote(
+  userId: string,
+  code: string,
+): Promise<PromoClaimResult> {
+  if (!supabase || !userId) return 'offline'
+  const normalized = code.trim().toLowerCase()
+  if (!normalized) return 'error'
+  try {
+    const { data, error } = await supabase.rpc('claim_promo', {
+      p_code: normalized,
+    })
+    if (error) {
+      // Migration uygulanmamış eski DB: fonksiyon yok (PGRST202) —
+      // yerel tek-cihaz mantığına düş, uygulamayı kilitleme.
+      if ((error as { code?: string }).code === 'PGRST202') return 'offline'
+      return 'error'
+    }
+    return data === true ? 'claimed' : 'already'
+  } catch {
+    return 'error'
+  }
+}
+
+/**
+ * Hesabın o ana dek kullandığı promosyon kodları (diğer cihazlar dahil).
+ * Kendi satırı (`profiles_select_own`) üzerinden okunur; giriş sonrası
+ * yerel listeyle birleştirilip çift kullanım engellenir.
+ */
+export async function fetchUsedPromos(userId: string): Promise<string[]> {
+  if (!supabase || !userId) return []
+  try {
+    const profile = await getProfile(userId)
+    return profile?.used_promos ?? []
+  } catch {
+    return []
+  }
 }

@@ -22,7 +22,7 @@ describe('WalletPage promo codes', () => {
     await user.type(screen.getByPlaceholderText('Örn. dnztrd100'), 'dnztrd100')
     await user.click(screen.getByRole('button', { name: 'Uygula' }))
 
-    expect(screen.getByText(/hesabınıza eklendi/)).toBeInTheDocument()
+    expect(await screen.findByText(/hesabınıza eklendi/)).toBeInTheDocument()
     expect(useTradeStore.getState().balance).toBe(100)
     expect(confettiMock).toHaveBeenCalled()
   })
@@ -35,7 +35,7 @@ describe('WalletPage promo codes', () => {
     await user.type(screen.getByPlaceholderText('Örn. dnztrd100'), 'dnztrd100')
     await user.click(screen.getByRole('button', { name: 'Uygula' }))
 
-    expect(screen.getByText(/daha önce kullanıldı/)).toBeInTheDocument()
+    expect(await screen.findByText(/daha önce kullanıldı/)).toBeInTheDocument()
     expect(useTradeStore.getState().balance).toBe(100)
     expect(confettiMock).not.toHaveBeenCalled()
   })
@@ -47,7 +47,7 @@ describe('WalletPage promo codes', () => {
     await user.type(screen.getByPlaceholderText('Örn. dnztrd100'), 'xyz')
     await user.click(screen.getByRole('button', { name: 'Uygula' }))
 
-    expect(screen.getByText(/Geçersiz promosyon kodu/)).toBeInTheDocument()
+    expect(await screen.findByText(/Geçersiz promosyon kodu/)).toBeInTheDocument()
     expect(useTradeStore.getState().balance).toBe(0)
   })
 })
