@@ -13,6 +13,7 @@ import { WithdrawModal } from '@/components/wallet/WithdrawModal'
 import { TradeScreen } from '@/components/trading/TradeScreen'
 import { HomePage } from '@/pages/HomePage'
 import { MarketsPage } from '@/pages/MarketsPage'
+import { ForumPage } from '@/pages/ForumPage'
 import { WalletPage } from '@/pages/WalletPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
@@ -54,6 +55,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/markets" element={<MarketsPage />} />
+          <Route path="/forum" element={<ForumPage />} />
           <Route path="/spot" element={<TradeScreen mode="spot" />} />
           <Route path="/futures" element={<TradeScreen mode="futures" />} />
           <Route path="/wallet" element={<WalletPage />} />

@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { to: '/markets', label: 'Piyasalar', end: false },
   { to: '/spot', label: 'Al-Sat', end: false },
   { to: '/futures', label: 'Vadeli', end: false },
+  { to: '/forum', label: 'Forum', end: false },
 ] as const
 
 export function Navbar({ balance, username }: Props) {
