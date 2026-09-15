@@ -21,8 +21,7 @@ export function SettingsPage() {
             Görünüm
           </h2>
           <p className="mt-1 text-xs text-exchange-muted">
-            Uygulama genelinde kullanılacak tema. Mobil cihazlarda her zaman
-            açık tema kullanılır.
+            Uygulama genelinde kullanılacak tema.
           </p>
           <div className="mt-4 grid max-w-sm grid-cols-2 gap-3">
             <ThemeOption

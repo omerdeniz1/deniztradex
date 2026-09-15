@@ -10,7 +10,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { useEffectiveTheme } from '@/hooks/useEffectiveTheme'
+import { useSettingsStore } from '@/store/settingsStore'
 import { boll, ema, sma } from '@/lib/indicators'
 import type { Kline } from '@/types'
 
@@ -87,7 +87,7 @@ function TradingChartInner({ klines, className, indicators = NO_INDICATORS }: Pr
     bollLower: null,
     volume: null,
   })
-  const theme = useEffectiveTheme()
+  const theme = useSettingsStore((s) => s.theme)
 
   useEffect(() => {
     if (!containerRef.current) return
