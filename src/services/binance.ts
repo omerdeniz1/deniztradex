@@ -136,10 +136,13 @@ export function getWsUrl(
   symbol: string,
   stream: 'ticker' | 'kline',
   hostIndex = 0,
+  interval: Interval = '1m',
 ): string {
   const host = wsHost(WS_HOSTS[hostIndex % WS_HOSTS.length])
   const lower = symbol.toLowerCase()
-  const streamName = stream === 'ticker' ? `${lower}@ticker` : `${lower}@kline_1m`
+  // Canlı mum güncellemeleri seçili zaman diliminden gelir (örn. 1H
+  // seçiliyken `btcusdt@kline_1h`), yoksa grafik 1m mumlarla kirlenir.
+  const streamName = stream === 'ticker' ? `${lower}@ticker` : `${lower}@kline_${interval}`
   return `${host}/ws/${streamName}`
 }
 

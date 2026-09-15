@@ -71,7 +71,7 @@ export function useBinanceKlines(
     let timeout: ReturnType<typeof setTimeout> | undefined
 
     function connect() {
-      const url = getWsUrl(symbol, 'kline', hostIndex % WS_HOSTS.length)
+      const url = getWsUrl(symbol, 'kline', hostIndex % WS_HOSTS.length, interval)
       const ws = new WebSocket(url)
       wsRef.current = ws
 
@@ -131,7 +131,7 @@ export function useBinanceKlines(
         wsRef.current = null
       }
     }
-  }, [symbol])
+  }, [symbol, interval])
 
   return { klines, isLoading, error }
 }

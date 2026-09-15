@@ -1,5 +1,6 @@
-﻿import { useEffect, useMemo, useRef } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useBinanceKlines } from '@/hooks/useBinanceKlines'
 import { useAllTickers } from '@/hooks/useAllTickers'
 import { useLivePrices } from '@/hooks/useLivePrices'
@@ -13,14 +14,59 @@ import {
   MARGIN_CALL_THRESHOLD_PCT,
   MARGIN_CALL_THROTTLE_MS,
 } from '@/engine/calculations'
-import { cn, formatNumber, formatPrice } from '@/lib/utils'
+import { cn, formatCompact, formatNumber, formatPrice } from '@/lib/utils'
+import { boll, ema, lastDefined, sma } from '@/lib/indicators'
 import { DEFAULT_SYMBOL } from '@/lib/constants'
+import type { Interval } from '@/types'
 import type { TradingMode } from '@/types'
-import { TradingChart } from '@/components/chart/TradingChart'
+import { TradingChart, type ChartIndicators } from '@/components/chart/TradingChart'
 import { TradingPanel } from '@/components/trading/TradingPanel'
 import { PairSelector } from '@/components/trading/PairSelector'
 import { PositionList } from '@/components/trading/PositionList'
 import { TradeHistory } from '@/components/trading/TradeHistory'
+
+const TIMEFRAMES: { v: Interval; l: string }[] = [
+  { v: '1m', l: '1m' },
+  { v: '5m', l: '5m' },
+  { v: '15m', l: '15m' },
+  { v: '1h', l: '1H' },
+  { v: '4h', l: '4H' },
+  { v: '1d', l: '1D' },
+  { v: '1w', l: '1W' },
+]
+
+const INTERVAL_KEY = 'deniztradx_chart_interval'
+const INDICATORS_KEY = 'deniztradx_chart_indicators'
+
+const DEFAULT_INDICATORS: ChartIndicators = { ma: false, ema: false, boll: false, volume: true }
+
+function readStoredInterval(): Interval {
+  try {
+    const raw = localStorage.getItem(INTERVAL_KEY)
+    if (TIMEFRAMES.some((t) => t.v === raw)) return raw as Interval
+  } catch {
+    // gizli mod — varsayılan
+  }
+  return '1m'
+}
+
+function readStoredIndicators(): ChartIndicators {
+  try {
+    const raw = localStorage.getItem(INDICATORS_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<ChartIndicators>
+      return {
+        ma: parsed.ma === true,
+        ema: parsed.ema === true,
+        boll: parsed.boll === true,
+        volume: parsed.volume !== false,
+      }
+    }
+  } catch {
+    // gizli mod — varsayılan
+  }
+  return DEFAULT_INDICATORS
+}
 
 export function TradeScreen({ mode }: { mode: TradingMode }) {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -57,10 +103,35 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   )
   const livePrices = useLivePrices(tradedSymbols)
 
+  // Grafik: zaman dilimi + indikatör seçimleri cihazda saklanır.
+  const [interval, setIntervalState] = useState<Interval>(readStoredInterval)
+  const [indicators, setIndicatorsState] = useState<ChartIndicators>(readStoredIndicators)
+
+  const setInterval = (v: Interval) => {
+    setIntervalState(v)
+    try {
+      localStorage.setItem(INTERVAL_KEY, v)
+    } catch {
+      // yoksay
+    }
+  }
+
+  const toggleIndicator = (key: keyof ChartIndicators) => {
+    setIndicatorsState((prev) => {
+      const next = { ...prev, [key]: !prev[key] }
+      try {
+        localStorage.setItem(INDICATORS_KEY, JSON.stringify(next))
+      } catch {
+        // yoksay
+      }
+      return next
+    })
+  }
+
   // Full 24h row (change %, volume) for the selected pair.
   const ticker = tickers[symbol] ?? null
   const livePrice = livePrices[symbol]
-  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, '1m')
+  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, interval)
 
   const handleSymbolChange = (next: string) => {
     setSearchParams({ symbol: next }, { replace: true })
@@ -232,6 +303,34 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     [spotBalances, livePrices],
   )
 
+  // Grafik lejantı: açık indikatörlerin son değerleri.
+  const legendItems = useMemo(() => {
+    if (klines.length === 0) return []
+    const closes = klines.map((k) => k.close)
+    const items: { color: string; text: string }[] = []
+    if (indicators.ma) {
+      const fast = lastDefined(sma(closes, 7))
+      const slow = lastDefined(sma(closes, 25))
+      if (fast !== null) items.push({ color: '#00e5ff', text: `MA7 ${formatPrice(fast)}` })
+      if (slow !== null) items.push({ color: '#8b95a1', text: `MA25 ${formatPrice(slow)}` })
+    }
+    if (indicators.ema) {
+      const fast = lastDefined(ema(closes, 12))
+      const slow = lastDefined(ema(closes, 26))
+      if (fast !== null) items.push({ color: '#00c853', text: `EMA12 ${formatPrice(fast)}` })
+      if (slow !== null) items.push({ color: '#ff3d00', text: `EMA26 ${formatPrice(slow)}` })
+    }
+    if (indicators.boll) {
+      const basis = lastDefined(boll(closes, 20, 2).basis)
+      if (basis !== null) items.push({ color: '#f1f5f9', text: `BOLL ${formatPrice(basis)}` })
+    }
+    if (indicators.volume) {
+      const last = klines[klines.length - 1]
+      items.push({ color: '#8b95a1', text: `Hacim ${formatCompact(last.volume)}` })
+    }
+    return items
+  }, [klines, indicators])
+
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-clip overflow-y-auto md:overflow-hidden">
       <main className="flex min-h-0 w-full min-w-0 max-w-full flex-col md:min-h-0 md:flex-1 md:flex-row md:overflow-hidden">
@@ -272,7 +371,47 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             </div>
           </div>
 
+          {/* Zaman dilimi + indikatör araç çubuğu: mobilde yatay kayar,
+              hiçbir öğe üst üste binmez. */}
+          <div className="flex items-center gap-1.5 border-b border-exchange-border px-2 py-1.5 sm:px-3">
+            <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+              {TIMEFRAMES.map((tf) => (
+                <button
+                  key={tf.v}
+                  type="button"
+                  onClick={() => setInterval(tf.v)}
+                  aria-pressed={interval === tf.v}
+                  className={cn(
+                    'min-h-[2rem] shrink-0 rounded-md px-2.5 text-xs font-bold transition-colors',
+                    interval === tf.v
+                      ? 'bg-exchange-yellow/15 text-exchange-yellow'
+                      : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
+                  )}
+                >
+                  {tf.l}
+                </button>
+              ))}
+            </div>
+            <IndicatorMenu indicators={indicators} onToggle={toggleIndicator} />
+          </div>
+
           <div className="relative h-[280px] w-full max-w-full flex-none sm:h-[340px] md:h-[500px]">
+            {legendItems.length > 0 && !isLoading && !error && (
+              <div className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap gap-x-2.5 gap-y-0.5">
+                {legendItems.map((item) => (
+                  <span
+                    key={item.text}
+                    className="flex items-center gap-1 whitespace-nowrap font-mono text-[10px] font-semibold"
+                  >
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="text-exchange-text">{item.text}</span>
+                  </span>
+                ))}
+              </div>
+            )}
             {isLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-exchange-muted">
                 Loading chart data…
@@ -283,7 +422,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 <span className="text-xs text-exchange-muted">{error}</span>
               </div>
             ) : (
-              <TradingChart klines={klines} className="h-full w-full" />
+              <TradingChart klines={klines} indicators={indicators} className="h-full w-full" />
             )}
           </div>
 
@@ -396,6 +535,113 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       </main>
 
       <TradeHistory mode={mode} />
+    </div>
+  )
+}
+
+const INDICATOR_ROWS: { key: keyof ChartIndicators; label: string; hint: string }[] = [
+  { key: 'ma', label: 'Hareketli Ortalama', hint: 'MA 7 · 25' },
+  { key: 'ema', label: 'Üstel Ortalama', hint: 'EMA 12 · 26' },
+  { key: 'boll', label: 'Bollinger Bantları', hint: '20 · 2σ' },
+  { key: 'volume', label: 'Hacim', hint: 'mum altı barlar' },
+]
+
+function IndicatorMenu({
+  indicators,
+  onToggle,
+}: {
+  indicators: ChartIndicators
+  onToggle: (key: keyof ChartIndicators) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const scopeRef = useRef<HTMLDivElement>(null)
+  const activeCount = INDICATOR_ROWS.filter((r) => indicators[r.key]).length
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (scopeRef.current && !scopeRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open ])
+
+  return (
+    <div ref={scopeRef} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={cn(
+          'flex min-h-[2rem] items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-xs font-bold transition-colors',
+          open || activeCount > 0
+            ? 'border-exchange-yellow/60 bg-exchange-yellow/10 text-exchange-yellow'
+            : 'border-exchange-border text-exchange-muted hover:border-exchange-muted hover:text-exchange-text',
+        )}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M3 17l5-6 4 3 7-8" />
+          <path d="M17 6h4v4" />
+        </svg>
+        İndikatörler
+        {activeCount > 0 && (
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-exchange-yellow px-1 text-[10px] font-extrabold leading-none text-black">
+            {activeCount}
+          </span>
+        )}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            transition={{ duration: 0.12 }}
+            role="menu"
+            aria-label="Grafik indikatörleri"
+            className="absolute right-0 top-full z-50 mt-2 w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+          >
+            <div className="border-b border-exchange-border px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-exchange-muted">
+              İndikatör Ekle
+            </div>
+            {INDICATOR_ROWS.map((row) => {
+              const on = indicators[row.key]
+              return (
+                <button
+                  key={row.key}
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={on}
+                  onClick={() => onToggle(row.key)}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-exchange-surface"
+                >
+                  <span
+                    className={cn(
+                      'flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-extrabold transition-colors',
+                      on
+                        ? 'border-exchange-yellow bg-exchange-yellow text-black'
+                        : 'border-exchange-border text-transparent',
+                    )}
+                    aria-hidden
+                  >
+                    ✓
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-exchange-text">
+                      {row.label}
+                    </span>
+                    <span className="block text-[11px] text-exchange-muted">{row.hint}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
