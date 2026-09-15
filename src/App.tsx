@@ -46,10 +46,11 @@ function Shell() {
   const closeWithdraw = useUiStore((s) => s.closeWithdraw)
 
   return (
-    <div className="flex h-dvh min-h-0 w-full max-w-full flex-col overflow-x-hidden bg-exchange-bg text-exchange-text">
+    <div className="flex h-dvh min-h-dvh w-full max-w-full flex-col overflow-x-clip bg-exchange-bg text-exchange-text">
       <ThemeManager />
       <Navbar balance={balance} username={user?.username ?? ''} />
-      <div className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-hidden pb-20 sm:pb-0">
+      {/* Alt boşluk yalnızca mobil alt menü varken (md altı) uygulanır. */}
+      <div className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-clip pb-[4.75rem] md:pb-0">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/markets" element={<MarketsPage />} />

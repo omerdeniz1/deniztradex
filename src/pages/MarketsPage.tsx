@@ -22,15 +22,17 @@ export function MarketsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b border-exchange-border px-4 py-3">
-        <div>
-          <h1 className="text-lg font-bold text-exchange-text">Piyasalar</h1>
-          <p className="text-xs text-exchange-muted">
-            Tüm USDT işlem çiftleri · canlı fiyatlar
-          </p>
+      <div className="flex flex-col gap-3 border-b border-exchange-border px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:px-4">
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-lg font-bold text-exchange-text">Piyasalar</h1>
+            <p className="text-xs text-exchange-muted">
+              Tüm USDT işlem çiftleri · canlı fiyatlar
+            </p>
+          </div>
+          <LiveChip status={status} />
         </div>
-        <LiveChip status={status} />
-        <div className="relative ml-auto w-full max-w-xs">
+        <div className="relative w-full sm:ml-auto sm:max-w-xs">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-exchange-muted">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="7" />
@@ -47,13 +49,13 @@ export function MarketsPage() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full min-w-[22rem] border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-exchange-surface">
             <tr className="border-b border-exchange-border text-xs uppercase text-exchange-muted">
-              <th className="px-4 py-2.5 text-left font-semibold">Coin</th>
-              <th className="px-4 py-2.5 text-right font-semibold">Son Fiyat</th>
-              <th className="px-4 py-2.5 text-right font-semibold">24s Değişim %</th>
-              <th className="px-4 py-2.5 text-right font-semibold">24s Hacim</th>
+              <th className="px-3 py-2.5 text-left font-semibold sm:px-4">Coin</th>
+              <th className="px-3 py-2.5 text-right font-semibold sm:px-4">Son Fiyat</th>
+              <th className="px-3 py-2.5 text-right font-semibold sm:px-4">24s %</th>
+              <th className="hidden px-4 py-2.5 text-right font-semibold sm:table-cell">24s Hacim</th>
             </tr>
           </thead>
           <tbody>
@@ -72,9 +74,10 @@ export function MarketsPage() {
         </table>
       </div>
 
-      <div className="flex items-center justify-between border-t border-exchange-border px-4 py-2 text-xs text-exchange-muted">
+      <div className="flex items-center justify-between gap-2 border-t border-exchange-border px-3 py-2 text-xs text-exchange-muted sm:px-4">
         <span>{formatNumber(rows.length, 0)} USDT çifti</span>
-        <span>Satıra tıklayın → işlem ekranı</span>
+        <span className="hidden sm:inline">Satıra tıklayın → işlem ekranı</span>
+        <span className="sm:hidden">Dokun → işlem ekranı</span>
       </div>
     </div>
   )
@@ -110,24 +113,24 @@ function MarketRow({
       onClick={() => onSelect(`/spot?symbol=${ticker.symbol}`)}
       className="cursor-pointer border-b border-exchange-border/50 transition-colors last:border-0 hover:bg-exchange-surface"
     >
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-2.5 sm:px-4">
         <span className="flex items-baseline gap-1.5">
           <span className="font-semibold text-exchange-text">{ticker.symbol.replace('USDT', '')}</span>
           <span className="text-xs text-exchange-muted">USDT</span>
         </span>
       </td>
-      <td className="px-4 py-2.5 text-right font-mono text-exchange-text">
+      <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-exchange-text sm:px-4">
         {formatPrice(ticker.price)}
       </td>
       <td
         className={cn(
-          'px-4 py-2.5 text-right font-mono font-semibold',
+          'whitespace-nowrap px-3 py-2.5 text-right font-mono font-semibold sm:px-4',
           up ? 'text-exchange-buy' : 'text-exchange-sell',
         )}
       >
         {formatSignedPercent(ticker.changePercent24h)}
       </td>
-      <td className="px-4 py-2.5 text-right font-mono text-exchange-muted">
+      <td className="hidden whitespace-nowrap px-4 py-2.5 text-right font-mono text-exchange-muted sm:table-cell">
         {formatCompact(ticker.quoteVolume)}
       </td>
     </tr>

@@ -233,25 +233,25 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   )
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-auto md:overflow-hidden">
-      <main className="flex min-h-0 w-full min-w-0 max-w-full flex-col md:min-h-0 md:flex-1 md:flex-row">
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-clip overflow-y-auto md:overflow-hidden">
+      <main className="flex min-h-0 w-full min-w-0 max-w-full flex-col md:min-h-0 md:flex-1 md:flex-row md:overflow-hidden">
         {/* Left: chart + positions */}
         <section className="flex min-h-0 w-full min-w-0 max-w-full flex-col md:flex-1 md:overflow-y-auto md:border-r md:border-exchange-border">
-          <div className="flex items-center justify-between border-b border-exchange-border px-4 py-2">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-exchange-border px-3 py-2 sm:px-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
               <PairSelector
                 symbol={symbol}
                 onSymbolChange={handleSymbolChange}
                 tickers={tickers}
                 live={marketStatus === 'live'}
               />
-              <span className="font-mono text-xl font-bold text-exchange-text sm:text-2xl">
+              <span className="font-mono text-lg font-bold text-exchange-text sm:text-2xl">
                 {livePrice ? formatPrice(livePrice) : '—'}
               </span>
               {ticker && (
                 <span
                   className={cn(
-                    'font-mono text-sm font-semibold',
+                    'whitespace-nowrap font-mono text-xs font-semibold sm:text-sm',
                     change! >= 0 ? 'text-exchange-buy' : 'text-exchange-sell',
                   )}
                 >
@@ -260,7 +260,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 </span>
               )}
             </div>
-            <div className="hidden items-center gap-4 sm:flex">
+            <div className="ml-auto hidden items-center gap-4 sm:flex">
               {stats.map((s) => (
                 <div key={s.label} className="text-right">
                   <div className="text-[10px] uppercase text-exchange-muted">{s.label}</div>
@@ -272,7 +272,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             </div>
           </div>
 
-          <div className="relative h-[300px] w-full max-w-full flex-none md:h-[500px]">
+          <div className="relative h-[280px] w-full max-w-full flex-none sm:h-[340px] md:h-[500px]">
             {isLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-exchange-muted">
                 Loading chart data…
@@ -288,7 +288,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
           </div>
 
           <div className="border-t border-exchange-border">
-            <div className="flex items-center justify-between px-4 pt-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2 sm:px-4">
               <span className="text-xs font-semibold uppercase tracking-wide text-exchange-muted">
                 {mode === 'spot' ? 'Spot Varlıklar' : 'Açık Pozisyonlar'}
               </span>
@@ -299,7 +299,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             {mode === 'spot' ? (
               <>
                 {spotPositions.length > 0 && (
-                  <div className="border-b border-exchange-border/40 px-4 pt-2">
+                  <div className="border-b border-exchange-border/40 px-3 pt-2 sm:px-4">
                     <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-exchange-muted">
                       Oto Emirler (TP / SL)
                     </div>
@@ -342,8 +342,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                     diğer coinlerden alıp cüzdanınızda tutabilirsiniz.
                   </div>
                 ) : (
-                <div className="overflow-x-auto px-4 py-2">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto px-3 py-2 sm:px-4">
+                  <table className="w-full min-w-[26rem] text-xs">
                     <thead>
                       <tr className="border-b border-exchange-border text-exchange-muted">
                         <th className="py-1.5 text-left font-medium">Varlık</th>
@@ -384,7 +384,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         </section>
 
         {/* Right: trading panel */}
-        <aside className="w-full min-h-0 min-w-0 max-w-full border-t border-exchange-border bg-exchange-surface md:border-t-0 md:w-[360px] md:shrink-0">
+        <aside className="max-w-full border-t border-exchange-border bg-exchange-surface md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
           <TradingPanel
             key={symbol}
             ticker={ticker}

@@ -66,7 +66,7 @@ export function PositionList({ livePrices }: Props) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full min-w-[42rem] text-sm">
         <thead>
           <tr className="border-b border-exchange-border text-xs text-exchange-muted">
             <th className="px-3 py-2 text-left font-medium">Symbol</th>

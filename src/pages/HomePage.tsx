@@ -39,29 +39,29 @@ export function HomePage() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
       {/* Hero band */}
-      <section className="border-b border-exchange-border bg-exchange-surface/60 px-6 py-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-sm text-exchange-muted">
+      <section className="border-b border-exchange-border bg-exchange-surface/60 px-4 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-sm text-exchange-muted">
               Hoş geldin, <span className="font-semibold text-exchange-text">{user?.username}</span> 👋
             </p>
-            <h1 className="mt-1 text-2xl font-bold text-exchange-text">Varlıklarınız</h1>
-            <div className="mt-2 font-mono text-3xl font-bold text-exchange-text">
+            <h1 className="mt-1 text-xl font-bold text-exchange-text sm:text-2xl">Varlıklarınız</h1>
+            <div className="mt-2 font-mono text-2xl font-bold text-exchange-text sm:text-3xl">
               {formatNumber(balance, 2)}{' '}
               <span className="text-base text-exchange-yellow">USDT</span>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/markets')}>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button variant="outline" onClick={() => navigate('/markets')} className="whitespace-nowrap">
               Piyasaları Gör
             </Button>
-            <Button onClick={() => navigate(positions.length > 0 ? '/futures' : '/spot')}>
+            <Button onClick={() => navigate(positions.length > 0 ? '/futures' : '/spot')} className="whitespace-nowrap">
               İşlem Yap
             </Button>
             <Button
               variant="buy"
               onClick={openDeposit}
-              className="border border-exchange-buy/50"
+              className="col-span-2 whitespace-nowrap border border-exchange-buy/50 sm:col-span-1"
             >
               + Para Yatır
             </Button>
@@ -70,7 +70,7 @@ export function HomePage() {
       </section>
 
       {/* Featured coins */}
-      <section className="border-b border-exchange-border px-6 py-5">
+      <section className="border-b border-exchange-border px-4 py-4 sm:px-6 sm:py-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
             Öne Çıkan Piyasalar
@@ -90,7 +90,7 @@ export function HomePage() {
       </section>
 
       {/* Movers */}
-      <section className="grid flex-1 grid-cols-1 gap-5 px-6 py-5 lg:grid-cols-2">
+      <section className="grid flex-1 grid-cols-1 gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 lg:grid-cols-2">
         <MoverList title="En Çok Yükselenler" list={movers.gainers} onSelect={goMarket} positive />
         <MoverList title="En Çok Düşenler" list={movers.losers} onSelect={goMarket} positive={false} />
       </section>

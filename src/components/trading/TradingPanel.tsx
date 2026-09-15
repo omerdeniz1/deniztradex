@@ -406,9 +406,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
         )}
 
         <div>
-          <div className="mb-1.5 flex items-center justify-between">
+          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
             <label className="text-xs text-exchange-muted">Tutar ({currency})</label>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               {[25, 50, 75, 100].map((k) => (
                 <button
                   key={k}
@@ -441,7 +441,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
         </div>
 
         <div className="rounded border border-exchange-border bg-exchange-card p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <span className="shrink-0 text-[11px] uppercase tracking-wide text-exchange-muted">Tetik Tipi</span>
               <CustomSelect
                 value={triggerType}

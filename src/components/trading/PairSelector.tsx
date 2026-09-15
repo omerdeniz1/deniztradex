@@ -131,7 +131,7 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live }: Props) {
                         setOpen(false)
                       }}
                       className={cn(
-                        'flex w-full items-center justify-between px-4 py-2 text-left transition-colors hover:bg-exchange-surface',
+                        'flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-exchange-surface',
                         selected && 'bg-exchange-yellow/5',
                       )}
                     >

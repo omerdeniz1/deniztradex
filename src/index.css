@@ -41,6 +41,11 @@ body,
   height: 100%;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
   background-color: var(--color-exchange-bg);
@@ -55,6 +60,55 @@ body {
     Arial,
     sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  overflow-x: clip;
+}
+
+#root {
+  min-height: 100dvh;
+  overflow-x: clip;
+}
+
+/* Çift dokunuş yakınlaştırmasını kapat (grafik alanı hariç kendi
+ * dokunmatik hareketlerini yönetir). */
+button,
+a {
+  touch-action: manipulation;
+}
+
+/*
+ * iOS Safari odaklanınca 16px'ten küçük inputlarda sayfayı otomatik
+ * yakınlaştırır. Mobil form alanlarını 16px'e sabitleyip bu zıplamayı
+ * engelle; masaüstünde tasarım boyutları aynen korunur.
+ */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Güvenli alanlar (çentik / home-bar) — sabit alt/üst barlar için. */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@utility px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -73,8 +127,4 @@ input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
-}
-
-@utility pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

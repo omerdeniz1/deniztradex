@@ -196,7 +196,7 @@ export function DepositModal({ open, onClose }: Props) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 40, scale: 0.96 }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="w-full max-w-md rounded-t-2xl border border-exchange-border bg-exchange-card p-6 shadow-2xl sm:rounded-2xl"
+            className="max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-exchange-border bg-exchange-card p-5 shadow-2xl sm:rounded-2xl sm:p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">

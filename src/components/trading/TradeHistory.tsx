@@ -50,7 +50,7 @@ function FuturesHistory({ trades }: { trades: ReturnType<typeof useTradeStore.ge
 
   return (
     <div className="max-h-44 overflow-auto">
-      <table className="w-full text-xs">
+      <table className="w-full min-w-[34rem] text-xs">
         <thead className="sticky top-0 bg-exchange-bg">
           <tr className="border-b border-exchange-border text-exchange-muted">
             <th className="px-4 py-1.5 text-left font-medium">Symbol</th>
@@ -142,7 +142,7 @@ function SpotHistory({ trades }: { trades: ReturnType<typeof useTradeStore.getSt
           </div>
         ) : (
           <div className="max-h-44 overflow-auto">
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[34rem] text-xs">
               <thead className="sticky top-0 bg-exchange-bg">
                 <tr className="border-b border-exchange-border text-exchange-muted">
                   <th className="px-4 py-1.5 text-left font-medium">Çift</th>

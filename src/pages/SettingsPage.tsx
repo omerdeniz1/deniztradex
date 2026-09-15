@@ -10,13 +10,13 @@ export function SettingsPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <div className="border-b border-exchange-border px-6 py-6">
+      <div className="border-b border-exchange-border px-4 py-5 sm:px-6 sm:py-6">
         <h1 className="text-lg font-bold text-exchange-text">Ayarlar</h1>
         <p className="text-xs text-exchange-muted">Görünüm ve işlem tercihleriniz</p>
       </div>
 
-      <div className="max-w-2xl space-y-6 px-6 py-6">
-        <section className="rounded-2xl border border-exchange-border bg-exchange-card p-6">
+      <div className="w-full max-w-2xl space-y-4 px-4 py-4 sm:space-y-6 sm:px-6 sm:py-6">
+        <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
           <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
             Görünüm
           </h2>
@@ -39,8 +39,8 @@ export function SettingsPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-exchange-border bg-exchange-card p-6">
-          <div className="flex items-start justify-between gap-6">
+        <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
             <div>
               <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
                 İşlem Tercihleri

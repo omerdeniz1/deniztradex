@@ -65,15 +65,15 @@ export function WalletPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <div className="border-b border-exchange-border px-6 py-6">
+      <div className="border-b border-exchange-border px-4 py-5 sm:px-6 sm:py-6">
         <h1 className="text-lg font-bold text-exchange-text">Cüzdan</h1>
         <p className="text-xs text-exchange-muted">Spot + Vadeli hesaplarınız</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 px-6 py-6 lg:grid-cols-[1fr_2fr]">
-        <section className="rounded-2xl border border-exchange-border bg-exchange-card p-6">
+      <div className="grid grid-cols-1 gap-4 px-4 py-4 sm:px-6 sm:py-6 lg:grid-cols-[1fr_2fr]">
+        <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
           <div className="text-xs uppercase text-exchange-muted">Toplam Bakiye</div>
-          <div className="mt-2 font-mono text-4xl font-bold text-exchange-text">
+          <div className="mt-2 font-mono text-3xl font-bold text-exchange-text sm:text-4xl">
             {formatNumber(balance, 2)}{' '}
             <span className="text-lg text-exchange-yellow">USDT</span>
           </div>
@@ -83,7 +83,7 @@ export function WalletPage() {
           <div className="mt-1 text-xs text-exchange-muted">
             Kullanılan promosyon: {redeemedPromos.length} kod
           </div>
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Button className="flex-1" size="lg" onClick={openDeposit}>
               + Para Yatır
             </Button>
@@ -130,8 +130,8 @@ export function WalletPage() {
         </section>
       </div>
 
-      <section className="mx-6 mb-6 rounded-2xl border border-exchange-border bg-exchange-card">
-        <h2 className="border-b border-exchange-border px-5 py-3 text-sm font-bold uppercase tracking-wide text-exchange-muted">
+      <section className="mx-4 mb-4 rounded-2xl border border-exchange-border bg-exchange-card sm:mx-6 sm:mb-6">
+        <h2 className="border-b border-exchange-border px-4 py-3 text-sm font-bold uppercase tracking-wide text-exchange-muted sm:px-5">
           Çekim Geçmişi
         </h2>
         {withdrawals.length === 0 ? (
@@ -160,8 +160,8 @@ export function WalletPage() {
         )}
       </section>
 
-      <section className="mx-6 mb-6 rounded-2xl border border-exchange-border bg-exchange-card">
-        <h2 className="border-b border-exchange-border px-5 py-3 text-sm font-bold uppercase tracking-wide text-exchange-muted">
+      <section className="mx-4 mb-4 rounded-2xl border border-exchange-border bg-exchange-card sm:mx-6 sm:mb-6">
+        <h2 className="border-b border-exchange-border px-4 py-3 text-sm font-bold uppercase tracking-wide text-exchange-muted sm:px-5">
           Spot Varlıklar
         </h2>
         {holdings.length === 0 ? (
@@ -171,7 +171,7 @@ export function WalletPage() {
         ) : (
           <>
             <div className="max-h-72 overflow-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[26rem] text-sm">
                 <thead className="sticky top-0 bg-exchange-card">
                   <tr className="border-b border-exchange-border text-xs text-exchange-muted">
                     <th className="px-5 py-2 text-left font-medium">Varlık</th>
@@ -211,7 +211,7 @@ export function WalletPage() {
         )}
       </section>
 
-      <section className="mx-6 mb-6 rounded-2xl border border-exchange-border bg-exchange-card p-6">
+      <section className="mx-4 mb-4 rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:mx-6 sm:mb-6 sm:p-6">
         <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
           Promosyon Kodu Kullan
         </h2>
@@ -219,7 +219,7 @@ export function WalletPage() {
           Kodu girip Uygula'ya basın — geçerli kodlara bonus USDT yüklenir. Her kod yalnızca bir kez
           kullanılabilir.
         </p>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
           <input
             value={code}
             onChange={(e) => {
@@ -230,9 +230,12 @@ export function WalletPage() {
               if (e.key === 'Enter') apply()
             }}
             placeholder="Örn. dnztrd100"
-            className="h-10 w-56 rounded border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow placeholder:text-exchange-muted/60"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            className="h-11 w-full rounded border border-exchange-border bg-exchange-bg px-3 text-base text-exchange-text outline-none focus:border-exchange-yellow placeholder:text-exchange-muted/60 sm:h-10 sm:w-56 sm:text-sm"
           />
-          <Button onClick={apply} disabled={!code.trim()}>
+          <Button onClick={apply} disabled={!code.trim()} className="w-full sm:w-auto">
             Uygula
           </Button>
         </div>

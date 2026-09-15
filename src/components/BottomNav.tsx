@@ -61,9 +61,9 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Mobil gezinme"
-      className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-exchange-border bg-exchange-surface/95 pb-safe backdrop-blur md:hidden"
+      className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-exchange-border bg-exchange-surface/95 px-safe pb-safe backdrop-blur md:hidden"
     >
-      <div className="flex items-stretch justify-around">
+      <div className="flex w-full items-stretch justify-around">
         {ITEMS.map((item) => (
           <NavLink
             key={item.to}
@@ -71,13 +71,13 @@ export function BottomNav() {
             end={item.end}
             className={({ isActive }) =>
               cn(
-                'flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold transition-colors',
+                'flex min-h-[3.75rem] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[10px] font-semibold transition-colors active:scale-95',
                 isActive ? 'text-exchange-yellow' : 'text-exchange-muted hover:text-exchange-text',
               )
             }
           >
             {item.icon}
-            <span>{item.label}</span>
+            <span className="truncate">{item.label}</span>
           </NavLink>
         ))}
       </div>

@@ -24,17 +24,17 @@ export function Navbar({ balance, username }: Props) {
   const openWithdraw = useUiStore((s) => s.openWithdraw)
 
   return (
-    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-3 border-b border-exchange-border bg-exchange-surface px-4 py-2 md:h-14 md:flex-nowrap md:py-0">
+    <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-exchange-border bg-exchange-surface px-3 pt-safe sm:gap-3 sm:px-4 md:h-14">
       <Link
         to="/"
         title="Ana Sayfa"
         aria-label="DenizTradeX ana sayfa"
-        className="cursor-pointer rounded-lg transition-opacity hover:opacity-80"
+        className="shrink-0 cursor-pointer rounded-lg transition-opacity hover:opacity-80"
       >
         <Logo iconClassName="h-6 w-6" />
       </Link>
 
-      <nav className="hidden items-center gap-1 md:flex">
+      <nav className="hidden min-w-0 items-center gap-1 md:flex">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
@@ -42,7 +42,7 @@ export function Navbar({ balance, username }: Props) {
             end={item.end}
             className={({ isActive }) =>
               cn(
-                'rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
+                'whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
                 isActive
                   ? 'bg-exchange-yellow/12 text-exchange-yellow'
                   : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
@@ -54,17 +54,17 @@ export function Navbar({ balance, username }: Props) {
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-2 sm:gap-3">
+      <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-3">
         <div className="hidden text-right sm:block">
           <div className="text-[10px] uppercase text-exchange-muted">Bakiye</div>
-          <div className="font-mono text-sm font-bold">
+          <div className="whitespace-nowrap font-mono text-sm font-bold">
             {formatNumber(balance, 2)} <span className="text-exchange-yellow">USDT</span>
           </div>
         </div>
-        <Button size="sm" variant="outline" onClick={openDeposit}>
+        <Button size="sm" variant="outline" onClick={openDeposit} className="whitespace-nowrap px-2.5 sm:px-3">
           + Para Yatır
         </Button>
-        <Button size="sm" variant="outline" onClick={openWithdraw} className="hidden sm:inline-flex">
+        <Button size="sm" variant="outline" onClick={openWithdraw} className="hidden whitespace-nowrap sm:inline-flex">
           - Para Çek
         </Button>
         <UserMenu username={username} />

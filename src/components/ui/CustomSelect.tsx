@@ -60,7 +60,7 @@ export function CustomSelect<V extends string>({ value, onChange, options, class
                 setOpen(false)
               }}
               className={cn(
-                'cursor-pointer px-3 py-2 font-mono text-sm text-exchange-text hover:bg-exchange-border/30',
+                'cursor-pointer px-3 py-2.5 font-mono text-sm text-exchange-text hover:bg-exchange-border/30',
                 o.v === value && 'text-exchange-yellow',
               )}
             >

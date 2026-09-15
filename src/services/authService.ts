@@ -1,8 +1,11 @@
 import type { User } from '@/types'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import {
+  ensureProfileRow,
   findProfileByEmail,
   findProfileByUsername,
+  getProfileWithFallback,
+  resolveLoginEmail,
 } from '@/services/supabaseWallet'
 
 /**
@@ -21,6 +24,68 @@ const USERS_KEY = 'deniztradx_users'
 const SESSION_KEY = 'deniztradx_session'
 
 /**
+ * Aynı cihazda kayıt -> çıkış -> giriş döngüsünü DB'den bağımsız
+ * kurtaran yerel kullanıcı-adı -> e-posta haritası. Safari'de çıkış
+ * sonrası `profiles` okuması RLS/ağ nedeniyle başarısız olsa bile
+ * kullanıcı kendi cihazında girişe devam edebilir.
+ */
+const USERNAME_MAP_KEY = 'deniztradx_username_map'
+
+/** Safari gizli modunda localStorage yazımı patlayabilir — sessiz geç. */
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // kota/gizli mod — oturum yalnızca bellekte yaşar
+  }
+}
+
+function safeRemove(key: string): void {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // yoksay
+  }
+}
+
+function readUsernameMap(): Record<string, string> {
+  try {
+    const raw = safeGet(USERNAME_MAP_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, string>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function rememberUsername(username: string, email: string): void {
+  const key = username.trim().toLowerCase()
+  const value = email.trim().toLowerCase()
+  if (!key || !value) return
+  try {
+    const map = readUsernameMap()
+    map[key] = value
+    safeSet(USERNAME_MAP_KEY, JSON.stringify(map))
+  } catch {
+    // best effort
+  }
+}
+
+function lookupRememberedEmail(username: string): string | null {
+  const email = readUsernameMap()[username.trim().toLowerCase()]
+  return typeof email === 'string' && email.includes('@') ? email : null
+}
+
+/**
  * Referral codes that are accepted at registration. Empty field is fine;
  * anything entered must match one of these (case-insensitive).
  * Startup seed list — expand later.
@@ -33,7 +98,7 @@ interface StoredUser extends User {
 
 function readUsers(): StoredUser[] {
   try {
-    const raw = localStorage.getItem(USERS_KEY)
+    const raw = safeGet(USERS_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as StoredUser[]
     return Array.isArray(parsed) ? parsed : []
@@ -43,7 +108,7 @@ function readUsers(): StoredUser[] {
 }
 
 function writeUsers(users: StoredUser[]) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users))
+  safeSet(USERS_KEY, JSON.stringify(users))
 }
 
 function makeId(prefix: string): string {
@@ -77,7 +142,7 @@ export function toPublicUser(u: StoredUser): User {
 
 export function getSessionUser(): User | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY)
+    const raw = safeGet(SESSION_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as User
     if (!parsed || typeof parsed.id !== 'string' || !parsed.username) return null
@@ -92,7 +157,7 @@ export function getSessionUserId(): string | null {
 }
 
 function setSession(user: User) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(user))
+  safeSet(SESSION_KEY, JSON.stringify(user))
 }
 
 function toCreatedAt(iso: string | undefined): number {
@@ -103,14 +168,28 @@ function toCreatedAt(iso: string | undefined): number {
 /** Maps Supabase auth errors to friendly Turkish messages. */
 function toTurkishAuthError(message: string): string {
   const lower = message.toLowerCase()
-  if (lower.includes('already registered')) {
+  if (lower.includes('already registered') || lower.includes('user already registered')) {
     return 'Bu e-posta adresi zaten kayıtlı.'
   }
-  if (lower.includes('invalid login credentials') || lower.includes('invalid_credentials')) {
+  if (
+    lower.includes('invalid login credentials') ||
+    lower.includes('invalid_credentials') ||
+    // Supabase'in yeni hata metinleri:
+    lower.includes('email not confirmed')
+  ) {
+    if (lower.includes('email not confirmed')) {
+      return 'E-posta adresiniz henüz onaylanmamış. Lütfen e-postanızı kontrol edin.'
+    }
     return 'Kullanıcı adı veya şifre hatalı.'
+  }
+  if (lower.includes('user not found')) {
+    return 'Kullanıcı bulunamadı.'
   }
   if (lower.includes('password should be at least 6')) {
     return 'Şifreniz en az 6 karakter olmalı.'
+  }
+  if (lower.includes('network') || lower.includes('fetch') || lower.includes('failed to fetch')) {
+    return 'Bağlantı kurulamadı. İnternetinizi kontrol edip tekrar deneyin.'
   }
   return message
 }
@@ -170,6 +249,11 @@ export async function register(input: {
       email: data.user.email ?? email,
       createdAt: toCreatedAt(data.user.created_at),
     }
+    // Trigger gecikebilir/çakışabilir — profil satırını garanti altına al
+    // ki sonraki girişlerde kullanıcı-adı çözümlemesi boş dönmesin.
+    await ensureProfileRow({ id: user.id, username, email: user.email })
+    // Aynı cihazda çıkış sonrası giriş için yerel haritayı güncelle.
+    rememberUsername(username, user.email)
     // The rest of the app keys off this local session (cards, wallet, settings).
     setSession(user)
     return user
@@ -195,6 +279,7 @@ export async function register(input: {
   writeUsers([...users, user])
 
   const publicUser = toPublicUser(user)
+  rememberUsername(username, email)
   setSession(publicUser)
   return publicUser
 }
@@ -208,29 +293,63 @@ export async function login(identifier: string, password: string): Promise<User>
   if (isSupabaseConfigured && supabase) {
     let email = key
     if (!key.includes('@')) {
-      const profile = await findProfileByUsername(key)
-      if (!profile) {
+      // Kullanıcı adı -> e-posta çözümlemesi (girişten ÖNCE, yani anonim).
+      // Sıra: 1) bu cihazda hatırlanan harita (Safari çıkış-sonrası
+      // RLS/ağ sorunlarına karşı), 2) RLS'yi baypas eden RPC, 3) doğrudan
+      // tablo sorgusu. Üçü de boş dönerse kullanıcı gerçekten yoktur.
+      email =
+        lookupRememberedEmail(key) ??
+        (await resolveLoginEmail(key)) ??
+        (await findProfileByUsername(key))?.email ??
+        ''
+      // RPC/bellek farklı yazımı bulmuş olabilir (örn. iOS oto-büyük harf);
+      // tablo sorgusu büyük-küçük harfe duyarsız (ilike) olduğu için
+      // buradaki fallback zinciri yazım farklarını tolere eder.
+      if (!email) {
         throw new Error('Kullanıcı bulunamadı.')
       }
-      email = profile.email
     }
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    const { data, error } = await (async () => {
+      // Devam eden bir çıkış varsa önce onun bitmesini bekle — kuyruktaki
+      // signOut temizliği yeni girişin tokenlarını silmesin (Safari fix).
+      await waitForPendingSignOut()
+      return supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+    })()
     if (error || !data.user) {
-      throw new Error(toTurkishAuthError(error?.message ?? 'Hatalı şifre.'))
+      // Kullanıcı adı doğru ama şifre yanlışsa Supabase "invalid login
+      // credentials" döner — bunu "şifre hatalı" diye netleştir ki
+      // kullanıcı "bulunamadı" sanıp boşuna kayıt olmaya çalışmasın.
+      const msg = toTurkishAuthError(error?.message ?? 'Hatalı şifre.')
+      throw new Error(msg)
     }
 
     const authUser = data.user
+    // Safe fallback: the `profiles` row (seeded by `handle_new_user`) can lag
+    // briefly behind auth. `getProfileWithFallback` retries for a moment and
+    // then builds an in-memory default profile from `auth.users` data, so a
+    // missing row never locks the app and never signs the user back out —
+    // the verified session is always kept.
+    const profile = await getProfileWithFallback({
+      id: authUser.id,
+      email: authUser.email ?? email,
+      username: authUser.user_metadata?.username as string | undefined,
+      created_at: authUser.created_at,
+    })
     const user: User = {
       id: authUser.id,
-      username: (authUser.user_metadata?.username as string | undefined)
-        ?? email.split('@')[0],
-      email: authUser.email ?? email,
-      createdAt: toCreatedAt(authUser.created_at),
+      username: profile.username || email.split('@')[0],
+      email: profile.email || authUser.email || email,
+      createdAt: toCreatedAt(profile.created_at ?? authUser.created_at),
     }
+    // Eksik/gecikmiş profil satırını kalıcı olarak onar ve bu cihazın
+    // haritasını tazele — bir sonraki çıkış->giriş döngüsü DB'ye
+    // bağımlı kalmadan çalışsın.
+    await ensureProfileRow({ id: user.id, username: user.username, email: user.email })
+    rememberUsername(user.username, user.email)
     setSession(user)
     return user
   }
@@ -252,13 +371,46 @@ export async function login(identifier: string, password: string): Promise<User>
   return publicUser
 }
 
-export function logout(): void {
+/**
+ * Devam eden çıkış yarışı koruması: `supabase.auth.signOut()` önce ağa
+ * çıkar (`/logout`), depolamadaki tokenları EN SON siler. Kullanıcı çıkışa
+ * basıp hemen yeniden giriş yaparsa, kuyruktaki signOut'un sonundaki
+ * `_removeSession` YENİ tokenları silebilir (Safari mobilde görülen
+ * "oturum düştü / kullanıcı bulunamadı" yarış durumu). Login, girişten
+ * önce bu sözü bekleyerek sıralamayı garanti altına alır.
+ */
+let pendingSignOut: Promise<void> | null = null
+
+function waitForPendingSignOut(): Promise<void> {
+  return pendingSignOut ?? Promise.resolve()
+}
+
+/**
+ * Çıkış: yerel oturum SENKRON temizlenir, ardından Supabase signOut
+ * beklenir.
+ *
+ * - `safeRemove` ilk `await`'ten önce çalışır: çağrıldığı anda oturum
+ *   bitmiş sayılır; çıkış sonrası hiçbir yazım eski kullanıcının
+ *   session-anahtarlı depolarına (cüzdan/kart/ayar) düşmez.
+ * - `await signOut` + `pendingSignOut` takibi: hemen ardından gelen bir
+ *   giriş, signOut'un kuyruk temizliği bitmeden başlamaz.
+ * - Kullanıcı-adı haritası BİLEREK korunur (giriş kolaylığı için;
+ *   şifre içermez).
+ */
+export async function logout(): Promise<void> {
+  safeRemove(SESSION_KEY)
   if (isSupabaseConfigured && supabase) {
-    void supabase.auth.signOut().catch(() => {
-      // network/API hiccup — the local session is cleared below regardless
-    })
+    const p: Promise<void> = supabase.auth.signOut().then(
+      () => undefined,
+      () => undefined,
+    )
+    pendingSignOut = p
+    try {
+      await p
+    } finally {
+      if (pendingSignOut === p) pendingSignOut = null
+    }
   }
-  localStorage.removeItem(SESSION_KEY)
 }
 
 /** Keys private to the wallet store — do not import the internals elsewhere. */

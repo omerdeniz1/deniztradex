@@ -54,10 +54,10 @@ export function AuthScreen() {
   }
 
   const inputClass =
-    'h-11 w-full rounded-lg border border-exchange-border bg-exchange-bg px-3.5 text-sm text-exchange-text outline-none transition-colors focus:border-exchange-yellow placeholder:text-exchange-muted/70'
+    'h-11 w-full rounded-lg border border-exchange-border bg-exchange-bg px-3.5 text-base text-exchange-text outline-none transition-colors focus:border-exchange-yellow placeholder:text-exchange-muted/70 sm:text-sm'
 
   return (
-    <div className="relative flex h-screen items-center justify-center overflow-hidden bg-exchange-bg p-4">
+    <div className="relative flex min-h-dvh items-center justify-center overflow-y-auto overflow-x-clip bg-exchange-bg p-4 py-8 sm:py-4">
       {/* ambient glow */}
       <div
         aria-hidden
@@ -78,7 +78,7 @@ export function AuthScreen() {
           <Logo iconClassName="h-10 w-10" />
         </div>
 
-        <div className="rounded-2xl border border-exchange-border bg-exchange-card p-6 shadow-2xl sm:p-8">
+        <div className="rounded-2xl border border-exchange-border bg-exchange-card p-5 shadow-2xl sm:p-8">
           <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-exchange-bg p-1">
             {(['login', 'register'] as const).map((m) => (
               <button
@@ -117,6 +117,10 @@ export function AuthScreen() {
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       autoComplete="username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      enterKeyHint="next"
                       placeholder="örn. deniz_trader"
                       className={inputClass}
                     />
@@ -129,7 +133,12 @@ export function AuthScreen() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       type="email"
+                      inputMode="email"
                       autoComplete="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      enterKeyHint="next"
                       placeholder="ornek@eposta.com"
                       className={inputClass}
                     />
@@ -144,6 +153,10 @@ export function AuthScreen() {
                     value={identifier}
                     onChange={(e) => setIdentifier(e.target.value)}
                     autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    enterKeyHint="next"
                     placeholder="kullanıcı adı veya e-posta"
                     className={inputClass}
                   />
