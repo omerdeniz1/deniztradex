@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useTradeStore } from '@/store/tradeStore'
-import { useSettingsStore } from '@/store/settingsStore'
+import { useEffectiveTheme } from '@/hooks/useEffectiveTheme'
 import { useUiStore } from '@/store/uiStore'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { Navbar } from '@/components/Navbar'
@@ -28,11 +28,11 @@ export default function App() {
 }
 
 function ThemeManager() {
-  const theme = useSettingsStore((s) => s.theme)
+  const effective = useEffectiveTheme()
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
-  }, [theme])
+    document.documentElement.dataset.theme = effective
+  }, [effective])
 
   return null
 }

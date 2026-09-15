@@ -371,9 +371,9 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             </div>
           </div>
 
-          {/* Zaman dilimi + indikatör araç çubuğu: mobilde yatay kayar,
-              hiçbir öğe üst üste binmez. */}
-          <div className="flex items-center gap-1.5 border-b border-exchange-border px-2 py-1.5 sm:px-3">
+          {/* Zaman dilimi + indikatör araç çubuğu (masaüstü: haplar).
+              Mobilde haplar yerine tek dropdown kullanılır (aşağıda). */}
+          <div className="hidden items-center gap-1.5 border-b border-exchange-border px-2 py-1.5 sm:flex sm:px-3">
             <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
               {TIMEFRAMES.map((tf) => (
                 <button
@@ -395,7 +395,14 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             <IndicatorMenu indicators={indicators} onToggle={toggleIndicator} />
           </div>
 
-          <div className="relative h-[280px] w-full max-w-full flex-none sm:h-[340px] md:h-[500px]">
+          {/* Mobil araç çubuğu: tek zaman-dilimi menüsü + indikatörler.
+              İki öğe de sabit genişlikli/sarmalanır — taşma ve çakışma yok. */}
+          <div className="flex items-center gap-2 border-b border-exchange-border px-3 py-1.5 sm:hidden">
+            <TimeframeMenu interval={interval} onSelect={setInterval} />
+            <IndicatorMenu indicators={indicators} onToggle={toggleIndicator} />
+          </div>
+
+          <div className="relative h-[220px] w-full max-w-full flex-none sm:h-[340px] md:h-[500px]">
             {legendItems.length > 0 && !isLoading && !error && (
               <div className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap gap-x-2.5 gap-y-0.5">
                 {legendItems.map((item) => (
@@ -539,8 +546,101 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   )
 }
 
-const INDICATOR_ROWS: { key: keyof ChartIndicators; label: string; hint: string }[] = [
-  { key: 'ma', label: 'Hareketli Ortalama', hint: 'MA 7 · 25' },
+/**
+ * Mobil zaman-dilimi menüsü (Binance tarzı tek dropdown): 7 hap yerine
+ * mevcut seçimi gösteren kompakt bir buton + açılır liste.
+ */
+function TimeframeMenu({
+  interval,
+  onSelect,
+}: {
+  interval: Interval
+  onSelect: (v: Interval) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const scopeRef = useRef<HTMLDivElement>(null)
+  const current = TIMEFRAMES.find((t) => t.v === interval) ?? TIMEFRAMES[0]
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (scopeRef.current && !scopeRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open ])
+
+  return (
+    <div ref={scopeRef} className="relative min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={cn(
+          'flex min-h-[2.25rem] w-full items-center justify-between gap-2 rounded-lg border px-3 text-sm font-bold transition-colors',
+          open
+            ? 'border-exchange-yellow/60 bg-exchange-yellow/10 text-exchange-yellow'
+            : 'border-exchange-border bg-exchange-surface text-exchange-text',
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden className="shrink-0 text-exchange-muted">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          <span className="truncate font-mono">{current.l}</span>
+        </span>
+        <span className={cn('shrink-0 text-[10px] text-exchange-muted transition-transform', open && 'rotate-180')}>
+          ▼
+        </span>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            transition={{ duration: 0.12 }}
+            role="listbox"
+            aria-label="Zaman dilimi"
+            className="absolute left-0 top-full z-50 mt-2 w-44 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+          >
+            {TIMEFRAMES.map((tf) => {
+              const active = tf.v === interval
+              return (
+                <button
+                  key={tf.v}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    onSelect(tf.v)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-exchange-surface',
+                    active ? 'bg-exchange-yellow/5' : undefined,
+                  )}
+                >
+                  <span className={cn('font-mono text-sm font-bold', active ? 'text-exchange-yellow' : 'text-exchange-text')}>
+                    {tf.l}
+                  </span>
+                  {active && <span className="text-xs font-extrabold text-exchange-yellow">✓</span>}
+                </button>
+              )
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+const INDICATOR_ROWS: { key: keyof ChartIndicators; label: string; hint: string }[] = [  { key: 'ma', label: 'Hareketli Ortalama', hint: 'MA 7 · 25' },
   { key: 'ema', label: 'Üstel Ortalama', hint: 'EMA 12 · 26' },
   { key: 'boll', label: 'Bollinger Bantları', hint: '20 · 2σ' },
   { key: 'volume', label: 'Hacim', hint: 'mum altı barlar' },
