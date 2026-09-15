@@ -25,6 +25,8 @@ interface Props {
   initialSide?: PanelSide
   /** Emir başarıyla gönderildiğinde çağrılır (mobilde sheet'i kapatmak için). */
   onSubmitted?: () => void
+  /** Tetik Tipi satırını gizler (mobil sheet sade görünüm). Varsayılan açık. */
+  showTriggerType?: boolean
 }
 
 export type PanelSide = OrderStance
@@ -60,7 +62,7 @@ const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   oco: 'OCO',
 }
 
-export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, onSubmitted }: Props) {
+export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, onSubmitted, showTriggerType = true }: Props) {
   const spotBalances = useTradeStore((s) => s.spotBalances)
   const confirmOrders = useSettingsStore((s) => s.confirmOrders)
   const place = useOrderStore((s) => s.placeOrder)
@@ -446,19 +448,21 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
         </div>
 
         <div className="rounded border border-exchange-border bg-exchange-card p-3">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="shrink-0 text-[11px] uppercase tracking-wide text-exchange-muted">Tetik Tipi</span>
-              <CustomSelect
-                value={triggerType}
-                onChange={setTriggerType}
-                label="Trigger type"
-                className="h-7 min-w-[8rem] cursor-pointer rounded border border-exchange-border bg-exchange-surface px-2 font-mono text-[11px] text-exchange-text outline-none focus:border-exchange-yellow"
-                options={[
-                  { v: 'last', l: 'Son Fiyat' },
-                  { v: 'mark', l: 'Gösterge Fiyatı' },
-                ]}
-              />
-            </div>
+            {showTriggerType && (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="shrink-0 text-[11px] uppercase tracking-wide text-exchange-muted">Tetik Tipi</span>
+                <CustomSelect
+                  value={triggerType}
+                  onChange={setTriggerType}
+                  label="Trigger type"
+                  className="h-7 min-w-[8rem] cursor-pointer rounded border border-exchange-border bg-exchange-surface px-2 font-mono text-[11px] text-exchange-text outline-none focus:border-exchange-yellow"
+                  options={[
+                    { v: 'last', l: 'Son Fiyat' },
+                    { v: 'mark', l: 'Gösterge Fiyatı' },
+                  ]}
+                />
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-2">
               <div className="min-w-0">

@@ -91,7 +91,7 @@ function FuturesHistoryWrap() {
 
 function SpotHistoryWrap() {
   const spotTrades = useTradeStore((s) => s.spotTrades)
-  return <SpotHistory trades={spotTrades} />
+  return <SpotHistory trades={spotTrades} bare />
 }
 
 function FuturesOpen({ livePrices }: { livePrices: Record<string, number> }) {
@@ -109,9 +109,6 @@ function FuturesOpen({ livePrices }: { livePrices: Record<string, number> }) {
       <PositionList livePrices={livePrices} />
       {pending.length > 0 && (
         <div className="border-t border-exchange-border">
-          <div className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-exchange-muted">
-            Bekleyen Emirler
-          </div>
           {pending.map((o) => {
             const s = sideLabel(o.side)
             return (
@@ -170,9 +167,6 @@ function SpotOpen({ livePrices }: { livePrices: Record<string, number> }) {
     <div>
       {spotPositions.length > 0 && (
         <div className="border-b border-exchange-border/40">
-          <div className="px-4 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-exchange-muted">
-            Oto Emirler (TP / SL)
-          </div>
           {spotPositions.map((p) => (
             <div key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-exchange-border/40 px-4 py-2 text-xs last:border-0">
               <span className="shrink-0 font-mono font-semibold text-exchange-text">{p.symbol}</span>

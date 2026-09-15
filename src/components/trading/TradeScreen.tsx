@@ -583,7 +583,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-50 md:hidden"
+            className="fixed inset-0 z-[60] md:hidden"
             role="dialog"
             aria-modal="true"
             aria-label="Emir ver"
@@ -620,7 +620,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                   ✕
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto border-t border-exchange-border">
+              <div className="min-h-0 flex-1 overflow-y-auto border-t border-exchange-border pb-20">
                 <TradingPanel
                   key={`${symbol}-${sheetSide}`}
                   ticker={ticker}
@@ -629,6 +629,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                   marketPrice={livePrices[symbol]}
                   initialSide={sheetSide}
                   onSubmitted={() => setSheetSide(null)}
+                  showTriggerType={false}
                 />
               </div>
             </motion.div>

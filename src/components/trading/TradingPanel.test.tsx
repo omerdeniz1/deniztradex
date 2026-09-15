@@ -52,6 +52,27 @@ beforeEach(() => {
   useSettingsStore.getState().setConfirmOrders(false)
 })
 
+describe('TradingPanel sheet options', () => {
+  it('hides the trigger-type row when showTriggerType is false', () => {
+    render(
+      <TradingPanel ticker={btcTicker} mode="spot" balance={1000} marketPrice={100} showTriggerType={false} />,
+    )
+    expect(screen.queryByLabelText('Trigger type')).toBeNull()
+    // TP/SL kutuları durur
+    expect(screen.getByLabelText('Take profit price')).toBeInTheDocument()
+    expect(screen.getByLabelText('Stop loss price')).toBeInTheDocument()
+  })
+
+  it('shows the trigger-type row by default and preselects the side', () => {
+    render(
+      <TradingPanel ticker={btcTicker} mode="spot" balance={1000} marketPrice={100} initialSide="sell" />,
+    )
+    expect(screen.getByLabelText('Trigger type')).toBeInTheDocument()
+    // Sekme + submit butonu aynı etiketi taşır — ikisinin de Sat olması yönün seçildiğini kanıtlar.
+    expect(screen.getAllByRole('button', { name: 'Sat (Sell)' })).toHaveLength(2)
+  })
+})
+
 describe('TradingPanel price sync', () => {
   it('auto-fills the price from the live ticker', () => {
     renderPanel({ balance: 1000 })

@@ -122,20 +122,24 @@ export function FuturesHistory({ trades }: { trades: ReturnType<typeof useTradeS
   )
 }
 
-export function SpotHistory({ trades }: { trades: ReturnType<typeof useTradeStore.getState>['spotTrades'] }) {
+export function SpotHistory({ trades, bare }: { trades: ReturnType<typeof useTradeStore.getState>['spotTrades']; bare?: boolean }) {
   return (
     <div>
-      <div className="px-4 py-3">
-        <p className="text-xs font-semibold text-exchange-text">Açık Emirler (Open Orders)</p>
-        <p className="mt-1 text-[11px] text-exchange-muted">
-          Spot işlemler anında gerçekleşir, bekleyen emir bulunmaz.
-        </p>
-      </div>
+      {!bare && (
+        <div className="px-4 py-3">
+          <p className="text-xs font-semibold text-exchange-text">Açık Emirler (Open Orders)</p>
+          <p className="mt-1 text-[11px] text-exchange-muted">
+            Spot işlemler anında gerçekleşir, bekleyen emir bulunmaz.
+          </p>
+        </div>
+      )}
 
       <div className="text-xs">
-        <p className="px-4 text-xs font-semibold text-exchange-text">
-          Alım-Satım Geçmişi (Trade History)
-        </p>
+        {!bare && (
+          <p className="px-4 text-xs font-semibold text-exchange-text">
+            Alım-Satım Geçmişi (Trade History)
+          </p>
+        )}
         {trades.length === 0 ? (
           <div className="px-4 py-6 text-center text-exchange-muted">
             Henüz işlem yapılmadı.
