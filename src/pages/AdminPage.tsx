@@ -330,6 +330,11 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                 </span>
               )}
             </h2>
+            {filtered.length > 6 && (
+              <span className="shrink-0 animate-bounce text-[11px] font-bold text-exchange-muted" aria-hidden>
+                ↓ kaydır
+              </span>
+            )}
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -349,8 +354,10 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
             </div>
           ) : (
             // Scroll düzeltmesi: kayıt çokken tablo kendi bölgesinde
-            // dikey kayar (başlık sabit), sayfa akışı bozulmaz.
-            <div className="max-h-[65dvh] overflow-auto">
+            // dikey kayar (başlık sabit), sayfa akışı bozulmaz. Alt
+            // gölge, listenin devam ettiğini belli eder.
+            <div className="relative">
+              <div className="max-h-[70dvh] overflow-auto">
               <table className="w-full min-w-[880px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-exchange-border text-[11px] uppercase tracking-wide text-exchange-muted">
@@ -484,6 +491,13 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                   })}
                 </tbody>
               </table>
+              </div>
+              {filtered.length > 6 && (
+                <div
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-exchange-card to-transparent"
+                  aria-hidden
+                />
+              )}
             </div>
           )}
         </div>
@@ -492,7 +506,8 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
         {can('ban_users') && <ForumModeration />}
 
         {/* Yönetici yetkileri (yalnızca admin ekleyebilenler) */}
-        {can('manage_admins') && (          <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+        {can('manage_admins') && (
+          <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
             <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
               <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
                 Yöneticiler
