@@ -74,14 +74,14 @@ export function LeaderboardPage() {
             </div>
           ) : (
             <div className="max-h-[70dvh] overflow-auto">
-              <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+              <table className="w-full border-collapse text-left text-xs sm:text-sm">
                 <thead>
-                  <tr className="border-b border-exchange-border text-[11px] uppercase tracking-wide text-exchange-muted">
-                    <th scope="col" className="sticky top-0 z-10 w-12 bg-exchange-card px-3 py-2.5 text-center font-semibold sm:px-4">#</th>
-                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 font-semibold sm:px-4">Kullanıcı</th>
-                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 text-right font-semibold sm:px-4">Portföy</th>
+                  <tr className="border-b border-exchange-border text-[10px] uppercase tracking-wide text-exchange-muted sm:text-[11px]">
+                    <th scope="col" className="sticky top-0 z-10 w-9 bg-exchange-card px-2 py-2 text-center font-semibold sm:w-12 sm:px-3 sm:py-2.5">#</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-2 py-2 font-semibold sm:px-3 sm:py-2.5">Kullanıcı</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-2 py-2 text-right font-semibold sm:px-3 sm:py-2.5">Portföy</th>
                     <th scope="col" className="sticky top-0 z-10 hidden bg-exchange-card px-3 py-2.5 text-right font-semibold sm:table-cell sm:px-4">Hacim</th>
-                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 text-right font-semibold sm:px-4">Skor</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-2 py-2 text-right font-semibold sm:px-3 sm:py-2.5">Skor</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -95,20 +95,20 @@ export function LeaderboardPage() {
                           isMe && 'bg-exchange-yellow/5',
                         )}
                       >
-                        <td className="px-3 py-2.5 text-center sm:px-4">
+                        <td className="px-2 py-2 text-center sm:px-3 sm:py-2.5">
                           <RankMedal rank={e.rank} />
                         </td>
-                        <td className="px-3 py-2.5 sm:px-4">
-                          <div className="flex min-w-0 items-center gap-2">
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5">
+                          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
                             {e.avatarUrl ? (
                               <img
                                 src={e.avatarUrl}
                                 alt=""
-                                className="h-8 w-8 shrink-0 rounded-full object-cover"
+                                className="h-7 w-7 shrink-0 rounded-full object-cover sm:h-8 sm:w-8"
                               />
                             ) : (
                               <span
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-xs font-extrabold text-exchange-yellow"
+                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-[11px] font-extrabold text-exchange-yellow sm:h-8 sm:w-8 sm:text-xs"
                                 aria-hidden
                               >
                                 {(e.username.charAt(0) || '?').toUpperCase()}
@@ -133,21 +133,21 @@ export function LeaderboardPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono font-bold text-exchange-text sm:px-4">
+                        <td className="whitespace-nowrap px-2 py-2 text-right font-mono font-bold text-exchange-text sm:px-3 sm:py-2.5">
                           {formatNumber(e.balance, 2)}
                         </td>
                         <td className="hidden whitespace-nowrap px-3 py-2.5 text-right font-mono text-exchange-muted sm:table-cell sm:px-4">
                           {formatNumber(e.volume, 2)}
                         </td>
-                        <td className="px-3 py-2.5 sm:px-4">
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-exchange-border/50 sm:w-20">
+                        <td className="px-2 py-2 sm:px-3 sm:py-2.5">
+                          <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+                            <span className="h-1.5 w-10 shrink-0 overflow-hidden rounded-full bg-exchange-border/50 sm:w-20">
                               <span
                                 className="block h-full rounded-full bg-exchange-yellow"
                                 style={{ width: `${Math.min(100, Math.max(0, e.score))}%` }}
                               />
                             </span>
-                            <span className="w-10 shrink-0 text-right font-mono text-xs font-extrabold text-exchange-text">
+                            <span className="w-9 shrink-0 text-right font-mono text-[11px] font-extrabold text-exchange-text sm:w-10 sm:text-xs">
                               {formatNumber(e.score, 1)}
                             </span>
                           </div>
@@ -173,7 +173,7 @@ export function LeaderboardPage() {
 
 function RankMedal({ rank }: { rank: number }) {
   if (rank > 3) {
-    return <span className="font-mono text-xs font-bold text-exchange-muted">{rank}</span>
+    return <span className="font-mono text-[11px] font-bold text-exchange-muted sm:text-xs">{rank}</span>
   }
   const styles =
     rank === 1
@@ -184,7 +184,7 @@ function RankMedal({ rank }: { rank: number }) {
   return (
     <span
       className={cn(
-        'mx-auto flex h-7 w-7 items-center justify-center rounded-full font-mono text-xs font-extrabold',
+        'mx-auto flex h-6 w-6 items-center justify-center rounded-full font-mono text-[11px] font-extrabold sm:h-7 sm:w-7 sm:text-xs',
         styles,
       )}
       aria-label={`${rank}. sıra`}
