@@ -92,9 +92,37 @@ function readLocalPosts(): LocalStoredPost[] {
     const raw = localStorage.getItem(FORUM_LOCAL_KEY)
     if (!raw) return ensureLocalSeed()
     const parsed = JSON.parse(raw) as LocalStoredPost[]
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) return []
+    // Eski sürümde yazılmış kayıtlar `replies`/`likedBy` içermeyebilir —
+    // normalize edilmezse `.length` erişimi patlayıp akışı kilitler.
+    return parsed.map(normalizeLocalPost)
   } catch {
     return []
+  }
+}
+
+/** Eski formatlı yerel kayıtları güncel şemaya taşır (kayıpsız). */
+function normalizeLocalPost(row: Partial<LocalStoredPost> & { id?: unknown }): LocalStoredPost {
+  const r = row as Record<string, unknown>
+  const str = (v: unknown, fb: string): string => (typeof v === 'string' && v ? v : fb)
+  const strArray = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  return {
+    id: str(r.id, makeId('post')),
+    userId: str(r.userId, ''),
+    username: str(r.username, 'anon'),
+    content: str(r.content, ''),
+    likedBy: strArray(r.likedBy),
+    replies: Array.isArray(r.replies)
+      ? (r.replies as Partial<LocalStoredReply>[]).map((x) => ({
+          id: str(x?.id, makeId('reply')),
+          userId: str(x?.userId, ''),
+          username: str(x?.username, 'anon'),
+          content: str(x?.content, ''),
+          createdAt: typeof x?.createdAt === 'number' ? x.createdAt : Date.now(),
+        }))
+      : [],
+    createdAt: typeof r.createdAt === 'number' ? r.createdAt : Date.now(),
   }
 }
 

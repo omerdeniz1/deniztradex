@@ -62,8 +62,7 @@ describe('forumService (offline backend)', () => {
   })
 })
 
-describe('forum replies (offline backend)', () => {
-  it('rejects empty and overlong replies', async () => {
+describe('forum replies (offline backend)', () => {  it('rejects empty and overlong replies', async () => {
     loginAs(alice)
     const post = await createForumPost('Yanıtlanacak')
     await expect(createForumReply(post.id, '   ')).rejects.toThrow('boş')
@@ -103,5 +102,24 @@ describe('formatTimeAgo', () => {
     expect(formatTimeAgo(now - 5 * 60_000)).toBe('5d')
     expect(formatTimeAgo(now - 3 * 3_600_000)).toBe('3sa')
     expect(formatTimeAgo(now - 2 * 86_400_000)).toBe('2g')
+  })
+})
+
+describe('forum legacy local data', () => {
+  it('normalizes pre-replies posts instead of crashing the feed', async () => {
+    loginAs(alice)
+    // Yanıt özelliğinden önce yazılmış kayıt: `replies`/`likedBy` yok.
+    localStorage.setItem(
+      'deniztradx_forum_posts_v1',
+      JSON.stringify([
+        { id: 'old_1', userId: 'u_alice', username: 'alice', content: 'eski gönderi', createdAt: 123 },
+      ]),
+    )
+    const list = await listForumPosts()
+    expect(list.find((p) => p.id === 'old_1')).toMatchObject({ replyCount: 0, likeCount: 0 })
+    // Üstüne yanıt da verilebilmeli.
+    const reply = await createForumReply('old_1', 'yeni yanıt')
+    expect(reply.content).toBe('yeni yanıt')
+    expect(await listForumReplies('old_1')).toHaveLength(1)
   })
 })
