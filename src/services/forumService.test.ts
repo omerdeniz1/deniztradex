@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  classifyForumRemoteError,
   createForumPost,
   createForumReply,
   deleteForumPost,
   deleteForumReply,
   formatTimeAgo,
+  forumDisplayName,
   listForumPosts,
   listForumReplies,
   toggleForumLike,
@@ -121,5 +123,52 @@ describe('forum legacy local data', () => {
     const reply = await createForumReply('old_1', 'yeni yanıt')
     expect(reply.content).toBe('yeni yanıt')
     expect(await listForumReplies('old_1')).toHaveLength(1)
+  })
+})
+
+describe('forumDisplayName', () => {
+  it('never shows a raw uid/uuid in the UI', () => {
+    expect(forumDisplayName('alice', 'u_alice')).toBe('alice')
+    expect(forumDisplayName('b47a515e-6c25-4daa-a683-34a8fc1eb8e5', 'b47a515e-6c25-4daa-a683-34a8fc1eb8e5')).toBe(
+      'Kullanıcı',
+    )
+    expect(forumDisplayName('', 'u_bob')).toBe('u_bob')
+  })
+})
+
+describe('classifyForumRemoteError', () => {
+  it('detects missing tables (setup) instead of blaming the connection', () => {
+    const err = classifyForumRemoteError(
+      { code: 'PGRST205', message: "Could not find the table 'public.forum_posts' in the schema cache" },
+      'Gönderi paylaşılamadı',
+    )
+    expect(err.message).toMatch('kurulum eksik')
+    expect(err.message).toMatch('APPLY_ALL_PENDING.sql')
+  })
+
+  it('detects missing RPC functions', () => {
+    const err = classifyForumRemoteError(
+      { code: 'PGRST202', message: 'Could not find the function public.toggle_forum_like' },
+      'Beğeni işlenemedi',
+    )
+    expect(err.message).toMatch('kurulum eksik')
+  })
+
+  it('detects RLS/session problems', () => {
+    const err = classifyForumRemoteError(
+      { code: '42501', message: 'new row violates row-level security policy' },
+      'Gönderi paylaşılamadı',
+    )
+    expect(err.message).toMatch('tekrar giriş yap')
+  })
+
+  it('detects network failures', () => {
+    const err = classifyForumRemoteError(new TypeError('Failed to fetch'), 'Akış yüklenemedi')
+    expect(err.message).toMatch('bağlantı')
+  })
+
+  it('falls back to a generic message without leaking internals', () => {
+    const err = classifyForumRemoteError(new Error('unexpected-feed-shape'), 'Akış yüklenemedi')
+    expect(err.message).toBe('Akış yüklenemedi. Lütfen tekrar dene.')
   })
 })

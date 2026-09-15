@@ -28,16 +28,27 @@ export function ForumPage() {
   const [liking, setLiking] = useState<Record<string, boolean>>({})
 
   const myId = getSessionUser()?.id ?? null
+  const [feedError, setFeedError] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
-    try {
-      setPosts(await listForumPosts())
-    } catch {
-      pushToast({ message: 'Akış yüklenemedi. Lütfen tekrar dene.', tone: 'error' })
-    } finally {
-      setLoading(false)
-    }
-  }, [pushToast])
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      try {
+        setPosts(await listForumPosts())
+        setFeedError(null)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Akış yüklenemedi. Lütfen tekrar dene.'
+        setFeedError(msg)
+        // Arka plan yenilemeleri (polling/realtime/odak) sessizdir:
+        // kalıcı bir arızada her 15 saniyede toast yağmaz.
+        if (!opts?.silent) {
+          pushToast({ message: msg, tone: 'error' })
+        }
+      } finally {
+        setLoading(false)
+      }
+    },
+    [pushToast],
+  )
 
   useEffect(() => {
     void refresh()
@@ -46,35 +57,31 @@ export function ForumPage() {
   // Canlı akış: başka cihazda paylaşılan gönderi bu ekrana da düşsün.
   // Realtime + periyodik yoklama + odaklanınca yenileme birlikte çalışır;
   // biri çalışmazsa diğeri yakalar. Sessiz yenileme — yükleniyor
-  // göstergesiyle akışı boşaltıp "silindi" izlenimi vermez.
+  // göstergesiyle akışı boşaltıp "silindi" izlenimi vermez, hata
+  // durumunda toast spam'i yapmaz (hata inline banner'da durur).
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return
     const client = supabase
+    const quiet = () => {
+      void refresh({ silent: true })
+    }
     const channel = client
       .channel('forum-feed')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'forum_posts' },
-        () => {
-          void refresh()
-        },
+        quiet,
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'forum_replies' },
-        () => {
-          void refresh()
-        },
+        quiet,
       )
       .subscribe()
-    const timer = window.setInterval(() => {
-      void refresh()
-    }, 15000)
-    const onFocus = () => {
-      void refresh()
-    }
+    const timer = window.setInterval(quiet, 15000)
+    const onFocus = quiet
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void refresh()
+      if (document.visibilityState === 'visible') quiet()
     }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
@@ -179,11 +186,32 @@ export function ForumPage() {
         </div>
 
         <div className="flex-1">
+          {feedError && posts.length > 0 && !loading && (
+            <div className="mx-3 mt-3 flex items-start justify-between gap-2 rounded-xl border border-exchange-sell/30 bg-exchange-sell/5 px-3 py-2.5 sm:mx-4">
+              <p className="min-w-0 flex-1 text-xs leading-relaxed text-exchange-text">{feedError}</p>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="shrink-0 whitespace-nowrap text-xs font-bold text-exchange-yellow hover:underline"
+              >
+                Tekrar dene
+              </button>
+            </div>
+          )}
           {loading ? (
             <div className="px-4 py-12 text-center text-sm text-exchange-muted">Akış yükleniyor…</div>
           ) : posts.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-exchange-muted">
-              Henüz gönderi yok. İlk paylaşan sen ol!
+              {feedError ? (
+                <div className="mx-auto max-w-sm">
+                  <p className="leading-relaxed">{feedError}</p>
+                  <Button size="sm" onClick={() => void refresh()} className="mt-4 px-5">
+                    Tekrar dene
+                  </Button>
+                </div>
+              ) : (
+                'Henüz gönderi yok. İlk paylaşan sen ol!'
+              )}
             </div>
           ) : (
             <ul>

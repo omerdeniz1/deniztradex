@@ -25,6 +25,76 @@ function isRemoteMode(): boolean {
   return isSupabaseConfigured && supabase !== null
 }
 
+/**
+ * Uzak hataları kullanıcı diline çevirir.
+ *
+ * Neden gerekli? Eskiden her hata gizlenip yerele düşülüyordu; şimdi hata
+ * aynen gösteriliyor ama ham PostgREST metni ("PGRST205 ... schema cache")
+ * kullanıcıya bir şey anlatmaz. Bu sınıflandırıcı üç durumu ayırt eder:
+ *  1) kurulum eksik (forum tabloları/RPC veritabanında yok),
+ *  2) oturum sorunu (RLS reddi / süresi dolmuş token),
+ *  3) ağ/bağlantı sorunu.
+ */
+export function classifyForumRemoteError(err: unknown, action: string): Error {
+  const raw = (err ?? {}) as {
+    code?: unknown
+    status?: unknown
+    message?: unknown
+    details?: unknown
+    hint?: unknown
+  }
+  const code = String(raw.code ?? '').toUpperCase()
+  const status = Number(raw.status ?? 0)
+  const text = `${String(raw.message ?? '')} ${String(raw.details ?? '')} ${String(raw.hint ?? '')}`.toLowerCase()
+
+  const mentionsSchemaCache =
+    text.includes('schema cache') ||
+    code === 'PGRST205' || // tablo yok
+    code === 'PGRST202' || // fonksiyon yok
+    code === 'PGRST200' ||
+    code === '42P01' // relation does not exist
+  if (mentionsSchemaCache || status === 404) {
+    return new Error(
+      `${action}: forum tabloları veritabanında bulunamadı (kurulum eksik). ` +
+        `Yönetici Supabase SQL Editor'de APPLY_ALL_PENDING.sql dosyasını çalıştırmalı.`,
+    )
+  }
+
+  const isAuthProblem =
+    status === 401 ||
+    status === 403 ||
+    code === '42501' || // RLS ihlali
+    code === 'PGRST301' ||
+    text.includes('row-level security') ||
+    text.includes('jwt') ||
+    text.includes('token') ||
+    text.includes('auth') ||
+    text.includes('permission') ||
+    text.includes('not authenticated')
+  if (isAuthProblem) {
+    return new Error(
+      `${action}: oturum doğrulanamadı. Çıkış yapıp tekrar giriş yap, sonra dene.`,
+    )
+  }
+
+  if (
+    err instanceof TypeError ||
+    text.includes('failed to fetch') ||
+    text.includes('network') ||
+    text.includes('fetch')
+  ) {
+    return new Error(`${action}: bağlantı kurulamadı. İnternetini kontrol edip tekrar dene.`)
+  }
+
+  // Bilinmeyen iç hata ya da Supabase dışı hata: ham detayı sızdırma.
+  const looksLikeSupabase = code !== '' || status !== 0
+  const detail = String(raw.message ?? '').trim()
+  if (looksLikeSupabase && detail && detail !== 'Failed to fetch') {
+    return new Error(`${action}: ${detail}`)
+  }
+  return new Error(`${action}. Lütfen tekrar dene.`)
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -252,43 +322,48 @@ export async function listForumPosts(): Promise<ForumPost[]> {
 
 async function listRemote(): Promise<ForumPost[]> {
   if (!supabase) throw new Error('no-backend')
-  const myId = getSessionUser()?.id ?? null
-  const { data, error } = await supabase
-      .from('forum_posts')
-      .select('id,user_id,username,content,like_count,reply_count,created_at')
-      .order('created_at', { ascending: false })
-      .limit(FORUM_FEED_LIMIT)
-  if (error || !Array.isArray(data)) throw new Error('feed-failed')
-  let liked = new Set<string>()
-  if (myId && data.length > 0) {
-    const ids = (data as { id: string }[]).map((r) => r.id)
-    const { data: likes } = await supabase
-      .from('forum_likes')
-      .select('post_id')
-      .eq('user_id', myId)
-      .in('post_id', ids)
-    if (Array.isArray(likes)) {
-      liked = new Set((likes as { post_id: string }[]).map((l) => l.post_id))
+  try {
+    const myId = getSessionUser()?.id ?? null
+    const { data, error } = await supabase
+        .from('forum_posts')
+        .select('id,user_id,username,content,like_count,reply_count,created_at')
+        .order('created_at', { ascending: false })
+        .limit(FORUM_FEED_LIMIT)
+    if (error) throw error
+    if (!Array.isArray(data)) throw new Error('unexpected-feed-shape')
+    let liked = new Set<string>()
+    if (myId && data.length > 0) {
+      const ids = (data as { id: string }[]).map((r) => r.id)
+      const { data: likes } = await supabase
+        .from('forum_likes')
+        .select('post_id')
+        .eq('user_id', myId)
+        .in('post_id', ids)
+      if (Array.isArray(likes)) {
+        liked = new Set((likes as { post_id: string }[]).map((l) => l.post_id))
+      }
     }
+    return (data as {
+      id: string
+      user_id: string
+      username: string
+      content: string
+      like_count: number
+      reply_count: number
+      created_at: string
+    }[]).map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      username: forumDisplayName(r.username, r.user_id),
+      content: r.content,
+      likeCount: r.like_count ?? 0,
+      likedByMe: liked.has(r.id),
+      replyCount: r.reply_count ?? 0,
+      createdAt: Date.parse(r.created_at) || Date.now(),
+    }))
+  } catch (err) {
+    throw classifyForumRemoteError(err, 'Akış yüklenemedi')
   }
-  return (data as {
-    id: string
-    user_id: string
-    username: string
-    content: string
-    like_count: number
-    reply_count: number
-    created_at: string
-  }[]).map((r) => ({
-    id: r.id,
-    userId: r.user_id,
-    username: forumDisplayName(r.username, r.user_id),
-    content: r.content,
-    likeCount: r.like_count ?? 0,
-    likedByMe: liked.has(r.id),
-    replyCount: r.reply_count ?? 0,
-    createdAt: Date.parse(r.created_at) || Date.now(),
-  }))
 }
 
 function createLocal(user: { id: string; username: string }, content: string): Promise<ForumPost> {
@@ -324,31 +399,36 @@ async function createRemote(
 ): Promise<ForumPost> {
   if (!supabase) throw new Error('no-backend')
   const username = resolveWriteUsername(user)
-  const { data, error } = await supabase
-      .from('forum_posts')
-      .insert({ user_id: user.id, username, content })
-      .select('id,user_id,username,content,like_count,reply_count,created_at')
-      .single()
-    if (error || !data) throw new Error('Gönderi paylaşılamadı. Bağlantını kontrol edip tekrar dene.')
-    const row = data as {
-      id: string
-      user_id: string
-      username: string
-      content: string
-      like_count: number
-      reply_count: number
-      created_at: string
-    }
-    return {
-      id: row.id,
-      userId: row.user_id,
-      username: forumDisplayName(row.username, row.user_id),
-      content: row.content,
-      likeCount: row.like_count ?? 0,
-      likedByMe: false,
-      replyCount: row.reply_count ?? 0,
-      createdAt: Date.parse(row.created_at) || Date.now(),
-    }
+  try {
+    const { data, error } = await supabase
+        .from('forum_posts')
+        .insert({ user_id: user.id, username, content })
+        .select('id,user_id,username,content,like_count,reply_count,created_at')
+        .single()
+      if (error) throw error
+      if (!data) throw new Error('unexpected-create-shape')
+      const row = data as {
+        id: string
+        user_id: string
+        username: string
+        content: string
+        like_count: number
+        reply_count: number
+        created_at: string
+      }
+      return {
+        id: row.id,
+        userId: row.user_id,
+        username: forumDisplayName(row.username, row.user_id),
+        content: row.content,
+        likeCount: row.like_count ?? 0,
+        likedByMe: false,
+        replyCount: row.reply_count ?? 0,
+        createdAt: Date.parse(row.created_at) || Date.now(),
+      }
+  } catch (err) {
+    throw classifyForumRemoteError(err, 'Gönderi paylaşılamadı')
+  }
 }
 
 function toggleLocal(
@@ -374,12 +454,17 @@ export async function toggleForumLike(
 
   if (isRemoteMode()) {
     if (!supabase) throw new Error('no-backend')
-    const { data, error } = await supabase.rpc('toggle_forum_like', {
-      p_post_id: postId,
-    })
-    if (error || !data) throw new Error('Beğeni işlenemedi. Lütfen tekrar dene.')
-    const res = data as { liked?: boolean; like_count?: number }
-    return { liked: res.liked === true, likeCount: res.like_count ?? 0 }
+    try {
+      const { data, error } = await supabase.rpc('toggle_forum_like', {
+        p_post_id: postId,
+      })
+      if (error) throw error
+      if (!data) throw new Error('unexpected-like-shape')
+      const res = data as { liked?: boolean; like_count?: number }
+      return { liked: res.liked === true, likeCount: res.like_count ?? 0 }
+    } catch (err) {
+      throw classifyForumRemoteError(err, 'Beğeni işlenemedi')
+    }
   }
   return toggleLocal(user, postId)
 }
@@ -398,20 +483,25 @@ export async function deleteForumPost(postId: string): Promise<void> {
 
   if (isRemoteMode()) {
     if (!supabase) throw new Error('no-backend')
-    // RLS reddederse (başkasının gönderisi) PostgREST satır döndürmez;
-    // sessizce "silinmiş" gibi davranmak yerine doğrula.
-    const { data, error } = await supabase
-      .from('forum_posts')
-      .delete()
-      .eq('id', postId)
-      .select('id')
-    if (error) throw new Error('Gönderi silinemedi. Lütfen tekrar dene.')
-    if (!data || data.length === 0) {
-      // Satır yoksa: ya zaten silinmiş ya da yetkisiz. Yerel bir şeyi
-      // silmiyoruz — uzak durum korunur, akış tutarlı kalır.
-      throw new Error('Gönderi silinemedi. Yalnızca kendi gönderini silebilirsin.')
+    try {
+      // RLS reddederse (başkasının gönderisi) PostgREST satır döndürmez;
+      // sessizce "silinmiş" gibi davranmak yerine doğrula.
+      const { data, error } = await supabase
+        .from('forum_posts')
+        .delete()
+        .eq('id', postId)
+        .select('id')
+      if (error) throw error
+      if (!data || data.length === 0) {
+        // Satır yoksa: ya zaten silinmiş ya da yetkisiz. Yerel bir şeyi
+        // silmiyoruz — uzak durum korunur, akış tutarlı kalır.
+        throw new Error('Gönderi silinemedi. Yalnızca kendi gönderini silebilirsin.')
+      }
+      return
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Gönderi silinemedi. Yalnızca')) throw err
+      throw classifyForumRemoteError(err, 'Gönderi silinemedi')
     }
-    return
   }
   return deleteLocal(user, postId)
 }
@@ -432,28 +522,33 @@ function validateReply(raw: string): string {
 export async function listForumReplies(postId: string): Promise<ForumReply[]> {
   if (isRemoteMode()) {
     if (!supabase) throw new Error('no-backend')
-    const { data, error } = await supabase
-      .from('forum_replies')
-      .select('id,post_id,user_id,username,content,created_at')
-      .eq('post_id', postId)
-      .order('created_at', { ascending: true })
-      .limit(100)
-    if (error || !Array.isArray(data)) throw new Error('Yanıtlar yüklenemedi. Lütfen tekrar dene.')
-    return (data as {
-      id: string
-      post_id: string
-      user_id: string
-      username: string
-      content: string
-      created_at: string
-    }[]).map((r) => ({
-      id: r.id,
-      postId: r.post_id,
-      userId: r.user_id,
-      username: forumDisplayName(r.username, r.user_id),
-      content: r.content,
-      createdAt: Date.parse(r.created_at) || Date.now(),
-    }))
+    try {
+      const { data, error } = await supabase
+        .from('forum_replies')
+        .select('id,post_id,user_id,username,content,created_at')
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true })
+        .limit(100)
+      if (error) throw error
+      if (!Array.isArray(data)) throw new Error('unexpected-replies-shape')
+      return (data as {
+        id: string
+        post_id: string
+        user_id: string
+        username: string
+        content: string
+        created_at: string
+      }[]).map((r) => ({
+        id: r.id,
+        postId: r.post_id,
+        userId: r.user_id,
+        username: forumDisplayName(r.username, r.user_id),
+        content: r.content,
+        createdAt: Date.parse(r.created_at) || Date.now(),
+      }))
+    } catch (err) {
+      throw classifyForumRemoteError(err, 'Yanıtlar yüklenemedi')
+    }
   }
   const post = readLocalPosts().find((p) => p.id === postId)
   if (!post) return []
@@ -469,27 +564,32 @@ export async function createForumReply(postId: string, rawContent: string): Prom
   if (isRemoteMode()) {
     if (!supabase) throw new Error('no-backend')
     const username = resolveWriteUsername(user)
-    const { data, error } = await supabase
-      .from('forum_replies')
-      .insert({ post_id: postId, user_id: user.id, username, content })
-      .select('id,post_id,user_id,username,content,created_at')
-      .single()
-    if (error || !data) throw new Error('Yanıt gönderilemedi. Lütfen tekrar dene.')
-    const row = data as {
-      id: string
-      post_id: string
-      user_id: string
-      username: string
-      content: string
-      created_at: string
-    }
-    return {
-      id: row.id,
-      postId: row.post_id,
-      userId: row.user_id,
-      username: forumDisplayName(row.username, row.user_id),
-      content: row.content,
-      createdAt: Date.parse(row.created_at) || Date.now(),
+    try {
+      const { data, error } = await supabase
+        .from('forum_replies')
+        .insert({ post_id: postId, user_id: user.id, username, content })
+        .select('id,post_id,user_id,username,content,created_at')
+        .single()
+      if (error) throw error
+      if (!data) throw new Error('unexpected-reply-shape')
+      const row = data as {
+        id: string
+        post_id: string
+        user_id: string
+        username: string
+        content: string
+        created_at: string
+      }
+      return {
+        id: row.id,
+        postId: row.post_id,
+        userId: row.user_id,
+        username: forumDisplayName(row.username, row.user_id),
+        content: row.content,
+        createdAt: Date.parse(row.created_at) || Date.now(),
+      }
+    } catch (err) {
+      throw classifyForumRemoteError(err, 'Yanıt gönderilemedi')
     }
   }
 
@@ -513,16 +613,21 @@ export async function deleteForumReply(postId: string, replyId: string): Promise
 
   if (isRemoteMode()) {
     if (!supabase) throw new Error('no-backend')
-    const { data, error } = await supabase
-      .from('forum_replies')
-      .delete()
-      .eq('id', replyId)
-      .select('id')
-    if (error) throw new Error('Yanıt silinemedi. Lütfen tekrar dene.')
-    if (!data || data.length === 0) {
-      throw new Error('Yanıt silinemedi. Yalnızca kendi yanıtını silebilirsin.')
+    try {
+      const { data, error } = await supabase
+        .from('forum_replies')
+        .delete()
+        .eq('id', replyId)
+        .select('id')
+      if (error) throw error
+      if (!data || data.length === 0) {
+        throw new Error('Yanıt silinemedi. Yalnızca kendi yanıtını silebilirsin.')
+      }
+      return
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Yanıt silinemedi. Yalnızca')) throw err
+      throw classifyForumRemoteError(err, 'Yanıt silinemedi')
     }
-    return
   }
 
   const posts = readLocalPosts()
