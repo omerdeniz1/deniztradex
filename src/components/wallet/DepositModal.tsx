@@ -7,7 +7,7 @@ import { useTradeStore } from '@/store/tradeStore'
 import { useUsdTryRate } from '@/hooks/useUsdTryRate'
 import { getSessionUserId } from '@/services/authService'
 import { quoteDeposit } from '@/services/rates'
-import { syncDepositToSupabase } from '@/services/supabaseWallet'
+import { assertDepositAllowed, getMoneyRestrictions, syncDepositToSupabase } from '@/services/supabaseWallet'
 import {
   deleteSavedCard,
   getSavedCards,
@@ -124,7 +124,7 @@ export function DepositModal({ open, onClose }: Props) {
     name.trim().length >= 2 &&
     cvc.length >= 3
 
-  const submit = () => {
+  const submit = async () => {
     if (loading) return
     setError(null)
 
@@ -142,6 +142,15 @@ export function DepositModal({ open, onClose }: Props) {
     }
     if (!quote || quote.netUsdt <= 0) {
       setError('Geçerli bir tutar girin.')
+      return
+    }
+
+    // Admin kısıtı: para yatırması kapatılan hesap beklemeden durdurulur.
+    try {
+      const uid = getSessionUserId()
+      if (uid) assertDepositAllowed(await getMoneyRestrictions(uid))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Para yatırma işlemin kısıtlanmış.')
       return
     }
 

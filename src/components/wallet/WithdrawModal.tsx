@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useTradeStore } from '@/store/tradeStore'
 import { getSessionUserId } from '@/services/authService'
-import { syncWithdrawToSupabase } from '@/services/supabaseWallet'
+import { assertWithdrawAllowed, getMoneyRestrictions, syncWithdrawToSupabase } from '@/services/supabaseWallet'
 import {
   deleteSavedWithdrawMethod,
   getSavedWithdrawMethods,
@@ -107,7 +107,7 @@ export function WithdrawModal({ open, onClose }: Props) {
   const amount = parseFloat(amountStr)
   const amountToWithdraw = Number.isFinite(amount) ? roundTo(amount) : 0
 
-  const submit = () => {
+  const submit = async () => {
     if (loading) return
     setError(null)
 
@@ -129,6 +129,15 @@ export function WithdrawModal({ open, onClose }: Props) {
     }
     if (amountToWithdraw > balance) {
       setError('Yetersiz Bakiye')
+      return
+    }
+
+    // Admin kısıtı: para çekmesi kapatılan hesap beklemeden durdurulur.
+    try {
+      const uid = getSessionUserId()
+      if (uid) assertWithdrawAllowed(await getMoneyRestrictions(uid))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Para çekme işlemin kısıtlanmış.')
       return
     }
 

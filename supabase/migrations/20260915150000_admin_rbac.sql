@@ -137,7 +137,9 @@ create or replace function public.admin_update_profile(
   p_is_frozen  boolean default null,
   p_is_banned  boolean default null,
   p_is_admin   boolean default null,
-  p_permissions text[] default null
+  p_permissions text[] default null,
+  p_deposit_blocked boolean default null,
+  p_withdraw_blocked boolean default null
 )
 returns void
 language plpgsql
@@ -216,7 +218,7 @@ begin
     if p_permissions is not null then
       select x into v_bad
       from unnest(p_permissions) as x
-      where x not in ('edit_balance', 'ban_users', 'change_password', 'manage_admins')
+      where x not in ('edit_balance', 'ban_users', 'change_password', 'manage_admins', 'restrict_money')
       limit 1;
       if v_bad is not null then
         raise exception 'geçersiz yetki: %', v_bad;
@@ -238,11 +240,23 @@ begin
         is_verified = (public.forum_verified_tier(user_id, username) <> 'none')
     where user_id = p_user_id;
   end if;
+
+  -- Para yatırma / çekme kısıtlaması (kendi hesabı dahil serbest;
+  -- kilitlenme riski yoktur, kullanıcı kendi kısıtını kaldırabilir).
+  if p_deposit_blocked is not null or p_withdraw_blocked is not null then
+    if not v_super and not public.has_admin_permission(v_caller, 'restrict_money') then
+      raise exception 'yetkisiz işlem: para işlemleri kısıtlama yetkisi gerekli';
+    end if;
+    update public.profiles
+    set deposit_blocked = coalesce(p_deposit_blocked, deposit_blocked),
+        withdraw_blocked = coalesce(p_withdraw_blocked, withdraw_blocked)
+    where id = p_user_id;
+  end if;
 end;
 $$;
 
-revoke all on function public.admin_update_profile(uuid, numeric, boolean, boolean, boolean, text[]) from public;
-grant execute on function public.admin_update_profile(uuid, numeric, boolean, boolean, boolean, text[]) to authenticated;
+revoke all on function public.admin_update_profile(uuid, numeric, boolean, boolean, boolean, text[], boolean, boolean) from public;
+grant execute on function public.admin_update_profile(uuid, numeric, boolean, boolean, boolean, text[], boolean, boolean) to authenticated;
 
 -- ------------------------------------------------------------
 -- 5) Forum onay rozeti: yazar süper adminse veya sistem hesabı

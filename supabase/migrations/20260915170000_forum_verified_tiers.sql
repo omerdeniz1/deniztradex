@@ -43,6 +43,7 @@ $$;
 
 -- ------------------------------------------------------------
 -- Rozet yardımcısı: tek doğruluk kaynağı (tetikleyici + RPC ortak).
+-- (RBAC dosyasında da birebir tanımlı; create or replace ile güvenli.)
 -- ------------------------------------------------------------
 create or replace function public.forum_verified_tier(p_user_id uuid, p_username text)
 returns text

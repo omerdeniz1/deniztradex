@@ -12,6 +12,7 @@ import {
   listForumAdminPosts,
   sendPasswordReset,
   setAdminPrivileges,
+  setMoneyRestrictions,
   setUserBanned,
   setUserFrozen,
   updateUserBalance,
@@ -24,6 +25,7 @@ import {
 } from '@/services/adminService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { Toggle } from '@/components/ui/Toggle'
 
 export function AdminPage() {
   const [access, setAccess] = useState<AdminAccess | null>(null)
@@ -71,6 +73,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     | { mode: 'freeze'; user: AdminUser }
     | { mode: 'ban'; user: AdminUser }
     | { mode: 'password'; user: AdminUser }
+    | { mode: 'restrict'; user: AdminUser }
     | { mode: 'privs'; user: AdminUser | null }
     | { mode: 'revoke'; user: AdminUser }
     | null
@@ -161,8 +164,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     }
   }
 
-  const toggleBan = async (user: AdminUser) => {
-    setBusyId(user.id)
+  const toggleBan = async (user: AdminUser) => {    setBusyId(user.id)
     try {
       await setUserBanned(user.id, !user.isBanned)
       setUsers((list) =>
@@ -185,8 +187,26 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     }
   }
 
-  const resetPassword = async (user: AdminUser) => {
+  const saveRestrictions = async (
+    user: AdminUser,
+    input: { depositBlocked: boolean; withdrawBlocked: boolean },
+  ) => {
     setBusyId(user.id)
+    try {
+      await setMoneyRestrictions(user.id, input)
+      setUsers((list) =>
+        list.map((u) => (u.id === user.id ? { ...u, ...input } : u)),
+      )
+      setModal(null)
+      pushToast({ message: `${user.username} para kısıtları güncellendi.`, tone: 'success' })
+    } catch (err) {
+      fail(err, 'Kısıtlama güncellenemedi.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const resetPassword = async (user: AdminUser) => {    setBusyId(user.id)
     try {
       await sendPasswordReset(user.email)
       setModal(null)
@@ -449,6 +469,14 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                                 onClick={() => setModal({ mode: 'password', user: u })}
                               />
                             )}
+                            {can('restrict_money') && (
+                              <RowButton
+                                label="Kısıtla"
+                                title={`${u.username} için para yatırma/çekme kısıtları`}
+                                disabled={busyId === u.id}
+                                onClick={() => setModal({ mode: 'restrict', user: u })}
+                              />
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -607,6 +635,14 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           onConfirm={() => void resetPassword(modal.user)}
         />
       )}
+      {modal?.mode === 'restrict' && (
+        <RestrictModal
+          user={modal.user}
+          busy={busyId === modal.user.id}
+          onClose={() => setModal(null)}
+          onSave={(input) => void saveRestrictions(modal.user, input)}
+        />
+      )}
       {modal?.mode === 'privs' && can('manage_admins') && (
         <PrivsModal
           users={users}
@@ -667,17 +703,29 @@ function StatusPill({ user }: { user: AdminUser }) {
   const banned = user.isBanned
   const frozen = user.isFrozen
   return (
-    <span
-      className={cn(
-        'inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold',
-        banned
-          ? 'bg-exchange-sell/20 text-exchange-sell'
-          : frozen
-            ? 'bg-exchange-sell/10 text-exchange-sell'
-            : 'bg-exchange-buy/10 text-exchange-buy',
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span
+        className={cn(
+          'inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold',
+          banned
+            ? 'bg-exchange-sell/20 text-exchange-sell'
+            : frozen
+              ? 'bg-exchange-sell/10 text-exchange-sell'
+              : 'bg-exchange-buy/10 text-exchange-buy',
+        )}
+      >
+        {banned ? 'Yasaklı' : frozen ? 'Dondurulmuş' : 'Aktif'}
+      </span>
+      {user.depositBlocked && (
+        <span className="inline-block whitespace-nowrap rounded-full bg-exchange-yellow/10 px-2 py-0.5 text-[10px] font-bold text-exchange-yellow">
+          Yatırma Kapalı
+        </span>
       )}
-    >
-      {banned ? 'Yasaklı' : frozen ? 'Dondurulmuş' : 'Aktif'}
+      {user.withdrawBlocked && (
+        <span className="inline-block whitespace-nowrap rounded-full bg-exchange-yellow/10 px-2 py-0.5 text-[10px] font-bold text-exchange-yellow">
+          Çekim Kapalı
+        </span>
+      )}
     </span>
   )
 }
@@ -1001,6 +1049,69 @@ function PasswordModal({
         </Button>
         <Button size="sm" onClick={onConfirm} disabled={busy}>
           {busy ? 'Gönderiliyor…' : 'Sıfırlama E-postası Gönder'}
+        </Button>
+      </div>
+    </ModalShell>
+  )
+}
+
+function RestrictModal({
+  user,
+  busy,
+  onClose,
+  onSave,
+}: {
+  user: AdminUser
+  busy: boolean
+  onClose: () => void
+  onSave: (input: { depositBlocked: boolean; withdrawBlocked: boolean }) => void
+}) {
+  const [depositBlocked, setDepositBlocked] = useState(user.depositBlocked)
+  const [withdrawBlocked, setWithdrawBlocked] = useState(user.withdrawBlocked)
+  return (
+    <ModalShell title="Para kısıtları" onClose={onClose}>
+      <p className="text-sm text-exchange-muted">
+        <span className="font-bold text-exchange-text">{user.username}</span> hesabı giriş yapmaya
+        ve işlem yapmaya devam eder; yalnızca seçili para yönleri kapatılır.
+      </p>
+      <div className="mt-3 grid gap-2">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-exchange-border px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-exchange-text">Para yatırma</div>
+            <div className="text-[11px] text-exchange-muted">
+              {depositBlocked ? 'Kapalı — kullanıcı bakiye yükleyemez' : 'Açık'}
+            </div>
+          </div>
+          <Toggle
+            checked={!depositBlocked}
+            onChange={(open) => setDepositBlocked(!open)}
+            label="Para yatırma izni"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-exchange-border px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-exchange-text">Para çekme</div>
+            <div className="text-[11px] text-exchange-muted">
+              {withdrawBlocked ? 'Kapalı — kullanıcı bakiye çekemez' : 'Açık'}
+            </div>
+          </div>
+          <Toggle
+            checked={!withdrawBlocked}
+            onChange={(open) => setWithdrawBlocked(!open)}
+            label="Para çekme izni"
+          />
+        </div>
+      </div>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
+          Vazgeç
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => onSave({ depositBlocked, withdrawBlocked })}
+          disabled={busy}
+        >
+          {busy ? 'Kaydediliyor…' : 'Kaydet'}
         </Button>
       </div>
     </ModalShell>

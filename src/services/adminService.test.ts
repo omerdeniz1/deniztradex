@@ -8,6 +8,7 @@ import {
   hasAdminPermission,
   listAdminUsers,
   listForumAdminPosts,
+  setMoneyRestrictions,
   setUserBanned,
   setUserFrozen,
   updateUserBalance,
@@ -66,6 +67,16 @@ describe('adminService (offline — Supabase yok)', () => {
     await expect(setUserBanned('', true)).rejects.toThrow('Kullanıcı bulunamadı')
   })
 
+  it('rejects money restrictions without a user or backend', async () => {
+    loginAs(alice)
+    await expect(
+      setMoneyRestrictions('', { depositBlocked: true, withdrawBlocked: false }),
+    ).rejects.toThrow('Kullanıcı bulunamadı')
+    await expect(
+      setMoneyRestrictions('u_bob', { depositBlocked: true, withdrawBlocked: false }),
+    ).rejects.toThrow()
+  })
+
   it('grants no access offline', async () => {
     loginAs(alice)
     await expect(getMyAdminAccess()).resolves.toEqual({ isSuperAdmin: false, permissions: [] })
@@ -73,9 +84,9 @@ describe('adminService (offline — Supabase yok)', () => {
 })
 
 describe('admin RBAC helpers', () => {
-  it('exposes the four documented permissions', () => {
+  it('exposes the five documented permissions', () => {
     expect([...ALL_ADMIN_PERMISSION_KEYS].sort()).toEqual(
-      ['ban_users', 'change_password', 'edit_balance', 'manage_admins'].sort(),
+      ['ban_users', 'change_password', 'edit_balance', 'manage_admins', 'restrict_money'].sort(),
     )
   })
 

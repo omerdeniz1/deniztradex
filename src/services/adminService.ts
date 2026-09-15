@@ -24,6 +24,7 @@ export const ADMIN_PERMISSIONS = [
   { key: 'ban_users', label: 'Kullanıcı Banlayabilir' },
   { key: 'change_password', label: 'Şifre Değiştirebilir' },
   { key: 'manage_admins', label: 'Admin Ekleyebilir' },
+  { key: 'restrict_money', label: 'Para İşlemlerini Kısıtlayabilir' },
 ] as const
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number]['key']
@@ -62,6 +63,8 @@ export interface AdminUser {
   isBanned: boolean
   permissions: AdminPermission[]
   avatarUrl: string | null
+  depositBlocked: boolean
+  withdrawBlocked: boolean
   createdAt: number
 }
 
@@ -155,6 +158,8 @@ interface AdminRow {
   is_banned: unknown
   admin_permissions: unknown
   avatar_url: unknown
+  deposit_blocked: unknown
+  withdraw_blocked: unknown
   created_at: string
 }
 
@@ -169,6 +174,8 @@ function toAdminUser(row: AdminRow): AdminUser {
     isBanned: row.is_banned === true,
     permissions: sanitizePermissions(row.admin_permissions),
     avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : null,
+    depositBlocked: row.deposit_blocked === true,
+    withdrawBlocked: row.withdraw_blocked === true,
     createdAt: Date.parse(row.created_at) || 0,
   }
 }
@@ -178,7 +185,7 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
   const { client } = await requireAccess()
   const { data, error } = await client
     .from('profiles')
-    .select('id,username,email,balance,is_admin,is_frozen,is_banned,admin_permissions,avatar_url,created_at')
+    .select('id,username,email,balance,is_admin,is_frozen,is_banned,admin_permissions,avatar_url,deposit_blocked,withdraw_blocked,created_at')
     .order('created_at', { ascending: false })
     .limit(500)
   if (error) throw new Error('Kullanıcılar yüklenemedi. Lütfen tekrar dene.')
@@ -262,6 +269,25 @@ export async function setUserBanned(userId: string, banned: boolean): Promise<vo
     p_is_banned: banned,
   })
   if (error) throw toRpcError(error, 'Yasaklama işlemi yapılamadı. Lütfen tekrar dene.')
+}
+
+/**
+ * Para yatırma / çekme kısıtlaması (`restrict_money` gerekir, RPC denetimli).
+ * Kısıtlı kullanıcı giriş yapmaya ve işlem yapmaya devam eder; yalnızca
+ * ilgili para yönü kapatılır.
+ */
+export async function setMoneyRestrictions(
+  userId: string,
+  input: { depositBlocked: boolean; withdrawBlocked: boolean },
+): Promise<void> {
+  if (!userId) throw new Error('Kullanıcı bulunamadı.')
+  const { client } = await requireAccess('restrict_money')
+  const { error } = await client.rpc('admin_update_profile', {
+    p_user_id: userId,
+    p_deposit_blocked: input.depositBlocked,
+    p_withdraw_blocked: input.withdrawBlocked,
+  })
+  if (error) throw toRpcError(error, 'Kısıtlama güncellenemedi. Lütfen tekrar dene.')
 }
 
 /**

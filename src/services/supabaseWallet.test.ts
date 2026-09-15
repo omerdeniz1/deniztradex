@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getProfileBalanceWithRetry, validateAvatarFile } from '@/services/supabaseWallet'
+import {
+  assertDepositAllowed,
+  assertWithdrawAllowed,
+  getMoneyRestrictions,
+  getProfileBalanceWithRetry,
+  validateAvatarFile,
+} from '@/services/supabaseWallet'
 
 const mocks = vi.hoisted(() => {
   const maybeSingle = vi.fn()
@@ -83,5 +89,31 @@ describe('validateAvatarFile', () => {
     const big = new File(['x'], 'a.png', { type: 'image/png' })
     Object.defineProperty(big, 'size', { value: 3 * 1024 * 1024 })
     expect(() => validateAvatarFile(big)).toThrow('2MB')
+  })
+})
+
+describe('money restrictions', () => {
+  it('returns open restrictions when the backend is mocked without rows', async () => {
+    // Bu dosyada supabase mock'lu; maybeSingle boş dönerse kısıt yok sayılır.
+    mocks.maybeSingle.mockResolvedValue({ data: null, error: null })
+    await expect(getMoneyRestrictions('user-1')).resolves.toEqual({
+      depositBlocked: false,
+      withdrawBlocked: false,
+    })
+  })
+
+  it('blocks deposits and withdrawals when flagged', () => {
+    expect(() =>
+      assertDepositAllowed({ depositBlocked: true, withdrawBlocked: false }),
+    ).toThrow('yatırma')
+    expect(() =>
+      assertWithdrawAllowed({ depositBlocked: false, withdrawBlocked: true }),
+    ).toThrow('çekme')
+    expect(() =>
+      assertDepositAllowed({ depositBlocked: false, withdrawBlocked: true }),
+    ).not.toThrow()
+    expect(() =>
+      assertWithdrawAllowed({ depositBlocked: true, withdrawBlocked: false }),
+    ).not.toThrow()
   })
 })

@@ -393,6 +393,13 @@ export async function syncDepositToSupabase(input: {
 }): Promise<void> {
   if (!supabase || !input.userId) return
   if (!Number.isFinite(input.amountUsdt) || input.amountUsdt <= 0) return
+  // Backstop: kısıtlı hesabın sunucu defteri kirlenmez (birincil kapı
+  // arayüzdeki işlem-öncesi kontrolüdür; burası sessizce atlar).
+  try {
+    assertDepositAllowed(await getMoneyRestrictions(input.userId))
+  } catch {
+    return
+  }
   await recordDeposit(input)
   const current = await getProfileBalance(input.userId)
   if (current !== null) {
@@ -407,6 +414,13 @@ export async function syncWithdrawToSupabase(input: {
 }): Promise<void> {
   if (!supabase || !input.userId) return
   if (!Number.isFinite(input.amountUsdt) || input.amountUsdt <= 0) return
+  // Backstop: kısıtlı hesabın sunucu defteri kirlenmez (birincil kapı
+  // arayüzdeki işlem-öncesi kontrolüdür; burası sessizce atlar).
+  try {
+    assertWithdrawAllowed(await getMoneyRestrictions(input.userId))
+  } catch {
+    return
+  }
   const current = await getProfileBalance(input.userId)
   const after = current === null ? null : Math.max(0, current - input.amountUsdt)
   await recordTransaction({
@@ -548,4 +562,52 @@ export async function removeAvatarFile(userId: string): Promise<void> {
   }
   const { error } = await supabase.from('profiles').update({ avatar_url: null }).eq('id', userId)
   if (error) throw new Error('Fotoğraf silinemedi. Lütfen tekrar dene.')
+}
+
+// ---------------------------------------------------------------
+// Para yatırma / çekme kısıtlaması: admin `profiles.deposit_blocked` /
+// `withdraw_blocked` bayrağını açarsa kullanıcı o yönde işlem yapamaz.
+// Okuma hatası/çevrimdışı = kısıtsız (fail-open): engel yalnızca
+// bilinen kısıtlarda devreye girer, ağ sorunu işlemi kilitlemez.
+// ---------------------------------------------------------------
+
+export interface MoneyRestrictions {
+  depositBlocked: boolean
+  withdrawBlocked: boolean
+}
+
+export const NO_MONEY_RESTRICTIONS: MoneyRestrictions = {
+  depositBlocked: false,
+  withdrawBlocked: false,
+}
+
+export async function getMoneyRestrictions(userId: string): Promise<MoneyRestrictions> {
+  if (!supabase || !userId) return { ...NO_MONEY_RESTRICTIONS }
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('deposit_blocked,withdraw_blocked')
+      .eq('id', userId)
+      .maybeSingle()
+    if (error || !data) return { ...NO_MONEY_RESTRICTIONS }
+    const row = data as { deposit_blocked?: unknown; withdraw_blocked?: unknown }
+    return {
+      depositBlocked: row.deposit_blocked === true,
+      withdrawBlocked: row.withdraw_blocked === true,
+    }
+  } catch {
+    return { ...NO_MONEY_RESTRICTIONS }
+  }
+}
+
+export function assertDepositAllowed(r: MoneyRestrictions): void {
+  if (r.depositBlocked) {
+    throw new Error('Para yatırma işlemin yönetici tarafından kısıtlanmış. Destek ile iletişime geç.')
+  }
+}
+
+export function assertWithdrawAllowed(r: MoneyRestrictions): void {
+  if (r.withdrawBlocked) {
+    throw new Error('Para çekme işlemin yönetici tarafından kısıtlanmış. Destek ile iletişime geç.')
+  }
 }
