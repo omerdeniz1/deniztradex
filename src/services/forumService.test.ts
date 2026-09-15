@@ -7,6 +7,7 @@ import {
   deleteForumReply,
   formatTimeAgo,
   forumDisplayName,
+  isVerifiedUsername,
   listForumPosts,
   listForumReplies,
   toggleForumLike,
@@ -133,6 +134,23 @@ describe('forumDisplayName', () => {
       'Kullanıcı',
     )
     expect(forumDisplayName('', 'u_bob')).toBe('u_bob')
+  })
+})
+
+describe('forum verified badge', () => {
+  it('marks the DenizTradeX system account as verified', () => {
+    expect(isVerifiedUsername('DenizTradeX')).toBe(true)
+    expect(isVerifiedUsername('deniztradex')).toBe(true)
+    expect(isVerifiedUsername('alice')).toBe(false)
+    expect(isVerifiedUsername('')).toBe(false)
+  })
+
+  it('flags the local welcome seed as verified, normal posts as not', async () => {
+    loginAs(alice)
+    const list = await listForumPosts()
+    expect(list.find((p) => p.id === 'seed_welcome')).toMatchObject({ verified: true })
+    const post = await createForumPost('sıradan gönderi')
+    expect(post.verified).toBe(false)
   })
 })
 

@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  ALL_ADMIN_PERMISSION_KEYS,
   checkIsAdmin,
+  getMyAdminAccess,
   getPlatformStats,
+  hasAdminPermission,
   listAdminUsers,
+  setUserBanned,
   setUserFrozen,
   updateUserBalance,
   validateBalanceInput,
+  type AdminAccess,
 } from '@/services/adminService'
 
 const alice = { id: 'u_alice', username: 'alice', email: 'a@x.com', createdAt: 1 }
@@ -51,8 +56,36 @@ describe('adminService (offline — Supabase yok)', () => {
     await expect(updateUserBalance('', 100)).rejects.toThrow('Kullanıcı bulunamadı')
   })
 
-  it('rejects freeze without a user', async () => {
+  it('rejects freeze/ban without a user', async () => {
     loginAs(alice)
     await expect(setUserFrozen('', true)).rejects.toThrow('Kullanıcı bulunamadı')
+    await expect(setUserBanned('', true)).rejects.toThrow('Kullanıcı bulunamadı')
+  })
+
+  it('grants no access offline', async () => {
+    loginAs(alice)
+    await expect(getMyAdminAccess()).resolves.toEqual({ isSuperAdmin: false, permissions: [] })
+  })
+})
+
+describe('admin RBAC helpers', () => {
+  it('exposes the four documented permissions', () => {
+    expect([...ALL_ADMIN_PERMISSION_KEYS].sort()).toEqual(
+      ['ban_users', 'change_password', 'edit_balance', 'manage_admins'].sort(),
+    )
+  })
+
+  it('super admin passes every permission check', () => {
+    const super_admin: AdminAccess = { isSuperAdmin: true, permissions: [] }
+    for (const perm of ALL_ADMIN_PERMISSION_KEYS) {
+      expect(hasAdminPermission(super_admin, perm)).toBe(true)
+    }
+  })
+
+  it('sub-admin passes only granted permissions', () => {
+    const sub: AdminAccess = { isSuperAdmin: false, permissions: ['edit_balance'] }
+    expect(hasAdminPermission(sub, 'edit_balance')).toBe(true)
+    expect(hasAdminPermission(sub, 'ban_users')).toBe(false)
+    expect(hasAdminPermission(sub, 'manage_admins')).toBe(false)
   })
 })

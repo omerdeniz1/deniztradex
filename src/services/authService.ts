@@ -92,6 +92,25 @@ function lookupRememberedEmail(username: string): string | null {
  */
 export const VALID_REFERRAL_CODES = ['testref2026']
 
+/**
+ * Kimse tarafından alınamayan kullanıcı adları: resmi hesap taklidini
+ * (ve forum onay rozeti suistimalini) engeller. Kayıt akışının iki
+ * kolunda da (Supabase + yerel) denetlenir.
+ */
+export const RESERVED_USERNAMES = [
+  'deniztradex',
+  'admin',
+  'administrator',
+  'moderator',
+  'moderatör',
+  'support',
+  'destek',
+  'yardim',
+  'yardım',
+  'official',
+  'resmi',
+]
+
 interface StoredUser extends User {
   readonly passwordHash: string
 }
@@ -205,6 +224,11 @@ export async function register(input: {
 
   if (username.length < 3) {
     throw new Error('Kullanıcı adı en az 3 karakter olmalı.')
+  }
+  // Taklit koruması: resmi/sistem izlenimi veren adlar (forum onay
+  // rozeti bu adlara güvenebilir) kimse tarafından alınamaz.
+  if (RESERVED_USERNAMES.includes(username.toLowerCase())) {
+    throw new Error('Bu kullanıcı adı kullanılamaz.')
   }
   if (!isValidEmail(email)) {
     throw new Error('Geçerli bir e-posta adresi girin.')
@@ -345,6 +369,10 @@ export async function login(identifier: string, password: string): Promise<User>
     if (profile.is_frozen === true) {
       await logout()
       throw new Error('Hesabın yönetici tarafından dondurulmuş. Destek ile iletişime geç.')
+    }
+    if (profile.is_banned === true) {
+      await logout()
+      throw new Error('Hesabın kalıcı olarak yasaklanmış. Destek ile iletişime geç.')
     }
     const user: User = {
       id: authUser.id,

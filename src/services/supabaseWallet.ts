@@ -9,6 +9,8 @@ export interface Profile {
   balance: number
   /** Yönetici tarafından dondurulan hesaplar giriş yapamaz. */
   is_frozen: boolean
+  /** Kalıcı yasaklı hesaplar giriş yapamaz. */
+  is_banned: boolean
   /** Hesabın kullandığı promosyon kodları (küçük harf). Cihazlar arası
    *  tek-kullanım kuralının kaynağı. */
   used_promos: string[]
@@ -46,6 +48,7 @@ interface DbProfile {
   avatar_url: string | null
   balance: number | string | null
   is_frozen: unknown
+  is_banned: unknown
   used_promos: unknown
   created_at: string
 }
@@ -76,8 +79,9 @@ function parseProfile(row: DbProfile): Profile | null {
     avatar_url: row.avatar_url,
     balance,
     // Eski DB'lerde kolon henüz yoksa `undefined` gelir — eksik kolon
-    // "dondurulmuş" sayılmaz, hesap açık kabul edilir.
+    // "dondurulmuş"/"yasaklı" sayılmaz, hesap açık kabul edilir.
     is_frozen: row.is_frozen === true,
+    is_banned: row.is_banned === true,
     used_promos,
     created_at: row.created_at,
   }
@@ -169,6 +173,7 @@ export function buildFallbackProfile(authUser: AuthUserLike): Profile {
     avatar_url: null,
     balance: DEFAULT_PROFILE_BALANCE,
     is_frozen: false,
+    is_banned: false,
     used_promos: [],
     created_at: authUser.created_at ?? new Date().toISOString(),
   }

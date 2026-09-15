@@ -1,49 +1,63 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useToastStore } from '@/store/toastStore'
+import { getSessionUser } from '@/services/authService'
 import {
-  checkIsAdmin,
+  ADMIN_PERMISSIONS,
+  getMyAdminAccess,
   getPlatformStats,
+  hasAdminPermission,
   listAdminUsers,
+  sendPasswordReset,
+  setAdminPrivileges,
+  setUserBanned,
   setUserFrozen,
   updateUserBalance,
   validateBalanceInput,
+  type AdminAccess,
+  type AdminPermission,
   type AdminUser,
   type PlatformStats,
 } from '@/services/adminService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 
-type Access = 'checking' | 'allowed' | 'denied'
-
 export function AdminPage() {
-  const [access, setAccess] = useState<Access>('checking')
+  const [access, setAccess] = useState<AdminAccess | null>(null)
+  const [checking, setChecking] = useState(true)
 
-  // Admin Guard: yetki DB'den okunur. Oturumsuz / normal kullanıcı
-  // ana sayfaya yönlendirilir — istemcideki hiçbir bayrak yetki sayılmaz.
+  // Admin Guard: yetki DB'den okunur (süper admin veya izinli alt yönetici).
+  // Oturumsuz / yetkisiz kullanıcı ana sayfaya yönlendirilir — istemcideki
+  // hiçbir bayrak yetki sayılmaz, gerçek denetim sunucudadır (RLS + RPC).
   useEffect(() => {
     let live = true
-    void checkIsAdmin().then((ok) => {
-      if (live) setAccess(ok ? 'allowed' : 'denied')
+    void getMyAdminAccess().then((a) => {
+      if (live) {
+        setAccess(a)
+        setChecking(false)
+      }
     })
     return () => {
       live = false
     }
   }, [])
 
-  if (access === 'denied') return <Navigate to="/" replace />
-  if (access === 'checking') {
+  if (checking) {
     return (
       <div className="flex h-full items-center justify-center px-4 py-16 text-sm text-exchange-muted">
         Yetki denetleniyor…
       </div>
     )
   }
-  return <AdminDashboard />
+  if (!access || (!access.isSuperAdmin && access.permissions.length === 0)) {
+    return <Navigate to="/" replace />
+  }
+  return <AdminDashboard access={access} />
 }
 
-function AdminDashboard() {
+function AdminDashboard({ access }: { access: AdminAccess }) {
   const pushToast = useToastStore((s) => s.push)
+  const myId = getSessionUser()?.id ?? null
   const [stats, setStats] = useState<PlatformStats | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,9 +66,15 @@ function AdminDashboard() {
   const [modal, setModal] = useState<
     | { mode: 'balance'; user: AdminUser }
     | { mode: 'freeze'; user: AdminUser }
+    | { mode: 'ban'; user: AdminUser }
+    | { mode: 'password'; user: AdminUser }
+    | { mode: 'privs'; user: AdminUser | null }
+    | { mode: 'revoke'; user: AdminUser }
     | null
   >(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+
+  const can = useCallback((perm: AdminPermission) => hasAdminPermission(access, perm), [access])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -82,14 +102,22 @@ function AdminDashboard() {
     )
   }, [users, query])
 
+  const admins = useMemo(
+    () => users.filter((u) => u.isAdmin || u.permissions.length > 0),
+    [users],
+  )
   const frozenCount = users.filter((u) => u.isFrozen).length
+  const bannedCount = users.filter((u) => u.isBanned).length
+
+  const fail = (err: unknown, fallback: string) =>
+    pushToast({ message: err instanceof Error ? err.message : fallback, tone: 'error' })
 
   const saveBalance = async (user: AdminUser, raw: string) => {
     let value: number
     try {
       value = validateBalanceInput(raw)
     } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : 'Geçersiz bakiye.', tone: 'error' })
+      fail(err, 'Geçersiz bakiye.')
       return
     }
     setBusyId(user.id)
@@ -102,7 +130,7 @@ function AdminDashboard() {
       setModal(null)
       pushToast({ message: `${user.username} bakiyesi güncellendi.`, tone: 'success' })
     } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : 'Bakiye güncellenemedi.', tone: 'error' })
+      fail(err, 'Bakiye güncellenemedi.')
     } finally {
       setBusyId(null)
     }
@@ -124,7 +152,81 @@ function AdminDashboard() {
         tone: user.isFrozen ? 'success' : 'info',
       })
     } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : 'İşlem yapılamadı.', tone: 'error' })
+      fail(err, 'İşlem yapılamadı.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const toggleBan = async (user: AdminUser) => {
+    setBusyId(user.id)
+    try {
+      await setUserBanned(user.id, !user.isBanned)
+      setUsers((list) =>
+        list.map((u) => (u.id === user.id ? { ...u, isBanned: !u.isBanned } : u)),
+      )
+      setStats((s) =>
+        s ? { ...s, bannedCount: s.bannedCount + (user.isBanned ? -1 : 1) } : s,
+      )
+      setModal(null)
+      pushToast({
+        message: user.isBanned
+          ? `${user.username} yasağı kaldırıldı.`
+          : `${user.username} kalıcı olarak yasaklandı.`,
+        tone: user.isBanned ? 'success' : 'info',
+      })
+    } catch (err) {
+      fail(err, 'Yasaklama işlemi yapılamadı.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const resetPassword = async (user: AdminUser) => {
+    setBusyId(user.id)
+    try {
+      await sendPasswordReset(user.email)
+      setModal(null)
+      pushToast({
+        message: `${user.email} adresine sıfırlama bağlantısı gönderildi.`,
+        tone: 'success',
+      })
+    } catch (err) {
+      fail(err, 'Sıfırlama e-postası gönderilemedi.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const savePrivs = async (userId: string, isAdmin: boolean, permissions: AdminPermission[]) => {
+    setBusyId(userId)
+    try {
+      await setAdminPrivileges(userId, { isAdmin, permissions })
+      setUsers((list) =>
+        list.map((u) => (u.id === userId ? { ...u, isAdmin, permissions } : u)),
+      )
+      setModal(null)
+      pushToast({ message: 'Yönetici yetkileri güncellendi.', tone: 'success' })
+    } catch (err) {
+      fail(err, 'Yetkiler güncellenemedi.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const revokePrivs = async (user: AdminUser) => {
+    setBusyId(user.id)
+    try {
+      await setAdminPrivileges(user.id, { isAdmin: false, permissions: [] })
+      setUsers((list) =>
+        list.map((u) =>
+          u.id === user.id ? { ...u, isAdmin: false, permissions: [] } : u,
+        ),
+      )
+      setModal(null)
+      pushToast({ message: `${user.username} yöneticilikten çıkarıldı.`, tone: 'success' })
+    } catch (err) {
+      fail(err, 'Yetki kaldırılamadı.')
     } finally {
       setBusyId(null)
     }
@@ -138,7 +240,7 @@ function AdminDashboard() {
             <div className="flex items-center gap-2">
               <h1 className="truncate text-lg font-bold text-exchange-text sm:text-xl">Admin Panel</h1>
               <span className="shrink-0 rounded-full bg-exchange-yellow/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-exchange-yellow">
-                Yönetici
+                {access.isSuperAdmin ? 'Süper Admin' : 'Alt Yönetici'}
               </span>
             </div>
             <p className="mt-0.5 text-xs text-exchange-muted">Platform özeti ve kullanıcı yönetimi</p>
@@ -199,6 +301,11 @@ function AdminDashboard() {
                   {frozenCount} dondurulmuş
                 </span>
               )}
+              {bannedCount > 0 && (
+                <span className="ml-2 rounded-full bg-exchange-sell/20 px-2 py-0.5 text-[10px] font-bold text-exchange-sell">
+                  {bannedCount} yasaklı
+                </span>
+              )}
             </h2>
             <input
               value={query}
@@ -218,94 +325,207 @@ function AdminDashboard() {
               {users.length === 0 ? 'Kayıtlı kullanıcı bulunamadı.' : 'Aramaya uygun kullanıcı yok.'}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+            // Scroll düzeltmesi: kayıt çokken tablo kendi bölgesinde
+            // dikey kayar (başlık sabit), sayfa akışı bozulmaz.
+            <div className="max-h-[65dvh] overflow-auto">
+              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-exchange-border text-[11px] uppercase tracking-wide text-exchange-muted">
-                    <th scope="col" className="px-3 py-2.5 font-semibold sm:px-4">Kullanıcı</th>
-                    <th scope="col" className="px-3 py-2.5 font-semibold sm:px-4">E-posta</th>
-                    <th scope="col" className="px-3 py-2.5 text-right font-semibold sm:px-4">Bakiye (USDT)</th>
-                    <th scope="col" className="px-3 py-2.5 font-semibold sm:px-4">Durum</th>
-                    <th scope="col" className="px-3 py-2.5 text-right font-semibold sm:px-4">İşlemler</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 font-semibold sm:px-4">Kullanıcı</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 font-semibold sm:px-4">E-posta</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 text-right font-semibold sm:px-4">Bakiye (USDT)</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 font-semibold sm:px-4">Durum</th>
+                    <th scope="col" className="sticky top-0 z-10 bg-exchange-card px-3 py-2.5 text-right font-semibold sm:px-4">İşlemler</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((u) => (
-                    <tr key={u.id} className="border-b border-exchange-border/50 last:border-0">
-                      <td className="px-3 py-2.5 sm:px-4">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-xs font-extrabold text-exchange-yellow"
-                            aria-hidden
-                          >
-                            {(u.username.charAt(0) || '?').toUpperCase()}
-                          </span>
-                          <div className="min-w-0">
-                            <div className="truncate font-bold text-exchange-text">{u.username}</div>
-                            {u.isAdmin && (
-                              <div className="text-[10px] font-bold uppercase tracking-wide text-exchange-yellow">
-                                Admin
-                              </div>
+                  {filtered.map((u) => {
+                    const isSelf = myId !== null && u.id === myId
+                    return (
+                      <tr key={u.id} className="border-b border-exchange-border/50 last:border-0">
+                        <td className="px-3 py-2.5 sm:px-4">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-xs font-extrabold text-exchange-yellow"
+                              aria-hidden
+                            >
+                              {(u.username.charAt(0) || '?').toUpperCase()}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="truncate font-bold text-exchange-text">{u.username}</div>
+                              {u.isAdmin ? (
+                                <div className="text-[10px] font-bold uppercase tracking-wide text-exchange-yellow">
+                                  Süper Admin
+                                </div>
+                              ) : (
+                                u.permissions.length > 0 && (
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-exchange-muted">
+                                    Alt Yönetici
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="max-w-45 truncate px-3 py-2.5 text-exchange-muted sm:px-4">
+                          {u.email || '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono font-bold text-exchange-text sm:px-4">
+                          {formatNumber(u.balance, 2)}
+                        </td>
+                        <td className="px-3 py-2.5 sm:px-4">
+                          <StatusPill user={u} />
+                        </td>
+                        <td className="px-3 py-2.5 sm:px-4">
+                          <div className="flex justify-end gap-1.5">
+                            {can('edit_balance') && (
+                              <RowButton
+                                label="Bakiye"
+                                title={`${u.username} bakiyesini düzenle`}
+                                disabled={busyId === u.id}
+                                onClick={() => setModal({ mode: 'balance', user: u })}
+                              />
+                            )}
+                            {can('ban_users') && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setModal({ mode: 'freeze', user: u })}
+                                  disabled={busyId === u.id || isSelf}
+                                  title={
+                                    isSelf
+                                      ? 'Kendi hesabında işlem yapamazsın'
+                                      : u.isFrozen
+                                        ? `${u.username} hesabını çöz`
+                                        : `${u.username} hesabını dondur`
+                                  }
+                                  className={cn(
+                                    'whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-colors disabled:opacity-40',
+                                    u.isFrozen
+                                      ? 'border-exchange-buy/40 text-exchange-buy hover:bg-exchange-buy/10'
+                                      : 'border-exchange-sell/40 text-exchange-sell hover:bg-exchange-sell/10',
+                                  )}
+                                >
+                                  {busyId === u.id ? '…' : u.isFrozen ? 'Çöz' : 'Dondur'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setModal({ mode: 'ban', user: u })}
+                                  disabled={busyId === u.id || isSelf}
+                                  title={
+                                    isSelf
+                                      ? 'Kendi hesabında işlem yapamazsın'
+                                      : u.isBanned
+                                        ? `${u.username} yasağını kaldır`
+                                        : `${u.username} hesabını kalıcı yasakla`
+                                  }
+                                  className={cn(
+                                    'whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-colors disabled:opacity-40',
+                                    u.isBanned
+                                      ? 'border-exchange-buy/40 text-exchange-buy hover:bg-exchange-buy/10'
+                                      : 'border-exchange-sell/60 bg-exchange-sell/10 text-exchange-sell hover:bg-exchange-sell/20',
+                                  )}
+                                >
+                                  {busyId === u.id ? '…' : u.isBanned ? 'Yasağı Kaldır' : 'Yasakla'}
+                                </button>
+                              </>
+                            )}
+                            {can('change_password') && u.email && (
+                              <RowButton
+                                label="Şifre"
+                                title={`${u.username} için şifre sıfırlama e-postası gönder`}
+                                disabled={busyId === u.id}
+                                onClick={() => setModal({ mode: 'password', user: u })}
+                              />
                             )}
                           </div>
-                        </div>
-                      </td>
-                      <td className="max-w-45 truncate px-3 py-2.5 text-exchange-muted sm:px-4">
-                        {u.email || '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono font-bold text-exchange-text sm:px-4">
-                        {formatNumber(u.balance, 2)}
-                      </td>
-                      <td className="px-3 py-2.5 sm:px-4">
-                        <span
-                          className={cn(
-                            'inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold',
-                            u.isFrozen
-                              ? 'bg-exchange-sell/10 text-exchange-sell'
-                              : 'bg-exchange-buy/10 text-exchange-buy',
-                          )}
-                        >
-                          {u.isFrozen ? 'Dondurulmuş' : 'Aktif'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 sm:px-4">
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setModal({ mode: 'balance', user: u })}
-                            disabled={busyId === u.id}
-                            aria-label={`${u.username} bakiyesini düzenle`}
-                            className="whitespace-nowrap rounded-lg border border-exchange-border px-2.5 py-1.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow disabled:opacity-40"
-                          >
-                            Bakiye
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setModal({ mode: 'freeze', user: u })}
-                            disabled={busyId === u.id}
-                            aria-label={u.isFrozen ? `${u.username} hesabını çöz` : `${u.username} hesabını dondur`}
-                            className={cn(
-                              'whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-bold transition-colors disabled:opacity-40',
-                              u.isFrozen
-                                ? 'border-exchange-buy/40 text-exchange-buy hover:bg-exchange-buy/10'
-                                : 'border-exchange-sell/40 text-exchange-sell hover:bg-exchange-sell/10',
-                            )}
-                          >
-                            {busyId === u.id ? '…' : u.isFrozen ? 'Çöz' : 'Dondur'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
 
+        {/* Yönetici yetkileri (yalnızca admin ekleyebilenler) */}
+        {can('manage_admins') && (
+          <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+            <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
+              <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
+                Yöneticiler
+                <span className="ml-2 font-mono text-xs font-semibold text-exchange-muted">
+                  {admins.length}
+                </span>
+              </h2>
+              <Button size="sm" onClick={() => setModal({ mode: 'privs', user: null })}>
+                + Admin Ekle
+              </Button>
+            </div>
+            {admins.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+                Henüz yönetici yok.
+              </div>
+            ) : (
+              <ul>
+                {admins.map((u) => {
+                  const isSelf = myId !== null && u.id === myId
+                  return (
+                    <li
+                      key={u.id}
+                      className="flex flex-wrap items-center gap-2 border-b border-exchange-border/50 px-3 py-2.5 last:border-0 sm:px-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-bold text-exchange-text">
+                          {u.username}
+                          {isSelf && (
+                            <span className="ml-2 text-[10px] font-bold uppercase text-exchange-muted">
+                              (sen)
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
+                          {u.isAdmin ? (
+                            <span className="font-bold text-exchange-yellow">Süper Admin — tüm yetkiler</span>
+                          ) : (
+                            u.permissions.map((p) => permLabel(p)).join(' • ') || '—'
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-1.5">
+                        {(!u.isAdmin || access.isSuperAdmin) && (
+                          <>
+                            <RowButton
+                              label="Düzenle"
+                              title={`${u.username} yetkilerini düzenle`}
+                              disabled={busyId === u.id || isSelf}
+                              onClick={() => setModal({ mode: 'privs', user: u })}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setModal({ mode: 'revoke', user: u })}
+                              disabled={busyId === u.id || isSelf}
+                              title={isSelf ? 'Kendi yetkilerini değiştiremezsin' : 'Yöneticilikten çıkar'}
+                              className="whitespace-nowrap rounded-lg border border-exchange-sell/40 px-2.5 py-1.5 text-xs font-bold text-exchange-sell transition-colors hover:bg-exchange-sell/10 disabled:opacity-40"
+                            >
+                              Çıkar
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
         <p className="mt-3 px-1 text-[11px] leading-relaxed text-exchange-muted">
-          Bakiye değişiklikleri anında profile yansır. Dondurulan hesaplar bir sonraki girişte
-          engellenir. Emirler cihazda tutulur; panel sunucu verilerini gösterir.
+          Bakiye değişiklikleri anında profile yansır. Dondurulan ve yasaklı hesaplar giriş yapamaz.
+          Yetkisiz işlem denemeleri sunucu tarafından reddedilir. Emirler cihazda tutulur; panel
+          sunucu verilerini gösterir.
         </p>
       </div>
 
@@ -318,14 +538,134 @@ function AdminDashboard() {
         />
       )}
       {modal?.mode === 'freeze' && (
-        <FreezeModal
-          user={modal.user}
+        <ConfirmModal
+          title={modal.user.isFrozen ? 'Hesabı çöz' : 'Hesabı dondur'}
           busy={busyId === modal.user.id}
           onClose={() => setModal(null)}
           onConfirm={() => void toggleFreeze(modal.user)}
+          confirmLabel={modal.user.isFrozen ? 'Çöz' : 'Dondur'}
+          variant={modal.user.isFrozen ? 'buy' : 'sell'}
+        >
+          <span className="font-bold">{modal.user.username}</span> (
+          {modal.user.email || 'e-posta yok'}) hesabı{' '}
+          {modal.user.isFrozen ? (
+            <>
+              <span className="font-bold text-exchange-buy">çözülecek</span> ve tekrar giriş
+              yapabilecek.
+            </>
+          ) : (
+            <>
+              <span className="font-bold text-exchange-sell">dondurulacak</span>. Bu kullanıcı bir
+              sonraki girişte engellenir.
+            </>
+          )}
+        </ConfirmModal>
+      )}
+      {modal?.mode === 'ban' && (
+        <ConfirmModal
+          title={modal.user.isBanned ? 'Yasağı kaldır' : 'Kalıcı yasakla'}
+          busy={busyId === modal.user.id}
+          onClose={() => setModal(null)}
+          onConfirm={() => void toggleBan(modal.user)}
+          confirmLabel={modal.user.isBanned ? 'Yasağı Kaldır' : 'Yasakla'}
+          variant={modal.user.isBanned ? 'buy' : 'sell'}
+        >
+          <span className="font-bold">{modal.user.username}</span> (
+          {modal.user.email || 'e-posta yok'}) hesabı{' '}
+          {modal.user.isBanned ? (
+            <>
+              <span className="font-bold text-exchange-buy">yasak listesinden çıkarılacak</span> ve
+              tekrar giriş yapabilecek.
+            </>
+          ) : (
+            <>
+              <span className="font-bold text-exchange-sell">kalıcı olarak yasaklanacak</span> ve
+              sisteme girişi tamamen engellenecek. Bu işlem veritabanında{' '}
+              <span className="font-mono">banned</span> olarak işaretlenir.
+            </>
+          )}
+        </ConfirmModal>
+      )}
+      {modal?.mode === 'password' && (
+        <PasswordModal
+          user={modal.user}
+          busy={busyId === modal.user.id}
+          onClose={() => setModal(null)}
+          onConfirm={() => void resetPassword(modal.user)}
         />
       )}
+      {modal?.mode === 'privs' && can('manage_admins') && (
+        <PrivsModal
+          users={users}
+          initial={modal.user}
+          myId={myId}
+          busyId={busyId}
+          onClose={() => setModal(null)}
+          onSave={(userId, isAdmin, permissions) => void savePrivs(userId, isAdmin, permissions)}
+        />
+      )}
+      {modal?.mode === 'revoke' && (
+        <ConfirmModal
+          title="Yöneticilikten çıkar"
+          busy={busyId === modal.user.id}
+          onClose={() => setModal(null)}
+          onConfirm={() => void revokePrivs(modal.user)}
+          confirmLabel="Çıkar"
+          variant="sell"
+        >
+          <span className="font-bold">{modal.user.username}</span> yöneticilikten çıkarılacak, tüm
+          yetkileri kaldırılacak ve normal kullanıcıya dönüşecek.
+        </ConfirmModal>
+      )}
     </div>
+  )
+}
+
+function permLabel(key: string): string {
+  return ADMIN_PERMISSIONS.find((p) => p.key === key)?.label ?? key
+}
+
+function RowButton({
+  label,
+  title,
+  disabled,
+  onClick,
+}: {
+  label: string
+  title: string
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      onClick={onClick}
+      className="whitespace-nowrap rounded-lg border border-exchange-border px-2.5 py-1.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow disabled:opacity-40"
+    >
+      {label}
+    </button>
+  )
+}
+
+function StatusPill({ user }: { user: AdminUser }) {
+  const banned = user.isBanned
+  const frozen = user.isFrozen
+  return (
+    <span
+      className={cn(
+        'inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold',
+        banned
+          ? 'bg-exchange-sell/20 text-exchange-sell'
+          : frozen
+            ? 'bg-exchange-sell/10 text-exchange-sell'
+            : 'bg-exchange-buy/10 text-exchange-buy',
+      )}
+    >
+      {banned ? 'Yasaklı' : frozen ? 'Dondurulmuş' : 'Aktif'}
+    </span>
   )
 }
 
@@ -418,7 +758,39 @@ function BalanceModal({
   )
 }
 
-function FreezeModal({
+function ConfirmModal({
+  title,
+  busy,
+  onClose,
+  onConfirm,
+  confirmLabel,
+  variant,
+  children,
+}: {
+  title: string
+  busy: boolean
+  onClose: () => void
+  onConfirm: () => void
+  confirmLabel: string
+  variant: 'sell' | 'buy'
+  children: React.ReactNode
+}) {
+  return (
+    <ModalShell title={title} onClose={onClose}>
+      <p className="text-sm leading-relaxed text-exchange-text">{children}</p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
+          Vazgeç
+        </Button>
+        <Button size="sm" variant={variant} onClick={onConfirm} disabled={busy}>
+          {busy ? 'İşleniyor…' : confirmLabel}
+        </Button>
+      </div>
+    </ModalShell>
+  )
+}
+
+function PasswordModal({
   user,
   busy,
   onClose,
@@ -429,29 +801,158 @@ function FreezeModal({
   onClose: () => void
   onConfirm: () => void
 }) {
-  const freezing = !user.isFrozen
   return (
-    <ModalShell title={freezing ? 'Hesabı dondur' : 'Hesabı çöz'} onClose={onClose}>
+    <ModalShell title="Şifre sıfırla" onClose={onClose}>
       <p className="text-sm leading-relaxed text-exchange-text">
-        <span className="font-bold">{user.username}</span> ({user.email || 'e-posta yok'}) hesabı{' '}
-        {freezing ? (
-          <>
-            <span className="font-bold text-exchange-sell">dondurulacak</span>. Bu kullanıcı bir
-            sonraki girişte engellenir.
-          </>
-        ) : (
-          <>
-            <span className="font-bold text-exchange-buy">çözülecek</span> ve tekrar giriş
-            yapabilecek.
-          </>
-        )}
+        <span className="font-bold">{user.username}</span> ({user.email}) adresine şifre sıfırlama
+        bağlantısı gönderilecek. Kullanıcı e-postadaki bağlantıyla kendi şifresini belirler —{' '}
+        <span className="font-bold">şifreyi kimse göremez</span>, yönetici dahil.
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
           Vazgeç
         </Button>
-        <Button size="sm" variant={freezing ? 'sell' : 'buy'} onClick={onConfirm} disabled={busy}>
-          {busy ? 'İşleniyor…' : freezing ? 'Dondur' : 'Çöz'}
+        <Button size="sm" onClick={onConfirm} disabled={busy}>
+          {busy ? 'Gönderiliyor…' : 'Sıfırlama E-postası Gönder'}
+        </Button>
+      </div>
+    </ModalShell>
+  )
+}
+
+function PrivsModal({
+  users,
+  initial,
+  myId,
+  busyId,
+  onClose,
+  onSave,
+}: {
+  users: AdminUser[]
+  initial: AdminUser | null
+  myId: string | null
+  busyId: string | null
+  onClose: () => void
+  onSave: (userId: string, isAdmin: boolean, permissions: AdminPermission[]) => void
+}) {
+  const [text, setText] = useState(initial?.username ?? '')
+  const [pickedId, setPickedId] = useState(initial?.id ?? '')
+  const [isSuper, setIsSuper] = useState(initial?.isAdmin ?? false)
+  const [checked, setChecked] = useState<AdminPermission[]>(initial?.permissions ?? [])
+  // Seçim yalnızca tam eşleşmede kurulur; serbest yazım input'u silmez.
+  const picked =
+    users.find((u) => u.id === pickedId) ??
+    users.find(
+      (u) =>
+        u.username.toLowerCase() === text.trim().toLowerCase() ||
+        u.email.toLowerCase() === text.trim().toLowerCase(),
+    ) ??
+    null
+  const effectiveId = picked?.id ?? ''
+  const isSelf = myId !== null && effectiveId !== '' && effectiveId === myId
+  const busy = effectiveId !== '' && busyId === effectiveId
+
+  const toggle = (key: AdminPermission) => {
+    setChecked((prev) => (prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key]))
+  }
+
+  const canSave = picked !== null && !isSelf && !busy && (isSuper || checked.length > 0)
+
+  return (
+    <ModalShell title={initial ? 'Yetkileri düzenle' : 'Admin ekle'} onClose={onClose}>
+      {!initial && (
+        <>
+          <label htmlFor="admin-user-pick" className="block text-xs font-semibold text-exchange-muted">
+            Kullanıcı seç
+          </label>
+          <input
+            id="admin-user-pick"
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value)
+              const q = e.target.value.trim().toLowerCase()
+              const found =
+                users.find((u) => u.username.toLowerCase() === q || u.email.toLowerCase() === q) ??
+                null
+              setPickedId(found?.id ?? '')
+            }}
+            list="admin-user-list"
+            placeholder="Kullanıcı adı veya e-posta yaz…"
+            autoComplete="off"
+            className="mt-1.5 h-11 w-full rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow placeholder:text-exchange-muted/70"
+          />
+          <datalist id="admin-user-list">
+            {users.map((u) => (
+              <option key={u.id} value={u.username}>
+                {u.email}
+              </option>
+            ))}
+          </datalist>
+          {picked && (
+            <p className="mt-1.5 text-xs text-exchange-muted">
+              Seçili: <span className="font-bold text-exchange-text">{picked.username}</span> ({picked.email || 'e-posta yok'})
+            </p>
+          )}
+        </>
+      )}
+      {initial && (
+        <p className="text-sm text-exchange-muted">
+          <span className="font-bold text-exchange-text">{initial.username}</span> ({initial.email || 'e-posta yok'})
+        </p>
+      )}
+
+      <label className="mt-3 flex cursor-pointer items-center gap-2.5 rounded-xl border border-exchange-yellow/30 bg-exchange-yellow/5 px-3 py-2.5">
+        <input
+          type="checkbox"
+          checked={isSuper}
+          onChange={(e) => setIsSuper(e.target.checked)}
+          disabled={isSelf}
+          className="h-4 w-4 accent-yellow-400"
+        />
+        <span className="text-sm font-bold text-exchange-text">
+          Süper Admin <span className="font-normal text-exchange-muted">(tüm yetkiler)</span>
+        </span>
+      </label>
+
+      <fieldset className="mt-3" disabled={isSuper || isSelf}>
+        <legend className="px-1 text-xs font-semibold text-exchange-muted">
+          Alt yönetici yetkileri
+        </legend>
+        <div className="mt-1.5 grid gap-1.5">
+          {ADMIN_PERMISSIONS.map((p) => (
+            <label
+              key={p.key}
+              className={cn(
+                'flex cursor-pointer items-center gap-2.5 rounded-xl border border-exchange-border px-3 py-2.5 transition-colors',
+                checked.includes(p.key) && 'border-exchange-yellow/50 bg-exchange-yellow/5',
+                (isSuper || isSelf) && 'opacity-50',
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={isSuper || checked.includes(p.key)}
+                onChange={() => toggle(p.key)}
+                disabled={isSuper || isSelf}
+                className="h-4 w-4 accent-yellow-400"
+              />
+              <span className="text-sm font-semibold text-exchange-text">{p.label}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {isSelf && (
+        <p className="mt-2 text-xs font-semibold text-exchange-sell">
+          Kendi yetkilerini değiştiremezsin.
+        </p>
+      )}
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
+          Vazgeç
+        </Button>
+        <Button size="sm" onClick={() => picked && onSave(picked.id, isSuper, checked)} disabled={!canSave}>
+          {busy ? 'Kaydediliyor…' : 'Kaydet'}
         </Button>
       </div>
     </ModalShell>
@@ -476,7 +977,7 @@ function ModalShell({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-exchange-border bg-exchange-card p-4 shadow-2xl sm:p-5"
+        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl border border-exchange-border bg-exchange-card p-4 shadow-2xl sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between gap-2">
