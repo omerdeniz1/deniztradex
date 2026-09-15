@@ -21,9 +21,13 @@ interface Props {
   balance: number
   /** Latest market price for the selected coin (all-markets snapshot). */
   marketPrice?: number
+  /** Mobil bottom sheet'ten açılışta seçili gelecek yön. Verilmezse moda göre varsayılan. */
+  initialSide?: PanelSide
+  /** Emir başarıyla gönderildiğinde çağrılır (mobilde sheet'i kapatmak için). */
+  onSubmitted?: () => void
 }
 
-type PanelSide = OrderStance
+export type PanelSide = OrderStance
 
 interface OrderDraft {
   symbol: string
@@ -56,7 +60,7 @@ const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   oco: 'OCO',
 }
 
-export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
+export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, onSubmitted }: Props) {
   const spotBalances = useTradeStore((s) => s.spotBalances)
   const confirmOrders = useSettingsStore((s) => s.confirmOrders)
   const place = useOrderStore((s) => s.placeOrder)
@@ -67,7 +71,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
   const coin = ticker?.symbol.replace(/USDT$/i, '') ?? 'BTC'
   const heldCoin = spotBalances[coin] ?? 0
 
-  const [side, setSide] = useState<PanelSide>(mode === 'spot' ? 'buy' : 'long')
+  const [side, setSide] = useState<PanelSide>(initialSide ?? (mode === 'spot' ? 'buy' : 'long'))
   const [leverage, setLeverage] = useState(10)
   const [priceStr, setPriceStr] = useState('')
   const [amountStr, setAmountStr] = useState('')
@@ -213,11 +217,11 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
     }
   }
 
-  const placeSpec = (spec: OrderDraftSpec) => {
+  const placeSpec = (spec: OrderDraftSpec): boolean => {
     const result = place(spec)
     if (result && !result.ok && 'error' in result) {
       setError(result.error)
-      return
+      return false
     }
     setAmountStr('')
     if (result.ok && result.pending) {
@@ -225,6 +229,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
     } else {
       pushToast({ message: `${spec.symbol} — Emir gönderildi`, tone: 'success' })
     }
+    return true
   }
 
   const submit = () => {
@@ -260,13 +265,13 @@ export function TradingPanel({ ticker, mode, balance, marketPrice }: Props) {
       setConfirmSpec(spec)
       return
     }
-    placeSpec(spec)
+    if (placeSpec(spec)) onSubmitted?.()
   }
 
   const confirmAndSend = () => {
     const spec = confirmSpec
     setConfirmSpec(null)
-    if (spec) placeSpec(spec)
+    if (spec && placeSpec(spec)) onSubmitted?.()
   }
 
   const notional = draft ? draft.quantity * draft.entryPrice : 0

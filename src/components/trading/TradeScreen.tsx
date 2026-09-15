@@ -20,7 +20,8 @@ import { DEFAULT_SYMBOL } from '@/lib/constants'
 import type { Interval } from '@/types'
 import type { TradingMode } from '@/types'
 import { TradingChart, type ChartIndicators } from '@/components/chart/TradingChart'
-import { TradingPanel } from '@/components/trading/TradingPanel'
+import { TradingPanel, type PanelSide } from '@/components/trading/TradingPanel'
+import { Button } from '@/components/ui/Button'
 import { PairSelector } from '@/components/trading/PairSelector'
 import { PositionList } from '@/components/trading/PositionList'
 import { TradeHistory } from '@/components/trading/TradeHistory'
@@ -127,6 +128,11 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       return next
     })
   }
+
+  // Mobil emir girişi: grafik altında yalnızca Al/Sat butonları durur;
+  // formun tamamı bottom sheet içinde açılır (Binance mobil düzeni).
+  // `null` = kapalı, aksi halde sheet'in açılış yönü.
+  const [sheetSide, setSheetSide] = useState<PanelSide | null>(null)
 
   // Full 24h row (change %, volume) for the selected pair.
   const ticker = tickers[symbol] ?? null
@@ -433,6 +439,26 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             )}
           </div>
 
+          {/* Mobil emir çubuğu: yalnızca Al/Sat. Form sheet içinde. */}
+          <div className="grid grid-cols-2 gap-2 px-3 py-2.5 sm:px-4 md:hidden">
+            <Button
+              variant="buy"
+              size="lg"
+              className="w-full whitespace-nowrap text-base"
+              onClick={() => setSheetSide(mode === 'spot' ? 'buy' : 'long')}
+            >
+              {mode === 'spot' ? 'Al' : 'Long'}
+            </Button>
+            <Button
+              variant="sell"
+              size="lg"
+              className="w-full whitespace-nowrap text-base"
+              onClick={() => setSheetSide(mode === 'spot' ? 'sell' : 'short')}
+            >
+              {mode === 'spot' ? 'Sat' : 'Short'}
+            </Button>
+          </div>
+
           <div className="border-t border-exchange-border">
             <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2 sm:px-4">
               <span className="text-xs font-semibold uppercase tracking-wide text-exchange-muted">
@@ -529,8 +555,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
           </div>
         </section>
 
-        {/* Right: trading panel */}
-        <aside className="max-w-full border-t border-exchange-border bg-exchange-surface md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
+        {/* Right: trading panel (yalnızca masaüstü — mobilde bottom sheet kullanılır) */}
+        <aside className="hidden max-w-full border-t border-exchange-border bg-exchange-surface md:block md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
           <TradingPanel
             key={symbol}
             ticker={ticker}
@@ -542,6 +568,68 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       </main>
 
       <TradeHistory mode={mode} />
+
+      {/* Mobil emir sheet'i: formun tamamı burada (Binance mobil düzeni). */}
+      <AnimatePresence>
+        {sheetSide && (
+          <motion.div
+            key="order-sheet"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-50 md:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Emir ver"
+          >
+            <div
+              className="absolute inset-0 bg-black/70"
+              onClick={() => setSheetSide(null)}
+              aria-hidden
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+              className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-2xl border-t border-exchange-border bg-exchange-card pb-safe shadow-2xl"
+            >
+              <div className="flex shrink-0 justify-center pt-2" aria-hidden>
+                <span className="h-1 w-10 rounded-full bg-exchange-border" />
+              </div>
+              <div className="flex shrink-0 items-center gap-2 px-4 py-2">
+                <span className="min-w-0 flex-1 truncate text-base font-extrabold text-exchange-text">
+                  {symbol.replace('USDT', '')}
+                  <span className="text-xs font-semibold text-exchange-muted"> / USDT</span>
+                </span>
+                <span className="shrink-0 font-mono text-sm font-bold text-exchange-text">
+                  {livePrice ? formatPrice(livePrice) : '—'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSheetSide(null)}
+                  aria-label="Kapat"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-exchange-muted hover:bg-exchange-surface hover:text-exchange-text"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto border-t border-exchange-border">
+                <TradingPanel
+                  key={`${symbol}-${sheetSide}`}
+                  ticker={ticker}
+                  mode={mode}
+                  balance={balance}
+                  marketPrice={livePrices[symbol]}
+                  initialSide={sheetSide}
+                  onSubmitted={() => setSheetSide(null)}
+                />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
