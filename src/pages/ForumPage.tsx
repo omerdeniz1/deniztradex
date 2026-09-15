@@ -55,10 +55,11 @@ export function ForumPage() {
   }, [refresh])
 
   // Canlı akış: başka cihazda paylaşılan gönderi bu ekrana da düşsün.
-  // Realtime + periyodik yoklama + odaklanınca yenileme birlikte çalışır;
-  // biri çalışmazsa diğeri yakalar. Sessiz yenileme — yükleniyor
-  // göstergesiyle akışı boşaltıp "silindi" izlenimi vermez, hata
-  // durumunda toast spam'i yapmaz (hata inline banner'da durur).
+  // Birincil kanal realtime'dır (<1 sn); periyodik yoklama yalnızca
+  // yedektir (realtime bağlanamazsa devreye girer). Odaklanınca yenileme
+  // de vardır. Sessiz yenileme — yükleniyor göstergesiyle akışı
+  // boşaltıp "silindi" izlenimi vermez, hata durumunda toast spam'i
+  // yapmaz (hata inline banner'da durur).
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return
     const client = supabase
@@ -78,7 +79,7 @@ export function ForumPage() {
         quiet,
       )
       .subscribe()
-    const timer = window.setInterval(quiet, 15000)
+    const timer = window.setInterval(quiet, 3000)
     const onFocus = quiet
     const onVisibility = () => {
       if (document.visibilityState === 'visible') quiet()

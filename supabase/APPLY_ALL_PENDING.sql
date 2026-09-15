@@ -1,7 +1,7 @@
 -- ============================================================
--- DenizTradeX — TEK SEFERDE UYGULANACAK TOPLU SQL
--- Supabase Dashboard › SQL Editor › New Query › yapıştır › Run
--- Tüm ifadeler idempotent: daha önce kısmen uygulandıysa bile güvenle tekrar çalışır.
+-- DenizTradeX ï¿½ TEK SEFERDE UYGULANACAK TOPLU SQL
+-- Supabase Dashboard ï¿½ SQL Editor ï¿½ New Query ï¿½ yapï¿½ï¿½tï¿½r ï¿½ Run
+-- Tï¿½m ifadeler idempotent: daha ï¿½nce kï¿½smen uygulandï¿½ysa bile gï¿½venle tekrar ï¿½alï¿½ï¿½ï¿½r.
 -- ============================================================
 
 
@@ -395,4 +395,47 @@ set reply_count = coalesce(
   (select count(*) from public.forum_replies as r where r.post_id = p.id),
   0
 );
+
+
+-- >>> supabase/migrations/20260915130000_forum_realtime.sql
+-- ============================================================
+-- DenizTradeX â€” Forum realtime (canlÄ± akÄ±ÅŸ)
+--
+-- `forum_posts` / `forum_replies` / `forum_likes` deÄŸiÅŸiklikleri
+-- diÄŸer cihazlara anÄ±nda (<1 sn) dÃ¼ÅŸsÃ¼n diye tablolar
+-- `supabase_realtime` yayÄ±nÄ±na eklenir. YayÄ±n kapalÄ±ysa uygulama
+-- yalnÄ±zca periyodik yoklamaya kalÄ±r (â‰ˆ10-15 sn gecikme).
+-- Idempotent: tablo zaten yayÄ±ndaysa atlanÄ±r.
+-- ============================================================
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'forum_posts'
+  ) then
+    alter publication supabase_realtime add table public.forum_posts;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'forum_replies'
+  ) then
+    alter publication supabase_realtime add table public.forum_replies;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'forum_likes'
+  ) then
+    alter publication supabase_realtime add table public.forum_likes;
+  end if;
+end;
+$$;
 
