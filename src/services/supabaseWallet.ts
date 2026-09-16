@@ -409,12 +409,18 @@ export async function syncDepositToSupabase(input: {
 }): Promise<void> {
   if (!supabase || !input.userId) return
   if (!Number.isFinite(input.amountUsdt) || input.amountUsdt <= 0) return
-  // Backstop: kısıtlı hesabın sunucu defteri kirlenmez (birincil kapı
-  // arayüzdeki işlem-öncesi kontrolüdür; burası sessizce atlar).
-  try {
-    assertDepositAllowed(await getMoneyRestrictions(input.userId))
-  } catch {
-    return
+  const source = input.source ?? 'card'
+  // Backstop SADECE kart yüklemelerinde devreye girer: kısıtlı hesabın
+  // kart defteri kirlenmez (birincil kapı arayüzdeki işlem-öncesi
+  // kontroldür; burası sessizce atlar). Promosyon/referral bonusları
+  // kısıtlı hesaba da işlenir — sunucu bakiyesi ekranla senkron kalır,
+  // profil senkronu bonusu geri almaz.
+  if (source === 'card') {
+    try {
+      assertDepositAllowed(await getMoneyRestrictions(input.userId))
+    } catch {
+      return
+    }
   }
   await recordDeposit(input)
   const current = await getProfileBalance(input.userId)
@@ -505,7 +511,7 @@ export async function fetchUsedPromos(userId: string): Promise<string[]> {
 // kopyalanır — ayrıca okuma gerekmez.
 // ---------------------------------------------------------------
 
-export const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+export const AVATAR_MAX_BYTES = 10 * 1024 * 1024
 
 const AVATAR_EXT_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -524,7 +530,7 @@ export function validateAvatarFile(file: File): string {
     throw new Error('Dosya okunamadı. Başka bir fotoğraf dene.')
   }
   if (file.size > AVATAR_MAX_BYTES) {
-    throw new Error('Fotoğraf en fazla 2MB olabilir.')
+    throw new Error('Fotoğraf en fazla 10MB olabilir.')
   }
   return ext
 }

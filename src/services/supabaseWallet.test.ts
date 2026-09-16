@@ -86,10 +86,16 @@ describe('validateAvatarFile', () => {
     expect(() => validateAvatarFile(new File(['x'], 'a.pdf', { type: 'application/pdf' }))).toThrow()
   })
 
-  it('rejects files larger than 2MB', () => {
+  it('rejects files larger than 10MB', () => {
     const big = new File(['x'], 'a.png', { type: 'image/png' })
-    Object.defineProperty(big, 'size', { value: 3 * 1024 * 1024 })
-    expect(() => validateAvatarFile(big)).toThrow('2MB')
+    Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 })
+    expect(() => validateAvatarFile(big)).toThrow('10MB')
+  })
+
+  it('accepts files up to 10MB', () => {
+    const ok = new File(['x'], 'a.png', { type: 'image/png' })
+    Object.defineProperty(ok, 'size', { value: 9 * 1024 * 1024 })
+    expect(validateAvatarFile(ok)).toBe('png')
   })
 })
 

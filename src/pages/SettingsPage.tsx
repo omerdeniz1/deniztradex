@@ -118,7 +118,7 @@ function AvatarSection() {
         Profil Fotoğrafı
       </h2>
       <p className="mt-1 text-xs text-exchange-muted">
-        Fotoğrafın forumda ve menüde görünür. JPG, PNG, WEBP veya GIF — en fazla 2MB.
+        Fotoğrafın forumda ve menüde görünür. JPG, PNG, WEBP veya GIF — en fazla 10MB.
       </p>
       <div className="mt-4 flex items-center gap-4">
         {avatarUrl ? (

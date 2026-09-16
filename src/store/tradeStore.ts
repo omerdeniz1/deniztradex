@@ -7,7 +7,7 @@ import {
   type OrderInput,
 } from '@/engine/calculations'
 import { getSessionUserId, WALLET_STORAGE_KEY } from '@/services/authService'
-import { claimPromoRemote, getMoneyRestrictions, pushBalanceToServer, recordTransaction } from '@/services/supabaseWallet'
+import { claimPromoRemote, pushBalanceToServer, recordTransaction } from '@/services/supabaseWallet'
 import { roundTo } from '@/lib/utils'
 import type { OrderSide, Position, TradingMode } from '@/types'
 
@@ -470,12 +470,9 @@ export const useTradeStore = create<TradeState>()(
           return { ok: false, error: 'Bu promosyon kodu daha önce kullanıldı.' }
         }
         const userId = getSessionUserId()
-        // Admin kısıtı: para yatırması kapatılan hesap promosyonla da
-        // bakiye yükleyemez (çevrimdışı/test modunda kısıt bilinemez).
-        // getMoneyRestrictions hata durumunda kısıtsız döner (fail-open).
-        if (userId && (await getMoneyRestrictions(userId)).depositBlocked) {
-          return { ok: false, error: 'Para yatırma işlemin yönetici tarafından kısıtlanmış. Destek ile iletişime geç.' }
-        }
+        // Para kısıtı (depositBlocked) YALNIZCA kartla yüklemeyi ve para
+        // çekmeyi kapsar; promosyon/referral bonusları kısıtlı hesaba da
+        // işlenir. Bu yüzden burada kısıt kontrolü YOKTUR.
         if (userId) {
           const claim = await claimPromoRemote(userId, code)
           if (claim === 'already') {

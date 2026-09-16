@@ -19,7 +19,8 @@ export function LeaderboardPage() {
       if (!silent) setLoading(true)
       setError(null)
       try {
-        setEntries(await getLeaderboard(50))
+        // RPC en fazla 100 kayıt döner — tüm kullanıcılar erişilebilir olsun.
+        setEntries(await getLeaderboard(100))
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Sıralama yüklenemedi. Lütfen tekrar dene.'
         setError(msg)
@@ -36,8 +37,8 @@ export function LeaderboardPage() {
   }, [load])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-3 py-4 sm:px-4 sm:py-6">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain">
+      <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-3 py-4 pb-28 sm:px-4 sm:py-6 md:pb-8">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-lg font-bold text-exchange-text sm:text-xl">Sıralama</h1>

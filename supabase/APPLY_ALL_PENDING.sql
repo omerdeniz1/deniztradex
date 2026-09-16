@@ -1430,6 +1430,11 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Promosyon/referral bonusları kısıttan muaftır; yalnızca kart
+  -- yüklemeleri engellenir. (20260916090000_promo_ledger_allow ile uyumlu.)
+  if coalesce(NEW.source, 'card') <> 'card' then
+    return NEW;
+  end if;
   if exists (
     select 1 from public.profiles as p
     where p.id = NEW.user_id and p.deposit_blocked = true
