@@ -82,9 +82,8 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   const can = useCallback((perm: AdminPermission) => hasAdminPermission(access, perm), [access])
 
-  // Mobil sekme yapısı (< md): büyük bloklar üstte yatay kaydırılabilir
-  // sekmelere bölünür, yalnızca seçili sekme gösterilir. Masaüstünde (md+)
-  // tüm bölümler alt alta yığılmaya devam eder.
+  // Sekme yapısı (mobil + masaüstü): büyük bloklar üstte yatay
+  // kaydırılabilir sekmelere bölünür, yalnızca seçili sekme gösterilir.
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins'>('overview')
   const showForum = can('ban_users')
   const showAdmins = can('manage_admins')
@@ -296,8 +295,8 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           </Button>
         </div>
 
-        {/* Mobil sekme barı: yatay kaydırılabilir, yalnızca md altında */}
-        <div className="mt-3 md:hidden">
+        {/* Sekme barı: tüm ekranlarda yatay kaydırılabilir, yalnızca seçili sekme gösterilir */}
+        <div className="mt-3">
           <div
             role="tablist"
             aria-label="Admin bölümleri"
@@ -339,11 +338,11 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           </div>
         )}
 
-        {/* Genel Bakış: istatistik kartları (mobilde sekme, masaüstünde blok) */}
+        {/* Genel Bakış: istatistik kartları (yalnızca sekme seçiliyken) */}
         <div
           role="tabpanel"
           aria-label="Genel Bakış"
-          className={cn(activeTab === 'overview' ? 'block' : 'hidden md:block')}
+          className={cn(activeTab === 'overview' ? 'block' : 'hidden')}
         >
         <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
           <StatCard
@@ -374,7 +373,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
         <div
           role="tabpanel"
           aria-label="Kullanıcılar"
-          className={cn(activeTab === 'users' ? 'block' : 'hidden md:block')}
+          className={cn(activeTab === 'users' ? 'block' : 'hidden')}
         >
         <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
           <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
@@ -696,7 +695,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           <div
             role="tabpanel"
             aria-label="Forum"
-            className={cn(activeTab === 'forum' ? 'block' : 'hidden md:block')}
+            className={cn(activeTab === 'forum' ? 'block' : 'hidden')}
           >
             <ForumModeration isSuper={access.isSuperAdmin} />
           </div>
@@ -707,7 +706,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           <div
             role="tabpanel"
             aria-label="Yöneticiler"
-            className={cn(activeTab === 'admins' ? 'block' : 'hidden md:block')}
+            className={cn(activeTab === 'admins' ? 'block' : 'hidden')}
           >
           <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
             <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
