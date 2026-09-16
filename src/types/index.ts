@@ -3,6 +3,8 @@ export type OrderSide = 'long' | 'short'
 export type OrderType = 'market' | 'limit' | 'stop-market' | 'stop-limit' | 'trailing' | 'oco'
 export type TIF = 'GTC' | 'IOC' | 'FOK'
 export type TriggerType = 'last' | 'mark'
+/** Vadeli marjin modu: pozisyon başına kilitli teminat (İzole) veya hesap bakiyesiyle ortak (Çapraz). */
+export type MarginMode = 'isolated' | 'cross'
 
 export interface User {
   readonly id: string
@@ -44,6 +46,8 @@ export interface Position {
   readonly slPrice?: number | null
   readonly triggerType?: TriggerType
   readonly reduceOnly?: boolean
+  /** Yoksa İzole varsayılır (mevcut motor davranışı). */
+  readonly marginMode?: MarginMode
 }
 
 export interface PositionPnl extends Position {

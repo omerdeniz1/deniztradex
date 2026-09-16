@@ -9,7 +9,7 @@ import {
 import { getSessionUserId, WALLET_STORAGE_KEY } from '@/services/authService'
 import { claimPromoRemote, pushBalanceToServer, recordTransaction } from '@/services/supabaseWallet'
 import { roundTo } from '@/lib/utils'
-import type { OrderSide, Position, TradingMode } from '@/types'
+import type { MarginMode, OrderSide, Position, TradingMode } from '@/types'
 
 export interface TradeRecord {
   id: string
@@ -53,6 +53,7 @@ export type TradeActionResult = { ok: true } | { ok: false; error: string }
 export type FillNowInput = Omit<OrderInput, 'side' | 'leverage'> & {
   side: OrderSide | 'buy' | 'sell'
   leverage?: number
+  marginMode?: MarginMode
   reduceOnly?: boolean
 }
 
@@ -336,7 +337,7 @@ export const useTradeStore = create<TradeState>()(
       fillNow: (input) => {
         const {
           symbol, side, quantity, entryPrice, leverage = 1, mode,
-          tpPrice, slPrice, triggerType, reduceOnly, tif,
+          tpPrice, slPrice, triggerType, marginMode, reduceOnly, tif,
         } = input
         if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(entryPrice) || entryPrice <= 0) {
           return { ok: false, error: 'Geçersiz emir miktarı.' }
@@ -422,7 +423,7 @@ export const useTradeStore = create<TradeState>()(
           symbol, side: side as OrderSide, mode: 'futures', quantity: qty, entryPrice, leverage: lev,
         })
         if (!res.ok) return res
-        if (tpPrice || slPrice) {
+        if (tpPrice || slPrice || marginMode) {
           const pid = res.position.id
           set((s) => ({
             positions: s.positions.map((p) =>
@@ -432,6 +433,7 @@ export const useTradeStore = create<TradeState>()(
                     tpPrice: tpPrice || null,
                     slPrice: slPrice || null,
                     triggerType: triggerType || 'last',
+                    ...(marginMode ? { marginMode } : {}),
                   }
                 : p,
             ),

@@ -265,6 +265,26 @@ describe('TradingPanel futures mode', () => {
     expect(state.positions[0].quantity).toBeCloseTo(5)
     expect(state.balance).toBeCloseTo(950) // margin = 500/10
   })
+
+  it('defaults to Isolated margin and switches to Cross on one tap', async () => {
+    const user = userEvent.setup()
+    useTradeStore.setState({ balance: 1000 })
+    renderPanel({ mode: 'futures', balance: 1000 })
+
+    const isolated = screen.getByRole('button', { name: 'İzole' })
+    const cross = screen.getByRole('button', { name: 'Çapraz' })
+    expect(isolated).toHaveAttribute('aria-pressed', 'true')
+    expect(cross).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(cross)
+    expect(isolated).toHaveAttribute('aria-pressed', 'false')
+    expect(cross).toHaveAttribute('aria-pressed', 'true')
+
+    await user.type(screen.getByLabelText('Order amount'), '500')
+    await user.click(screen.getByRole('button', { name: 'Buy / Long' }))
+
+    expect(useTradeStore.getState().positions[0].marginMode).toBe('cross')
+  })
 })
 
 describe('TradingPanel Max button', () => {

@@ -21,6 +21,8 @@ const BASE_ALIASES: Record<string, string[]> = {
   FIL: ['filecoin'],
   BNB: ['bnb'],
   USDT: ['tether', 'usdt'],
+  PAXG: ['pax gold', 'paxgold', 'gold', 'altin', 'altın', 'gram altin', 'gram altın'],
+  XAUT: ['tether gold', 'tethergold', 'gold', 'altin', 'altın', 'gram altin', 'gram altın'],
 }
 
 export function baseOf(symbol: string): string {

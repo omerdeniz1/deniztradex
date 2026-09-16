@@ -23,6 +23,14 @@ import {
   type AdminUser,
   type PlatformStats,
 } from '@/services/adminService'
+import {
+  ANNOUNCEMENT_BODY_MAX,
+  ANNOUNCEMENT_TITLE_MAX,
+  createAnnouncement,
+  deleteAnnouncement,
+  listAnnouncements,
+  type Announcement,
+} from '@/services/announcementService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
@@ -84,18 +92,21 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   // Sekme yapısı (mobil + masaüstü): büyük bloklar üstte yatay
   // kaydırılabilir sekmelere bölünür, yalnızca seçili sekme gösterilir.
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins' | 'announce'>('overview')
   const showForum = can('ban_users')
   const showAdmins = can('manage_admins')
+  // Sistem duyurusu YALNIZCA süper admin yayınlar (sunucu RLS de aynısını zorlar).
+  const showAnnounce = access.isSuperAdmin
   const tabs = useMemo(() => {
-    const list: { id: 'overview' | 'users' | 'forum' | 'admins'; label: string }[] = [
+    const list: { id: 'overview' | 'users' | 'forum' | 'admins' | 'announce'; label: string }[] = [
       { id: 'overview', label: 'Genel Bakış' },
       { id: 'users', label: 'Kullanıcılar' },
     ]
     if (showForum) list.push({ id: 'forum', label: 'Forum' })
     if (showAdmins) list.push({ id: 'admins', label: 'Yöneticiler' })
+    if (showAnnounce) list.push({ id: 'announce', label: 'Duyurular' })
     return list
-  }, [showForum, showAdmins])
+  }, [showForum, showAdmins, showAnnounce])
 
   // Süper admin hedef dokunulmazlığı: süper admin satırlarına yalnız
   // süper admin dokunur (sunucu da aynı kuralı zorunlu kılar).
@@ -690,6 +701,17 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
         </div>
         </div>
 
+        {/* Sistem duyuruları: tüm kullanıcılara yayın (yalnızca süper admin) */}
+        {showAnnounce && (
+          <div
+            role="tabpanel"
+            aria-label="Duyurular"
+            className={cn(activeTab === 'announce' ? 'block' : 'hidden')}
+          >
+            <AnnouncementManager />
+          </div>
+        )}
+
         {/* Forum denetimi: tekli + toplu silme (ban yetkisi gerekir) */}
         {showForum && (
           <div
@@ -970,6 +992,146 @@ function StatusPill({ user }: { user: AdminUser }) {
         </span>
       )}
     </span>
+  )
+}
+
+function AnnouncementManager() {
+  const pushToast = useToastStore((s) => s.push)
+  const [items, setItems] = useState<Announcement[]>([])
+  const [loading, setLoading] = useState(true)
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setItems(await listAnnouncements(10))
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Duyurular yüklenemedi.', tone: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }, [pushToast])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const publish = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const created = await createAnnouncement(title, body)
+      setItems((list) => [created, ...list].slice(0, 10))
+      setTitle('')
+      setBody('')
+      pushToast({ message: 'Duyuru tüm kullanıcılara yayınlandı.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Duyuru yayınlanamadı.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (id: string) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await deleteAnnouncement(id)
+      setItems((list) => list.filter((a) => a.id !== id))
+      pushToast({ message: 'Duyuru silindi.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Duyuru silinemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+      <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
+        <h2 className="text-sm font-bold text-exchange-text">Sistem Duyurusu Yayınla</h2>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
+          Yayınlanan duyuru tüm kullanıcıların ekranında bant olarak görünür.
+        </p>
+      </div>
+      <div className="grid gap-2.5 border-b border-exchange-border px-3 py-3 sm:px-4">
+        <div className="min-w-0">
+          <label htmlFor="announce-title" className="mb-1 block text-xs font-semibold text-exchange-muted">
+            Başlık ({title.trim().length}/{ANNOUNCEMENT_TITLE_MAX})
+          </label>
+          <input
+            id="announce-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={ANNOUNCEMENT_TITLE_MAX}
+            placeholder="örn. Planlı bakım duyurusu"
+            disabled={busy}
+            className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+          />
+        </div>
+        <div className="min-w-0">
+          <label htmlFor="announce-body" className="mb-1 block text-xs font-semibold text-exchange-muted">
+            Metin ({body.trim().length}/{ANNOUNCEMENT_BODY_MAX})
+          </label>
+          <textarea
+            id="announce-body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            maxLength={ANNOUNCEMENT_BODY_MAX}
+            rows={3}
+            placeholder="Duyuru metnini yaz…"
+            disabled={busy}
+            className="w-full min-w-0 resize-y rounded-xl border border-exchange-border bg-exchange-bg px-3 py-2.5 text-sm leading-relaxed text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+          />
+        </div>
+        <div>
+          <Button size="sm" onClick={() => void publish()} disabled={busy || !title.trim() || !body.trim()}>
+            {busy ? 'Yayınlanıyor…' : 'Tüm Kullanıcılara Yayınla'}
+          </Button>
+        </div>
+      </div>
+      {loading && items.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+          Duyurular yükleniyor…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+          Henüz yayınlanmış duyuru yok.
+        </div>
+      ) : (
+        <ul>
+          {items.map((a) => (
+            <li
+              key={a.id}
+              className="flex items-start gap-2 border-b border-exchange-border/50 px-3 py-2.5 last:border-0 sm:px-4"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-bold text-exchange-text">{a.title}</div>
+                <p className="mt-0.5 line-clamp-2 break-words text-xs leading-relaxed text-exchange-muted">
+                  {a.body}
+                </p>
+                {a.createdAt > 0 && (
+                  <div className="mt-0.5 font-mono text-[10px] text-exchange-muted">
+                    {new Date(a.createdAt).toLocaleString('tr-TR')}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void remove(a.id)}
+                disabled={busy}
+                aria-label={`${a.title} duyurusunu sil`}
+                className="shrink-0 whitespace-nowrap rounded-lg border border-exchange-sell/40 px-2.5 py-1.5 text-xs font-bold text-exchange-sell transition-colors hover:bg-exchange-sell/10 disabled:opacity-40"
+              >
+                Sil
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

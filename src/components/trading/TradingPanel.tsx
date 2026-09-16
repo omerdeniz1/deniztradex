@@ -11,7 +11,7 @@ import { useOrderStore, type OrderSpec, type OrderStance } from '@/store/orderSt
 import { useSettingsStore } from '@/store/settingsStore'
 import { useToastStore } from '@/store/toastStore'
 import { cn, formatNumber, formatPrice } from '@/lib/utils'
-import type { OrderType, Ticker, TIF, TradingMode, TriggerType } from '@/types'
+import type { MarginMode, OrderType, Ticker, TIF, TradingMode, TriggerType } from '@/types'
 import { Button } from '@/components/ui/Button'
 import { CustomSelect } from '@/components/ui/CustomSelect'
 
@@ -75,6 +75,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
 
   const [side, setSide] = useState<PanelSide>(initialSide ?? (mode === 'spot' ? 'buy' : 'long'))
   const [leverage, setLeverage] = useState(10)
+  // Vadeli marjin modu: tek tıkla İzole/Çapraz geçiş (varsayılan İzole —
+  // mevcut motorun teminat davranışı değişmez).
+  const [marginMode, setMarginMode] = useState<MarginMode>('isolated')
   const [priceStr, setPriceStr] = useState('')
   const [amountStr, setAmountStr] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -199,6 +202,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
       tpPrice: tpValue > 0 ? tpValue : null,
       slPrice: slValue > 0 ? slValue : null,
       triggerType,
+      marginMode: mode === 'futures' ? marginMode : undefined,
       reduceOnly,
       postOnly,
       tif,
@@ -323,9 +327,30 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
 
       {mode === 'futures' && (
         <div className="border-b border-exchange-border px-2.5 py-2 md:px-4 md:py-3">
-          <div className="mb-1.5 flex items-center justify-between text-xs md:mb-2">
-            <span className="text-exchange-muted">Kaldıraç</span>
-            <span className="font-semibold text-exchange-yellow">{leverage}x</span>
+          <div className="mb-1.5 flex items-center justify-between gap-2 text-xs md:mb-2">
+            <span className="shrink-0 text-exchange-muted">Kaldıraç</span>
+            <span className="flex min-w-0 items-center gap-2">
+              {/* Kompakt segment: ayrı satır/dropdown yok, panel boyu korunur */}
+              <span role="group" aria-label="Marjin modu" className="flex shrink-0 overflow-hidden rounded-lg border border-exchange-border">
+                {(['isolated', 'cross'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={marginMode === m}
+                    onClick={() => setMarginMode(m)}
+                    className={cn(
+                      'min-h-[2rem] whitespace-nowrap px-2.5 text-[11px] font-bold transition-colors active:scale-95',
+                      marginMode === m
+                        ? 'bg-exchange-yellow/15 text-exchange-yellow'
+                        : 'text-exchange-muted hover:text-exchange-text',
+                    )}
+                  >
+                    {m === 'isolated' ? 'İzole' : 'Çapraz'}
+                  </button>
+                ))}
+              </span>
+              <span className="shrink-0 font-semibold text-exchange-yellow">{leverage}x</span>
+            </span>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-exchange-muted">{MIN_LEVERAGE}x</span>
@@ -629,7 +654,8 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
               <div className="flex items-center justify-between gap-3">
                 <span className="shrink-0 text-exchange-muted">Margin / Lev</span>
                 <span className="min-w-0 text-right font-mono text-exchange-text">
-                  {formatNumber(margin, 2)} USDT · {levDisplay}
+                  {formatNumber(margin, 2)} USDT · {levDisplay} ·{' '}
+                  {marginMode === 'isolated' ? 'İzole' : 'Çapraz'}
                 </span>
               </div>
               <div className="flex items-center justify-between gap-3">
@@ -776,6 +802,12 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
                 )}
                 {confirmSpec.mode === 'futures' && (
                   <OrdersummariesRow label="Kaldıraç" value={`${confirmSpec.leverage}x`} />
+                )}
+                {confirmSpec.mode === 'futures' && confirmSpec.marginMode && (
+                  <OrdersummariesRow
+                    label="Marjin"
+                    value={confirmSpec.marginMode === 'isolated' ? 'İzole' : 'Çapraz'}
+                  />
                 )}
               </div>
 

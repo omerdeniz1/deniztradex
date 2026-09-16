@@ -74,11 +74,11 @@ export function LeaderboardPage() {
               {error ? 'Sıralama gösterilemiyor.' : 'Henüz sıralanacak kullanıcı yok.'}
             </div>
           ) : (
-            // Tablo kendi kutusunda SADECE dikey kayar (başlık sabit kalır):
-            // yatay kaydırma kapalıdır, tüm sütunlar genişliğe sığar.
+            // Tablo kendi kutusunda iki yöne de kayar (başlık sabit kalır):
+            // sütunlar ezilmez, tablo formu her ekranda korunur.
             // Masaüstünde kutu sınırsızdır, kaydırma sayfanındır.
-            <div className="max-h-[62dvh] overflow-x-hidden overflow-y-auto overscroll-contain md:max-h-none md:overflow-visible">
-              <table className="w-full border-collapse text-left text-xs sm:text-sm">
+            <div className="max-h-[62dvh] overflow-auto overscroll-contain md:max-h-none md:overflow-visible">
+              <table className="w-full min-w-[520px] border-collapse text-left text-xs sm:min-w-0 sm:text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-exchange-border bg-exchange-card text-[10px] uppercase tracking-wide text-exchange-muted sm:text-[11px]">
                     <th scope="col" className="w-9 bg-exchange-card px-2 py-2 text-center font-semibold sm:w-12 sm:px-3 sm:py-2.5">#</th>

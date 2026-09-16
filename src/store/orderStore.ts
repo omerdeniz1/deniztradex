@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { useTradeStore } from '@/store/tradeStore'
 import type {
+  MarginMode,
   OrderSide,
   OrderType,
   TradingMode,
@@ -23,6 +24,7 @@ export interface OrderSpec {
   tpPrice?: number | null
   slPrice?: number | null
   triggerType?: TriggerType
+  marginMode?: MarginMode
   reduceOnly?: boolean
   postOnly?: boolean
   tif?: TIF

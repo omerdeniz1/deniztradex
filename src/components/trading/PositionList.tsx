@@ -125,6 +125,11 @@ export function PositionList({ livePrices }: Props) {
                 </td>
                 <td className="px-3 py-2 text-right font-mono">
                   {pos.mode === 'futures' ? `${pos.leverage}x` : '1x'}
+                  {pos.mode === 'futures' && (
+                    <span className="ml-1 rounded bg-exchange-surface px-1 py-0.5 align-middle font-sans text-[10px] font-bold text-exchange-muted">
+                      {(pos.marginMode ?? 'isolated') === 'isolated' ? 'İzole' : 'Çapraz'}
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right font-mono text-exchange-yellow">
                   {formatPrice(liq)}

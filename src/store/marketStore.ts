@@ -3,7 +3,12 @@ import type { Ticker } from '@/types'
 
 export type MarketStatus = 'loading' | 'live' | 'offline'
 
-/** Market always kept visible, even before/without a live connection. */
+/**
+ * Market always kept visible, even before/without a live connection.
+ * Canlı akış açıkken Binance'teki TÜM USDT pariteleri (yeni listelemeler
+ * dahil) otomatik gelir; kalkmış pariteler akıştan düşer. Bu liste yalnızca
+ * çevrimdışı yedeği + emtia (PAXG/XAUT = gram altın tokenları) garantisidir.
+ */
 export const FALLBACK_PAIR_SYMBOLS = [
   'BTCUSDT',
   'ETHUSDT',
@@ -13,6 +18,8 @@ export const FALLBACK_PAIR_SYMBOLS = [
   'AVAXUSDT',
   'PEPEUSDT',
   'ADAUSDT',
+  'PAXGUSDT',
+  'XAUTUSDT',
 ] as const
 
 const FALLBACK_PRICES: Record<string, number> = {
@@ -24,6 +31,8 @@ const FALLBACK_PRICES: Record<string, number> = {
   AVAXUSDT: 28,
   PEPEUSDT: 0.000008,
   ADAUSDT: 0.45,
+  PAXGUSDT: 4330,
+  XAUTUSDT: 4325,
 }
 
 /** Plausible 24h moves so the offline snapshot never looks "frozen at +0%". */
@@ -36,6 +45,8 @@ const FALLBACK_CHANGES: Record<string, number> = {
   AVAXUSDT: -0.55,
   PEPEUSDT: 3.18,
   ADAUSDT: -1.07,
+  PAXGUSDT: 0.35,
+  XAUTUSDT: 0.32,
 }
 
 export const FALLBACK_TICKERS: Record<string, Ticker> = Object.fromEntries(
