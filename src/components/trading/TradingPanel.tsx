@@ -91,6 +91,8 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
   const [tif, setTif] = useState<TIF>('GTC')
   const [cbStr, setCbStr] = useState('')
   const priceDirtyRef = useRef(false)
+  // TP/SL akordeonu: varsayılan kapalı (mobilde yer kazandırır).
+  const [tpSlOpen, setTpSlOpen] = useState(false)
 
   // Keep the Price input in sync with the selected coin's live market price.
   // The field tracks the market on every tick UNTIL the user types into it;
@@ -320,8 +322,8 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
       </div>
 
       {mode === 'futures' && (
-        <div className="border-b border-exchange-border px-4 py-3">
-          <div className="mb-2 flex items-center justify-between text-xs">
+        <div className="border-b border-exchange-border px-2.5 py-2 md:px-4 md:py-3">
+          <div className="mb-1.5 flex items-center justify-between text-xs md:mb-2">
             <span className="text-exchange-muted">Kaldıraç</span>
             <span className="font-semibold text-exchange-yellow">{leverage}x</span>
           </div>
@@ -342,7 +344,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
         </div>
       )}
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-4">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2.5 py-3 md:space-y-4 md:px-4 md:py-4">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
           <span className="min-w-0 flex-1 basis-24 truncate text-exchange-muted">
             {mode === 'spot' && side === 'sell' ? `Available (${coin})` : 'Kullanılabilir Bakiye'}
@@ -355,46 +357,46 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
         </div>
 
         <div>
-          <label className="mb-1.5 block text-xs text-exchange-muted">Emir Tipi</label>
+          <label className="mb-1 block text-xs text-exchange-muted md:mb-1.5">Emir Tipi</label>
           <CustomSelect
             value={orderType}
             onChange={setOrderType}
             label="Order type"
-            className="h-10 w-full cursor-pointer rounded border border-exchange-border bg-exchange-surface px-3 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
+            className="h-9 w-full cursor-pointer rounded border border-exchange-border bg-exchange-surface px-2.5 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow md:h-10 md:px-3"
             options={ORDER_TYPES.map((t) => ({ v: t, l: ORDER_TYPE_LABEL[t] }))}
           />
         </div>
 
         {showTrailingRate && (
           <div>
-            <label className="mb-1.5 block text-xs text-exchange-muted">İzleme Oranı (%)</label>
+            <label className="mb-1 block text-xs text-exchange-muted md:mb-1.5">İzleme Oranı (%)</label>
             <input
               value={cbStr}
               onChange={(e) => setCbStr(e.target.value)}
               inputMode="decimal"
               placeholder="0.5"
               aria-label="Trailing callback rate"
-              className="h-10 w-full rounded border border-exchange-border bg-exchange-surface px-3 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
+              className="h-9 w-full rounded border border-exchange-border bg-exchange-surface px-2.5 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow md:h-10 md:px-3"
             />
           </div>
         )}
 
         {showStop && (
           <div>
-            <label className="mb-1.5 block text-xs text-exchange-muted">Stop Fiyatı</label>
+            <label className="mb-1 block text-xs text-exchange-muted md:mb-1.5">Stop Fiyatı</label>
             <input
               value={stopStr}
               onChange={(e) => setStopStr(e.target.value)}
               inputMode="decimal"
               aria-label="Stop price"
-              className="h-10 w-full rounded border border-exchange-border bg-exchange-surface px-3 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
+              className="h-9 w-full rounded border border-exchange-border bg-exchange-surface px-2.5 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow md:h-10 md:px-3"
             />
           </div>
         )}
 
         {showPrice && (
           <div>
-            <label className="mb-1.5 block text-xs text-exchange-muted">Fiyat</label>
+            <label className="mb-1 block text-xs text-exchange-muted md:mb-1.5">Fiyat</label>
             <div className="flex items-center">
               <input
                 value={priceStr}
@@ -405,7 +407,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
                 }}
                 inputMode="decimal"
                 aria-label="Order price"
-                className="h-10 w-full min-w-0 rounded border border-exchange-border bg-exchange-surface px-3 pr-14 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
+                className="h-9 w-full min-w-0 rounded border border-exchange-border bg-exchange-surface px-2.5 pr-14 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow md:h-10 md:px-3"
               />
               <span className="-ml-14 mr-3 shrink-0 text-xs text-exchange-muted">{currency}</span>
             </div>
@@ -413,7 +415,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
         )}
 
         <div>
-          <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2 md:mb-1.5">
             <label className="text-xs text-exchange-muted">Tutar ({currency})</label>
             <div className="flex flex-wrap items-center gap-1">
               {[25, 50, 75, 100].map((k) => (
@@ -441,15 +443,15 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
               onChange={(e) => setAmountStr(e.target.value)}
               inputMode="decimal"
               aria-label="Order amount"
-              className="h-10 w-full min-w-0 rounded border border-exchange-border bg-exchange-surface px-3 pr-14 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow"
+              className="h-9 w-full min-w-0 rounded border border-exchange-border bg-exchange-surface px-2.5 pr-14 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow md:h-10 md:px-3"
             />
             <span className="-ml-14 mr-3 shrink-0 text-xs text-exchange-muted">{currency}</span>
           </div>
         </div>
 
-        <div className="rounded border border-exchange-border bg-exchange-card p-3">
+        <div className="rounded border border-exchange-border bg-exchange-card">
             {showTriggerType && (
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 pt-2.5 md:px-3 md:pt-3">
                 <span className="shrink-0 text-[11px] uppercase tracking-wide text-exchange-muted">Tetik Tipi</span>
                 <CustomSelect
                   value={triggerType}
@@ -464,7 +466,52 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-2">
+            {/* Kompakt TP/SL akordeonu: varsayılan kapalı, tek dokunuşla genişler */}
+            <button
+              type="button"
+              onClick={() => setTpSlOpen((v) => !v)}
+              aria-expanded={tpSlOpen}
+              aria-controls="tpsl-body"
+              className="flex w-full items-center gap-2 px-2.5 py-2.5 text-left transition-colors active:scale-[0.99] md:px-3"
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  'flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-extrabold transition-colors',
+                  tpSlOpen
+                    ? 'border-exchange-yellow bg-exchange-yellow text-black'
+                    : 'border-exchange-border text-transparent',
+                )}
+              >
+                ✓
+              </span>
+              <span className="min-w-0 flex-1 truncate text-xs font-bold text-exchange-text">
+                TP/SL
+                <span className="ml-1.5 font-normal text-exchange-muted">Kar Al / Zarar Durdur</span>
+              </span>
+              {(tpValue > 0 || slValue > 0) && (
+                <span className="shrink-0 rounded-full bg-exchange-yellow/15 px-2 py-0.5 font-mono text-[10px] font-bold text-exchange-yellow">
+                  ayarlı
+                </span>
+              )}
+              <span
+                aria-hidden
+                className={cn('shrink-0 text-[10px] text-exchange-muted transition-transform', tpSlOpen && 'rotate-180')}
+              >
+                ▼
+              </span>
+            </button>
+            <AnimatePresence initial={false}>
+              {tpSlOpen && (
+                <motion.div
+                  id="tpsl-body"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden"
+                >
+            <div className="grid grid-cols-1 gap-2.5 px-2.5 pb-2.5 sm:grid-cols-2 sm:gap-2 md:px-3 md:pb-3">
               <div className="min-w-0">
                 <div className="mb-1 text-xs text-exchange-muted">Kar Al (TP)</div>
                 <input
@@ -512,6 +559,9 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
                 </div>
               </div>
             </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">

@@ -589,7 +589,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             aria-label="Emir ver"
           >
             <div
-              className="absolute inset-0 bg-black/70"
+              className="absolute inset-0 bg-black/40"
               onClick={() => setSheetSide(null)}
               aria-hidden
             />
@@ -598,7 +598,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-              className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] flex-col overflow-hidden rounded-t-2xl border-t border-exchange-border bg-exchange-card pb-safe shadow-2xl"
+              className="absolute inset-x-0 bottom-0 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-2xl border-t border-exchange-border bg-exchange-card pb-safe shadow-2xl"
             >
               <div className="flex shrink-0 justify-center pt-2" aria-hidden>
                 <span className="h-1 w-10 rounded-full bg-exchange-border" />
@@ -620,7 +620,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                   ✕
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto border-t border-exchange-border pb-20">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-exchange-border">
                 <TradingPanel
                   key={`${symbol}-${sheetSide}`}
                   ticker={ticker}

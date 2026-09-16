@@ -58,7 +58,18 @@ describe('TradingPanel sheet options', () => {
       <TradingPanel ticker={btcTicker} mode="spot" balance={1000} marketPrice={100} showTriggerType={false} />,
     )
     expect(screen.queryByLabelText('Trigger type')).toBeNull()
-    // TP/SL kutuları durur
+    // TP/SL akordeonu varsayılan kapalıdır — buton durur, kutular gizlidir
+    expect(screen.getByRole('button', { name: /TP\/SL/ })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Take profit price')).toBeNull()
+    expect(screen.queryByLabelText('Stop loss price')).toBeNull()
+  })
+
+  it('expands TP/SL inputs when the accordion is opened', async () => {
+    const user = userEvent.setup()
+    render(
+      <TradingPanel ticker={btcTicker} mode="spot" balance={1000} marketPrice={100} showTriggerType={false} />,
+    )
+    await user.click(screen.getByRole('button', { name: /TP\/SL/ }))
     expect(screen.getByLabelText('Take profit price')).toBeInTheDocument()
     expect(screen.getByLabelText('Stop loss price')).toBeInTheDocument()
   })
