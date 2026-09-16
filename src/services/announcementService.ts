@@ -21,6 +21,21 @@ export interface Announcement {
 export const ANNOUNCEMENT_TITLE_MAX = 120
 export const ANNOUNCEMENT_BODY_MAX = 1000
 
+/**
+ * Duyuru bandı görünürlük penceresi: duyuru ilk görüldükten sonra çıkış
+ * + girişlerde 1 saat boyunca tekrar gösterilir, süre dolunca bir daha
+ * gösterilmez.
+ */
+export const ANNOUNCEMENT_BANNER_VISIBILITY_MS = 60 * 60 * 1000
+
+export function isAnnouncementVisible(
+  firstSeenMs: number | null | undefined,
+  nowMs: number,
+): boolean {
+  if (firstSeenMs == null || !Number.isFinite(firstSeenMs)) return true
+  return nowMs - firstSeenMs < ANNOUNCEMENT_BANNER_VISIBILITY_MS
+}
+
 interface AnnouncementRow {
   id: unknown
   title: unknown

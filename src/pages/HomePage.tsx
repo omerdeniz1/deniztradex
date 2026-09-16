@@ -6,6 +6,7 @@ import { useUiStore } from '@/store/uiStore'
 import { useAuthUser } from '@/store/authStore'
 import { cn, formatCompact, formatNumber, formatPrice, formatSignedPercent } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { AnnouncementBanner } from '@/components/AnnouncementBanner'
 import type { Ticker } from '@/types'
 
 const FEATURED = ['BTC', 'ETH', 'SOL', 'BNB', 'DOGE', 'XRP'] as const
@@ -39,6 +40,7 @@ export function HomePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      <AnnouncementBanner />
       {/* Hero band */}
       <section className="border-b border-exchange-border bg-exchange-surface/60 px-4 py-5 sm:px-6 sm:py-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">

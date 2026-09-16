@@ -102,6 +102,7 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
           </div>
         </div>
         <NotificationBell />
+        <AnnouncementMenu />
         <UserMenu username={username} isAdmin={isAdmin} avatarUrl={avatarUrl ?? null} />
       </div>
     </header>
@@ -119,7 +120,6 @@ function NotificationBell() {
   const userId = useAuthStore((s) => s.user?.id ?? null)
   const [mentions, setMentions] = useState<MentionNotification[]>([])
   const [unreadMentions, setUnreadMentions] = useState(0)
-  const [announcements, setAnnouncements] = useState<Announcement[]>([])
 
   const fetchMentions = useCallback(async () => {
     const list = await listMentionNotifications()
@@ -176,15 +176,13 @@ function NotificationBell() {
     if (!open) {
       markAllRead()
       // Bahsetmeler tazelenir, sonra okundu işaretlenir (liste kapanana
-      // dek ekranda kalır, rozet hemen sıfırlanır). Sistem duyuruları da
-      // her açılışta tazelenir (son 3).
+      // dek ekranda kalır, rozet hemen sıfırlanır).
       void (async () => {
         const list = await listMentionNotifications()
         setMentions(list)
         await markMentionsRead()
         setUnreadMentions(0)
       })()
-      void listAnnouncements(3).then(setAnnouncements)
     }
     setOpen((v) => !v)
   }
@@ -277,42 +275,7 @@ function NotificationBell() {
                 </ul>
               </div>
             )}
-            {announcements.length > 0 && (
-              <div className="border-b border-exchange-border">
-                <div className="px-4 pb-1 pt-2.5 text-[11px] font-bold uppercase tracking-wide text-exchange-muted">
-                  Duyurular
-                </div>
-                <ul>
-                  {announcements.map((a) => (
-                    <li key={a.id} className="border-b border-exchange-border/40 last:border-0">
-                      <button
-                        type="button"
-                        onClick={() => setOpen(false)}
-                        className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-exchange-surface"
-                      >
-                        <span className="mt-0.5 shrink-0 text-sm" aria-hidden>
-                          📢
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-bold text-exchange-text">
-                            {a.title}
-                          </p>
-                          <p className="mt-0.5 line-clamp-2 break-words text-[11px] leading-relaxed text-exchange-muted">
-                            {a.body}
-                          </p>
-                          {a.createdAt > 0 && (
-                            <p className="mt-0.5 text-[10px] text-exchange-muted">
-                              {new Date(a.createdAt).toLocaleString('tr-TR')}
-                            </p>
-                          )}
-                        </div>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {notifications.length === 0 && mentions.length === 0 && announcements.length === 0 ? (
+            {notifications.length === 0 && mentions.length === 0 ? (
               <div className="px-4 py-8 text-center text-xs text-exchange-muted">
                 Henüz bildiriminiz yok.
               </div>
@@ -332,6 +295,149 @@ function NotificationBell() {
                         {new Date(n.at).toLocaleString('tr-TR')}
                       </p>
                     </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+const ANN_MENU_SEEN_KEY = 'deniztradx_ann_menu_seen'
+
+function readMenuSeen(): number {
+  try {
+    const raw = localStorage.getItem(ANN_MENU_SEEN_KEY)
+    const n = raw ? Number(raw) : 0
+    return Number.isFinite(n) ? n : 0
+  } catch {
+    return 0
+  }
+}
+
+function writeMenuSeen(now: number) {
+  try {
+    localStorage.setItem(ANN_MENU_SEEN_KEY, String(now))
+  } catch {
+    // yoksay
+  }
+}
+
+/**
+ * Zilin yanındaki ayrı Duyurular menüsü (mobil + masaüstü ortak başlıkta).
+ * Açılmamış duyuru varken rozet gösterir; menü açılınca okundu sayılır.
+ * Öğeye dokununca menü kapanıp ana ekrana gidilir (bant oradadır).
+ */
+function AnnouncementMenu() {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<Announcement[]>([])
+  const [hasNew, setHasNew] = useState(false)
+  const scopeRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    let live = true
+    void listAnnouncements(1).then((list) => {
+      if (!live) return
+      const latest = list[0] ?? null
+      setHasNew(!!latest && latest.createdAt > readMenuSeen())
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: MouseEvent) {
+      if (scopeRef.current && !scopeRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open ])
+
+  const toggle = () => {
+    if (!open) {
+      void listAnnouncements(10).then((list) => {
+        setItems(list)
+        writeMenuSeen(Date.now())
+        setHasNew(false)
+      })
+    }
+    setOpen((v) => !v)
+  }
+
+  const goHome = () => {
+    setOpen(false)
+    navigate('/')
+  }
+
+  return (
+    <div ref={scopeRef} className="relative">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-label="Duyurular"
+        aria-expanded={open}
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-exchange-muted transition-colors hover:bg-exchange-border/30 hover:text-exchange-text"
+      >
+        <span aria-hidden className="text-lg leading-none">
+          📢
+        </span>
+        {hasNew && (
+          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-exchange-sell" aria-hidden />
+        )}
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.97 }}
+            transition={{ duration: 0.12 }}
+            role="menu"
+            aria-label="Duyurular"
+            className="absolute right-0 top-full z-50 mt-2 max-h-[60dvh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+          >
+            <div className="border-b border-exchange-border px-4 py-2.5">
+              <span className="text-sm font-bold text-exchange-text">Duyurular</span>
+            </div>
+            {items.length === 0 ? (
+              <div className="px-4 py-8 text-center text-xs text-exchange-muted">
+                Henüz duyuru yok.
+              </div>
+            ) : (
+              <ul>
+                {items.map((a) => (
+                  <li key={a.id} className="border-b border-exchange-border/40 last:border-0">
+                    <button
+                      type="button"
+                      onClick={goHome}
+                      className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-exchange-surface"
+                    >
+                      <span className="mt-0.5 shrink-0 text-sm" aria-hidden>
+                        📢
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-exchange-text">
+                          {a.title}
+                        </p>
+                        <p className="mt-0.5 line-clamp-3 break-words text-[11px] leading-relaxed text-exchange-muted">
+                          {a.body}
+                        </p>
+                        {a.createdAt > 0 && (
+                          <p className="mt-0.5 text-[10px] text-exchange-muted">
+                            {new Date(a.createdAt).toLocaleString('tr-TR')}
+                          </p>
+                        )}
+                      </div>
+                    </button>
                   </li>
                 ))}
               </ul>

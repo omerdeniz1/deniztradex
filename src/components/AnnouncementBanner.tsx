@@ -1,29 +1,45 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { listAnnouncements, type Announcement } from '@/services/announcementService'
+import {
+  isAnnouncementVisible,
+  listAnnouncements,
+  type Announcement,
+} from '@/services/announcementService'
 
-const DISMISS_KEY = 'deniztradx_ann_dismissed'
+/** Duyuru kimliği → ilk görülme zamanı (ms). 1 saat dolan bir daha gösterilmez. */
+const SEEN_KEY = 'deniztradx_ann_seen'
 
-function readDismissed(): string | null {
+function readSeen(): Record<string, number> {
   try {
-    return localStorage.getItem(DISMISS_KEY)
+    const raw = localStorage.getItem(SEEN_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, number> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'number' && Number.isFinite(v)) out[k] = v
+    }
+    return out
   } catch {
-    return null
+    return {}
   }
 }
 
-function writeDismissed(id: string) {
+function writeSeen(map: Record<string, number>) {
   try {
-    localStorage.setItem(DISMISS_KEY, id)
+    localStorage.setItem(SEEN_KEY, JSON.stringify(map))
   } catch {
-    // gizli mod — kapatma yalnızca bellekte yaşar
+    // gizli mod — kural yalnızca bellekte yaşar
   }
 }
 
 /**
- * Sistem duyuru bandı: süper adminin yayınladığı en güncel duyuruyu
- * tüm sayfaların üstünde gösterir. Kullanıcı kapatınca o duyuru için
- * bir daha gösterilmez (yeni duyuruda bant geri gelir).
+ * Sistem duyuru bandı (yalnızca ana ekranda kullanılır).
+ *
+ * Kural: duyuru ilk görüldüğünde zamanı kaydedilir; çıkış + girişlerde
+ * 1 saat boyunca tekrar gösterilir, süre dolunca bir daha gösterilmez.
+ * X ile kapatma yalnızca o oturumda gizler (süre dolmadıysa sonraki
+ * girişte tekrar gelir).
  */
 export function AnnouncementBanner() {
   const [item, setItem] = useState<Announcement | null>(null)
@@ -33,9 +49,14 @@ export function AnnouncementBanner() {
     void listAnnouncements(1).then((list) => {
       if (!live) return
       const latest = list[0] ?? null
-      if (latest && readDismissed() !== latest.id) {
-        setItem(latest)
+      if (!latest) return
+      const seen = readSeen()
+      const first = seen[latest.id] ?? null
+      if (!isAnnouncementVisible(first, Date.now())) return
+      if (first == null) {
+        writeSeen({ ...seen, [latest.id]: Date.now() })
       }
+      setItem(latest)
     })
     return () => {
       live = false
@@ -43,7 +64,6 @@ export function AnnouncementBanner() {
   }, [])
 
   const dismiss = () => {
-    if (item) writeDismissed(item.id)
     setItem(null)
   }
 

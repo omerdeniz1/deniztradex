@@ -6,7 +6,6 @@ import { useSettingsStore } from '@/store/settingsStore'
 import { useUiStore } from '@/store/uiStore'
 import { useProfileSync } from '@/hooks/useProfileSync'
 import { AuthScreen } from '@/components/auth/AuthScreen'
-import { AnnouncementBanner } from '@/components/AnnouncementBanner'
 import { Navbar } from '@/components/Navbar'
 import { BottomNav } from '@/components/BottomNav'
 import { Toasts } from '@/components/ui/Toasts'
@@ -56,7 +55,6 @@ function Shell() {
     <div className="flex h-dvh min-h-dvh w-full max-w-full flex-col overflow-x-clip bg-exchange-bg text-exchange-text">
       <ThemeManager />
       <Navbar balance={balance} username={user?.username ?? ''} avatarUrl={user?.avatarUrl ?? null} />
-      <AnnouncementBanner />
       {/* Alt boşluk yalnızca mobil alt menü varken (md altı) uygulanır. */}
       <div className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-clip pb-[4.75rem] md:pb-0">
         <Routes>
