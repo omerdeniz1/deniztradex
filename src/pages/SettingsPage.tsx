@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore } from '@/store/toastStore'
@@ -169,6 +170,8 @@ function PasswordSection() {
   const [confirm, setConfirm] = useState('')
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Menü gibi kapalı başlar; tıklayınca değiştirme kutuları açılır.
+  const [open, setOpen] = useState(false)
 
   if (!user) return null
 
@@ -203,14 +206,40 @@ function PasswordSection() {
   ] as const
 
   return (
-    <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
-      <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
-        Şifre Değiştir
-      </h2>
-      <p className="mt-1 text-xs text-exchange-muted">
-        Hesabının şifresini güncelle. Değişiklik anında geçerli olur.
-      </p>
-      <div className="mt-4 grid gap-3">
+    <section className="overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls="pw-body"
+        className="flex w-full items-center gap-3 p-5 text-left transition-colors active:scale-[0.99] sm:p-6"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold uppercase tracking-wide text-exchange-muted">
+            Şifre Değiştir
+          </span>
+          <span className="mt-1 block text-xs text-exchange-muted">
+            Hesabının şifresini güncelle. Değişiklik anında geçerli olur.
+          </span>
+        </span>
+        <span
+          aria-hidden
+          className={cn('shrink-0 text-xs text-exchange-muted transition-transform', open && 'rotate-180')}
+        >
+          ▼
+        </span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            id="pw-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+      <div className="grid gap-3 px-5 pb-5 sm:px-6 sm:pb-6">
         {fields.map((f) => (
           <div key={f.id} className="min-w-0">
             <label htmlFor={f.id} className="mb-1 block text-xs font-semibold text-exchange-muted">
@@ -242,6 +271,9 @@ function PasswordSection() {
           </Button>
         </div>
       </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   )
 }
