@@ -2330,13 +2330,14 @@ do $$
 declare
   r record;
   v_vol numeric;
-  v_price numeric;
+  v_closes numeric[];
   v_ts timestamptz;
   v_o numeric;
   v_h numeric;
   v_l numeric;
   v_c numeric;
   v_v numeric;
+  j integer;
   i integer;
 begin
   for r in
@@ -2352,10 +2353,16 @@ begin
       else 0.010
     end;
 
-    v_price := r.current_price;
-    for i in 299 downto 0 loop
+    -- Kapanış zinciri güncelden eskiye kurulur: v_closes[1] güncel mum
+    -- (güncel fiyat), v_closes[300] en eski mum. Dizi 1-tabanlıdır.
+    v_closes := array[r.current_price];
+    for j in 1..299 loop
+      v_closes := v_closes || (v_closes[j] / (1 + (random() - 0.5) * v_vol * 2));
+    end loop;
+
+    for i in reverse 0..299 loop
       v_ts := date_trunc('minute', now()) - (i || ' minutes')::interval;
-      v_c := v_price;
+      v_c := v_closes[i + 1];
       v_o := v_c * (1 + (random() - 0.5) * v_vol);
       v_h := greatest(v_o, v_c) * (1 + random() * v_vol * 0.5);
       v_l := least(v_o, v_c) * (1 - random() * v_vol * 0.5);
@@ -2364,8 +2371,6 @@ begin
         (symbol, timestamp, open, high, low, close, volume)
       values (r.symbol, v_ts, v_o, v_h, v_l, v_c, v_v)
       on conflict (symbol, timestamp) do nothing;
-      -- Bir dakika geriye yürü (fiyat zinciri geriye doğru kurulur).
-      v_price := v_o / (1 + (random() - 0.5) * v_vol * 2);
     end loop;
   end loop;
 end;
