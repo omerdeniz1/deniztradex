@@ -174,7 +174,7 @@ grant execute on function public.claim_promo(text) to authenticated;
 -- ============================================================
 -- DenizTradeX — Forum (Topluluk) sekmesi
 --
--- `forum_posts`: kullanıcı gönderileri (280 karakter, X tarzı).
+-- `forum_posts`: kullanıcı gönderileri (500 karakter).
 -- `forum_likes`: beğeniler; `like_count` tetikleyici ile tutulur.
 -- `toggle_forum_like`: atomik beğen/geri-al (tek roundtrip).
 -- ============================================================
@@ -183,7 +183,7 @@ create table if not exists public.forum_posts (
   id         uuid primary key default gen_random_uuid(),
   user_id    uuid not null references auth.users (id) on delete cascade,
   username   text not null,
-  content    text not null check (char_length(content) between 1 and 280),
+  content    text not null check (char_length(content) between 1 and 500),
   like_count integer not null default 0,
   created_at timestamptz not null default now()
 );
@@ -331,7 +331,7 @@ create table if not exists public.forum_replies (
   post_id    uuid not null references public.forum_posts (id) on delete cascade,
   user_id    uuid not null references auth.users (id) on delete cascade,
   username   text not null,
-  content    text not null check (char_length(content) between 1 and 280),
+  content    text not null check (char_length(content) between 1 and 500),
   created_at timestamptz not null default now()
 );
 
@@ -1898,3 +1898,28 @@ create policy announcements_admin_delete
   on public.announcements for delete
   to authenticated
   using (public.is_admin());
+
+
+-- >>> supabase/migrations/20260916120000_forum_limit_500.sql
+-- ============================================================
+-- DenizTradeX — Forum karakter sınırı 280 → 500
+--
+-- Gönderi ve yanıt içerik kontrol kısıtları 500 karaktere
+-- genişletilir (istemcideki FORUM_POST_MAX_LENGTH ile aynı).
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+alter table public.forum_posts
+  drop constraint if exists forum_posts_content_check;
+
+alter table public.forum_posts
+  add constraint forum_posts_content_check
+  check (char_length(content) between 1 and 500);
+
+alter table public.forum_replies
+  drop constraint if exists forum_replies_content_check;
+
+alter table public.forum_replies
+  add constraint forum_replies_content_check
+  check (char_length(content) between 1 and 500);

@@ -16,7 +16,7 @@ import { getSessionUser } from '@/services/authService'
  * gidip gelip "silinmiş" gibi görünürdü.
  */
 
-export const FORUM_POST_MAX_LENGTH = 280
+export const FORUM_POST_MAX_LENGTH = 500
 const FORUM_LOCAL_KEY = 'deniztradx_forum_posts_v1'
 const FORUM_FEED_LIMIT = 50
 
