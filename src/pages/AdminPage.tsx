@@ -82,6 +82,22 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   const can = useCallback((perm: AdminPermission) => hasAdminPermission(access, perm), [access])
 
+  // Mobil sekme yapısı (< md): büyük bloklar üstte yatay kaydırılabilir
+  // sekmelere bölünür, yalnızca seçili sekme gösterilir. Masaüstünde (md+)
+  // tüm bölümler alt alta yığılmaya devam eder.
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins'>('overview')
+  const showForum = can('ban_users')
+  const showAdmins = can('manage_admins')
+  const tabs = useMemo(() => {
+    const list: { id: 'overview' | 'users' | 'forum' | 'admins'; label: string }[] = [
+      { id: 'overview', label: 'Genel Bakış' },
+      { id: 'users', label: 'Kullanıcılar' },
+    ]
+    if (showForum) list.push({ id: 'forum', label: 'Forum' })
+    if (showAdmins) list.push({ id: 'admins', label: 'Yöneticiler' })
+    return list
+  }, [showForum, showAdmins])
+
   // Süper admin hedef dokunulmazlığı: süper admin satırlarına yalnız
   // süper admin dokunur (sunucu da aynı kuralı zorunlu kılar).
   const canTouch = useCallback(
@@ -263,8 +279,8 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-3 py-4 sm:px-4 sm:py-6">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-3 py-4 pb-28 sm:px-4 sm:py-6 md:pb-8">
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -280,6 +296,36 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           </Button>
         </div>
 
+        {/* Mobil sekme barı: yatay kaydırılabilir, yalnızca md altında */}
+        <div className="mt-3 md:hidden">
+          <div
+            role="tablist"
+            aria-label="Admin bölümleri"
+            className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1"
+          >
+            {tabs.map((t) => {
+              const active = activeTab === t.id
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setActiveTab(t.id)}
+                  className={cn(
+                    'shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-bold transition-colors active:scale-95',
+                    active
+                      ? 'border-exchange-yellow bg-exchange-yellow text-black'
+                      : 'border-exchange-border bg-exchange-card text-exchange-muted hover:text-exchange-text',
+                  )}
+                >
+                  {t.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {error && (
           <div className="mt-3 flex items-start justify-between gap-2 rounded-xl border border-exchange-sell/30 bg-exchange-sell/5 px-3 py-2.5">
             <p className="min-w-0 flex-1 text-xs leading-relaxed text-exchange-text">{error}</p>
@@ -293,7 +339,12 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           </div>
         )}
 
-        {/* Genel istatistik kartları */}
+        {/* Genel Bakış: istatistik kartları (mobilde sekme, masaüstünde blok) */}
+        <div
+          role="tabpanel"
+          aria-label="Genel Bakış"
+          className={cn(activeTab === 'overview' ? 'block' : 'hidden md:block')}
+        >
         <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
           <StatCard
             label="Toplam Kullanıcı"
@@ -317,8 +368,14 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
             icon={<ChartIcon />}
           />
         </div>
+        </div>
 
         {/* Kullanıcı yönetimi */}
+        <div
+          role="tabpanel"
+          aria-label="Kullanıcılar"
+          className={cn(activeTab === 'users' ? 'block' : 'hidden md:block')}
+        >
         <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
           <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
             <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
@@ -355,9 +412,146 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
               {users.length === 0 ? 'Kayıtlı kullanıcı bulunamadı.' : 'Aramaya uygun kullanıcı yok.'}
             </div>
           ) : (
-            // Uzun listeler sayfa kaymasıyla akar (iç kutu yok — mobilde
-            // iç-dış kaydırma çakışması olmaz, en alttaki satıra inilir).
-            <div className="overflow-x-auto">
+            <>
+              {/* Mobil: her kullanıcı dikey bir kart (tablo yok → yatay taşma yok).
+                  Butonlar 2'li grid içinde tam genişlikte sığar. */}
+              <ul className="grid min-w-0 gap-2 p-3 md:hidden">
+                {filtered.map((u) => {
+                  const isSelf = myId !== null && u.id === myId
+                  return (
+                    <li
+                      key={u.id}
+                      className="min-w-0 rounded-xl border border-exchange-border bg-exchange-bg/60 p-3"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        {u.avatarUrl ? (
+                          <img
+                            src={u.avatarUrl}
+                            alt=""
+                            className="h-9 w-9 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <span
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-sm font-extrabold text-exchange-yellow"
+                            aria-hidden
+                          >
+                            {(u.username.charAt(0) || '?').toUpperCase()}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-bold text-exchange-text">
+                            {u.username}
+                            {isSelf && (
+                              <span className="ml-1.5 text-[10px] font-bold uppercase text-exchange-muted">
+                                (sen)
+                              </span>
+                            )}
+                          </div>
+                          <div className="truncate text-[11px] text-exchange-muted">
+                            {u.email || '—'}
+                          </div>
+                          {u.isAdmin ? (
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-exchange-yellow">
+                              Süper Admin
+                            </div>
+                          ) : (
+                            u.permissions.length > 0 && (
+                              <div className="text-[10px] font-bold uppercase tracking-wide text-exchange-muted">
+                                Alt Yönetici
+                              </div>
+                            )
+                          )}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-exchange-muted">
+                            Bakiye
+                          </div>
+                          <div className="font-mono text-sm font-extrabold text-exchange-text">
+                            {formatNumber(u.balance, 2)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <StatusPill user={u} />
+                      </div>
+                      <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                        {can('edit_balance') && canTouch(u) && (
+                          <CardButton
+                            label="Bakiye"
+                            title={`${u.username} bakiyesini düzenle`}
+                            disabled={busyId === u.id}
+                            onClick={() => setModal({ mode: 'balance', user: u })}
+                          />
+                        )}
+                        {can('ban_users') && canTouch(u) && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setModal({ mode: 'freeze', user: u })}
+                              disabled={busyId === u.id || isSelf}
+                              title={
+                                isSelf
+                                  ? 'Kendi hesabında işlem yapamazsın'
+                                  : u.isFrozen
+                                    ? `${u.username} hesabını çöz`
+                                    : `${u.username} hesabını dondur`
+                              }
+                              className={cn(
+                                'w-full rounded-lg border px-2.5 py-2 text-xs font-bold transition-colors disabled:opacity-40',
+                                u.isFrozen
+                                  ? 'border-exchange-buy/40 text-exchange-buy hover:bg-exchange-buy/10'
+                                  : 'border-exchange-sell/40 text-exchange-sell hover:bg-exchange-sell/10',
+                              )}
+                            >
+                              {busyId === u.id ? '…' : u.isFrozen ? 'Çöz' : 'Dondur'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setModal({ mode: 'ban', user: u })}
+                              disabled={busyId === u.id || isSelf}
+                              title={
+                                isSelf
+                                  ? 'Kendi hesabında işlem yapamazsın'
+                                  : u.isBanned
+                                    ? `${u.username} yasağını kaldır`
+                                    : `${u.username} hesabını kalıcı yasakla`
+                              }
+                              className={cn(
+                                'w-full rounded-lg border px-2.5 py-2 text-xs font-bold transition-colors disabled:opacity-40',
+                                u.isBanned
+                                  ? 'border-exchange-buy/40 text-exchange-buy hover:bg-exchange-buy/10'
+                                  : 'border-exchange-sell/60 bg-exchange-sell/10 text-exchange-sell hover:bg-exchange-sell/20',
+                              )}
+                            >
+                              {busyId === u.id ? '…' : u.isBanned ? 'Yasağı Kaldır' : 'Yasakla'}
+                            </button>
+                          </>
+                        )}
+                        {can('change_password') && u.email && canTouch(u) && (
+                          <CardButton
+                            label="Şifre"
+                            title={`${u.username} için şifre sıfırlama e-postası gönder`}
+                            disabled={busyId === u.id}
+                            onClick={() => setModal({ mode: 'password', user: u })}
+                          />
+                        )}
+                        {can('restrict_money') && canTouch(u) && (
+                          <CardButton
+                            label="Kısıtla"
+                            title={`${u.username} için para yatırma/çekme kısıtları`}
+                            disabled={busyId === u.id}
+                            onClick={() => setModal({ mode: 'restrict', user: u })}
+                          />
+                        )}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+              {/* Masaüstü: tablo (md+) */}
+              {/* Uzun listeler sayfa kaymasıyla akar (iç kutu yok — mobilde
+                  iç-dış kaydırma çakışması olmaz, en alttaki satıra inilir). */}
+              <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[880px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-exchange-border text-[11px] uppercase tracking-wide text-exchange-muted">
@@ -491,15 +685,30 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
+        </div>
         </div>
 
         {/* Forum denetimi: tekli + toplu silme (ban yetkisi gerekir) */}
-        {can('ban_users') && <ForumModeration isSuper={access.isSuperAdmin} />}
+        {showForum && (
+          <div
+            role="tabpanel"
+            aria-label="Forum"
+            className={cn(activeTab === 'forum' ? 'block' : 'hidden md:block')}
+          >
+            <ForumModeration isSuper={access.isSuperAdmin} />
+          </div>
+        )}
 
         {/* Yönetici yetkileri (yalnızca admin ekleyebilenler) */}
-        {can('manage_admins') && (
+        {showAdmins && (
+          <div
+            role="tabpanel"
+            aria-label="Yöneticiler"
+            className={cn(activeTab === 'admins' ? 'block' : 'hidden md:block')}
+          >
           <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
             <div className="flex flex-wrap items-center gap-2 border-b border-exchange-border px-3 py-3 sm:px-4">
               <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
@@ -568,6 +777,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                 })}
               </ul>
             )}
+          </div>
           </div>
         )}
 
@@ -701,6 +911,32 @@ function RowButton({
       disabled={disabled}
       onClick={onClick}
       className="whitespace-nowrap rounded-lg border border-exchange-border px-2.5 py-1.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow disabled:opacity-40"
+    >
+      {label}
+    </button>
+  )
+}
+
+// Mobil kullanıcı kartlarındaki 2'li grid buton: tam genişlik, dokunmatik hedef.
+function CardButton({
+  label,
+  title,
+  disabled,
+  onClick,
+}: {
+  label: string
+  title: string
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      onClick={onClick}
+      className="w-full rounded-lg border border-exchange-border px-2.5 py-2 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow active:scale-[0.98] disabled:opacity-40"
     >
       {label}
     </button>
