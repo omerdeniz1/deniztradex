@@ -84,8 +84,8 @@ async function marketsSearch(page, vp) {
   if (await moreBtn.count()) await moreBtn.click()
   else await page.goto(`${BASE}#/markets`)
   await page.getByPlaceholder(/Coin ara/).fill('altın')
-  await page.getByText('PAXG', { exact: true }).first().waitFor({ timeout: 10000 })
-  log(vp, true, 'piyasa arama (altın → PAXG)')
+  await page.getByText('V-XAU', { exact: true }).first().waitFor({ timeout: 10000 })
+  log(vp, true, 'piyasa arama (altın → V-XAU, sanal)')
   await shot(page, vp, 'markets')
   await page.getByPlaceholder(/Coin ara/).fill('')
 }

@@ -21,6 +21,8 @@ export function useBinanceKlines(
   mode: TradingMode,
   symbol: string,
   interval: Interval,
+  /** Kapalıyken (örn. sanal coin) hiçbir ağ isteği/WS açılmaz. */
+  enabled = true,
 ) {
   const [klines, setKlines] = useState<Kline[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -42,6 +44,12 @@ export function useBinanceKlines(
   // Fetch historical klines
   useEffect(() => {
     mountedRef.current = true
+    if (!enabled) {
+      setKlines([])
+      setError(null)
+      setIsLoading(false)
+      return
+    }
     setIsLoading(true)
     setError(null)
 
@@ -62,10 +70,11 @@ export function useBinanceKlines(
     return () => {
       cleanup()
     }
-  }, [mode, symbol, interval, cleanup])
+  }, [mode, symbol, interval, enabled, cleanup])
 
   // Stream live kline updates (with host rotation on failure).
   useEffect(() => {
+    if (!enabled) return
     mountedRef.current = true
     let hostIndex = 0
     let timeout: ReturnType<typeof setTimeout> | undefined
@@ -131,7 +140,7 @@ export function useBinanceKlines(
         wsRef.current = null
       }
     }
-  }, [symbol, interval])
+  }, [symbol, interval, enabled])
 
   return { klines, isLoading, error }
 }

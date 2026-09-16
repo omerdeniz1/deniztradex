@@ -1,26 +1,30 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAllTickers, type MarketStatus } from '@/hooks/useAllTickers'
+import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
+import type { MarketStatus } from '@/hooks/useAllTickers'
 import { matchPairQuery } from '@/lib/coinSearch'
 import { cn, formatCompact, formatNumber, formatPrice, formatSignedPercent } from '@/lib/utils'
-import { VirtualMarket } from '@/components/markets/VirtualMarket'
 import type { Ticker } from '@/types'
 
 export function MarketsPage() {
-  const { tickers, status } = useAllTickers()
+  // Birleşik piyasa: Binance gerçek coinleri + Sanal Piyasa tek tabloda.
+  // Sanal satırlar rozetsiz/ayrımsız — BTC satırıyla birebir aynı görünür.
+  const { tickers, virtualSymbols, status } = useUnifiedTickers()
   const [query, setQuery] = useState('')
-  const [tab, setTab] = useState<'binance' | 'virtual'>('binance')
   const navigate = useNavigate()
 
   const rows = useMemo(() => {
-    let entries = Object.values(tickers).filter((t) => t.symbol.endsWith('USDT') && t.price > 0)
+    let entries = Object.values(tickers).filter(
+      (t) =>
+        (t.symbol.endsWith('USDT') || virtualSymbols.has(t.symbol.toUpperCase())) && t.price > 0,
+    )
     if (query.trim()) {
       entries = entries.filter((t) => matchPairQuery(t.symbol, query))
     }
     return entries
       .map((t) => ({ ...t, quoteVolume: t.price * t.volume24h }))
       .sort((a, b) => b.quoteVolume - a.quoteVolume)
-  }, [tickers, query])
+  }, [tickers, virtualSymbols, query])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -29,61 +33,27 @@ export function MarketsPage() {
           <div>
             <h1 className="text-lg font-bold text-exchange-text">Piyasalar</h1>
             <p className="text-xs text-exchange-muted">
-              {tab === 'binance' ? 'Tüm USDT işlem çiftleri · canlı fiyatlar' : 'Sanal Piyasa · AMM (x·y=k) iç ekosistem'}
+              Tüm USDT işlem çiftleri · canlı fiyatlar
             </p>
           </div>
-          {tab === 'binance' && <LiveChip status={status} />}
+          <LiveChip status={status} />
         </div>
-        <div
-          role="tablist"
-          aria-label="Piyasa türü"
-          className="flex shrink-0 gap-1 self-start rounded-xl bg-exchange-surface p-1 sm:ml-auto sm:self-auto"
-        >
-          {(
-            [
-              { id: 'binance', label: 'Binance' },
-              { id: 'virtual', label: 'Sanal Piyasa' },
-            ] as const
-          ).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => setTab(t.id)}
-              className={cn(
-                'min-h-[2.25rem] whitespace-nowrap rounded-lg px-4 text-xs font-bold transition-colors active:scale-95',
-                tab === t.id
-                  ? 'bg-exchange-yellow/15 text-exchange-yellow'
-                  : 'text-exchange-muted hover:text-exchange-text',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="relative w-full sm:ml-auto sm:max-w-xs">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-exchange-muted">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20 L16.5 16.5" strokeLinecap="round" />
+            </svg>
+          </span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Coin ara… (örn. SOL, ether, bitcoin)"
+            className="h-9 w-full rounded-lg border border-exchange-border bg-exchange-bg pl-9 pr-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow placeholder:text-exchange-muted/70"
+          />
         </div>
-        {tab === 'binance' && (
-          <div className="relative w-full sm:max-w-xs">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-exchange-muted">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="7" />
-                <path d="M20 20 L16.5 16.5" strokeLinecap="round" />
-              </svg>
-            </span>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Coin ara… (örn. SOL, ether, bitcoin)"
-              className="h-9 w-full rounded-lg border border-exchange-border bg-exchange-bg pl-9 pr-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow placeholder:text-exchange-muted/70"
-            />
-          </div>
-        )}
       </div>
 
-      {tab === 'virtual' ? (
-        <VirtualMarket />
-      ) : (
-      <>
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full min-w-[22rem] border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-exchange-surface">
@@ -111,12 +81,10 @@ export function MarketsPage() {
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-exchange-border px-3 py-2 text-xs text-exchange-muted sm:px-4">
-        <span>{formatNumber(rows.length, 0)} USDT çifti</span>
+        <span>{formatNumber(rows.length, 0)} işlem çifti</span>
         <span className="hidden sm:inline">Satıra tıklayın → işlem ekranı</span>
         <span className="sm:hidden">Dokun → işlem ekranı</span>
       </div>
-      </>
-      )}
     </div>
   )
 }

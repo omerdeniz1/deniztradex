@@ -13,9 +13,11 @@ interface Props {
   live: boolean
   /** Vadeli modda long/short açılamayan coinler listelenmez. */
   mode?: TradingMode
+  /** Sanal coin sembolleri (USDT soneki taşımaz, yine de listelenir). */
+  virtualSymbols?: ReadonlySet<string>
 }
 
-export function PairSelector({ symbol, onSymbolChange, tickers, live, mode }: Props) {
+export function PairSelector({ symbol, onSymbolChange, tickers, live, mode, virtualSymbols }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -28,14 +30,16 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live, mode }: Pr
   // Liste bilinmiyorsa (çevrimdışı) filtre uygulanmaz — menü boş kalmaz.
   const allPairs = useMemo(() => {
     const entries = Object.values(tickers).filter(
-      (t) => t.symbol.endsWith('USDT') && !isDelisted(t.symbol),
+      (t) =>
+        (t.symbol.endsWith('USDT') || virtualSymbols?.has(t.symbol.toUpperCase())) &&
+        !isDelisted(t.symbol),
     )
     const inFutures = mode === 'futures' && futuresSymbols
     const filtered = inFutures
       ? entries.filter((t) => futuresSymbols.has(t.symbol.toUpperCase()))
       : entries
     return filtered.sort((a, b) => a.symbol.localeCompare(b.symbol))
-  }, [tickers, mode, futuresSymbols])
+  }, [tickers, mode, futuresSymbols, virtualSymbols])
 
   const pairs = useMemo(() => {
     const q = query.trim().toLowerCase()

@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  bucketVirtualKlines,
   executeVirtualTrade,
   getVirtualHoldings,
   listVirtualCoins,
+  listVirtualKlines,
   VIRTUAL_SEED,
 } from '@/services/virtualMarketService'
 import { useTradeStore } from '@/store/tradeStore'
+import type { Kline } from '@/types'
 
 beforeEach(() => {
   localStorage.clear()
@@ -62,5 +65,55 @@ describe('virtualMarketService (yerel motor)', () => {
     await expect(executeVirtualTrade('ENTES', 'sell', 5)).rejects.toThrow('coin')
     await expect(executeVirtualTrade('NOPE', 'buy', 10)).rejects.toThrow('bulunamadı')
     await expect(executeVirtualTrade('ENTES', 'buy', 0)).rejects.toThrow('Geçersiz tutar.')
+  })
+})
+
+describe('bucketVirtualKlines', () => {
+  function m1(n: number, base = 100): Kline[] {
+    return Array.from({ length: n }, (_, i) => ({
+      openTime: i * 60000,
+      open: base + i,
+      high: base + i + 0.5,
+      low: base + i - 0.5,
+      close: base + i + 0.25,
+      volume: 10,
+      closeTime: i * 60000 + 59999,
+    }))
+  }
+
+  it('1m aynen gecer', () => {
+    expect(bucketVirtualKlines(m1(5), '1m')).toHaveLength(5)
+  })
+
+  it('5m beserli katlar (open ilk, close son, high/low uclar)', () => {
+    const out = bucketVirtualKlines(m1(10), '5m')
+    expect(out).toHaveLength(2)
+    expect(out[0].open).toBe(100)
+    expect(out[0].close).toBe(104.25)
+    expect(out[0].high).toBe(104.5)
+    expect(out[0].low).toBe(99.5)
+    expect(out[0].volume).toBe(50)
+  })
+})
+
+describe('listVirtualKlines (yerel sentetik)', () => {
+  it('havuz fiyatina biten sirali mumlar uretir', async () => {
+    const klines = await listVirtualKlines('ENTES', '1m', 50)
+    expect(klines).toHaveLength(50)
+    for (let i = 1; i < klines.length; i++) {
+      expect(klines[i].openTime).toBeGreaterThan(klines[i - 1].openTime)
+    }
+    const last = klines[klines.length - 1]
+    expect(last.close).toBeCloseTo(10, 6)
+    for (const k of klines) {
+      expect(k.high).toBeGreaterThanOrEqual(Math.max(k.open, k.close))
+      expect(k.low).toBeLessThanOrEqual(Math.min(k.open, k.close))
+    }
+  })
+
+  it('ust zaman dilimine katlanmis doner', async () => {
+    const klines = await listVirtualKlines('ENTES', '5m', 20)
+    expect(klines.length).toBeLessThanOrEqual(20)
+    expect(klines.length).toBeGreaterThan(0)
   })
 })

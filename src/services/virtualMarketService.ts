@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { getSessionUserId } from '@/services/authService'
 import { useTradeStore } from '@/store/tradeStore'
 import { quoteVirtualBuy, quoteVirtualSell, type VirtualQuote } from '@/engine/virtualAmm'
+import type { Interval, Kline } from '@/types'
 
 /**
  * Sanal Piyasa servisi (AMM x*y=k).
@@ -276,6 +277,128 @@ export async function executeVirtualTrade(
           amount,
         )
   return applyLocalTrade(symbol, side, amount, quote)
+}
+
+const INTERVAL_MINUTES: Record<Interval, number> = {
+  '1m': 1,
+  '5m': 5,
+  '15m': 15,
+  '1h': 60,
+  '4h': 240,
+  '1d': 1440,
+  '1w': 10080,
+}
+
+/** 1 dakikalık mumları üst zaman dilimine katla (eski → yeni sıralı). */
+export function bucketVirtualKlines(klines1m: Kline[], interval: Interval): Kline[] {
+  const size = INTERVAL_MINUTES[interval] ?? 1
+  if (size <= 1) return klines1m
+  const out: Kline[] = []
+  for (let i = 0; i < klines1m.length; i += size) {
+    const chunk = klines1m.slice(i, i + size)
+    if (chunk.length === 0) continue
+    const first = chunk[0]
+    const last = chunk[chunk.length - 1]
+    out.push({
+      openTime: first.openTime,
+      open: first.open,
+      high: Math.max(...chunk.map((k) => k.high)),
+      low: Math.min(...chunk.map((k) => k.low)),
+      close: last.close,
+      volume: chunk.reduce((s, k) => s + k.volume, 0),
+      closeTime: last.closeTime,
+    })
+  }
+  return out
+}
+
+function hashSeed(text: string): number {
+  let h = 2166136261
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed
+  return () => {
+    a |= 0
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/**
+ * Yerel sentetik mumlar (çevrimdışı): havuz fiyatına biten, sembolden
+ * türetilen deterministik yürüyüş — grafik her ortamda çizilir.
+ */
+function syntheticKlines(symbol: string, price: number, limit: number): Kline[] {
+  const rand = mulberry32(hashSeed(symbol))
+  const out: Kline[] = []
+  const nowMin = Math.floor(Date.now() / 60000) * 60000
+  let p = price <= 0 ? 1 : price / (1 + (rand() - 0.5) * 0.02 * limit)
+  for (let i = limit - 1; i >= 0; i--) {
+    const t = nowMin - i * 60000
+    const o = p
+    const c = o * (1 + (rand() - 0.5) * 0.004)
+    const h = Math.max(o, c) * (1 + rand() * 0.001)
+    const l = Math.min(o, c) * (1 - rand() * 0.001)
+    out.push({ openTime: t, open: o, high: h, low: l, close: c, volume: price * (0.5 + rand()), closeTime: t + 59999 })
+    p = c
+  }
+  // Son mumu güncel havuz fiyatına kilitle (grafik ↔ liste tutarlılığı).
+  if (out.length > 0 && price > 0) {
+    const last = out[out.length - 1]
+    out[out.length - 1] = { ...last, high: Math.max(last.high, price), low: Math.min(last.low, price), close: price }
+  }
+  return out
+}
+
+/**
+ * Sanal mumlar: gerçekte `virtual_kline_data` tablosundan (yeniden eskiye
+ * değil, eskiye-yeniye bucket'lanır); çevrimdışında sentetik üretilir.
+ */
+export async function listVirtualKlines(
+  symbol: string,
+  interval: Interval = '1m',
+  limit = 300,
+): Promise<Kline[]> {
+  const size = INTERVAL_MINUTES[interval] ?? 1
+  const need1m = Math.min(limit * size, 1500)
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('virtual_kline_data')
+        .select('timestamp,open,high,low,close,volume')
+        .eq('symbol', symbol)
+        .order('timestamp', { ascending: false })
+        .limit(need1m)
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const asc = (data as Record<string, unknown>[]).reverse().map((r) => {
+          const t = Date.parse(String(r.timestamp ?? ''))
+          return {
+            openTime: Number.isFinite(t) ? t : 0,
+            open: toNumber(r.open),
+            high: toNumber(r.high),
+            low: toNumber(r.low),
+            close: toNumber(r.close),
+            volume: toNumber(r.volume),
+            closeTime: (Number.isFinite(t) ? t : 0) + 59999,
+          }
+        })
+        return bucketVirtualKlines(asc, interval).slice(-limit)
+      }
+    } catch {
+      // sentetik döküme düş
+    }
+  }
+  const coins = await listVirtualCoins()
+  const price = coins.find((c) => c.symbol === symbol)?.price ?? 0
+  return bucketVirtualKlines(syntheticKlines(symbol, price, need1m), interval).slice(-limit)
 }
 
 function mapRpcError(error: unknown): string {

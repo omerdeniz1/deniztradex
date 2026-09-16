@@ -5,7 +5,7 @@ import {
   WS_HOSTS,
   wsHost,
 } from '@/services/binance'
-import { useMarketStore } from '@/store/marketStore'
+import { EXCLUDED_REAL_COMMODITIES, useMarketStore } from '@/store/marketStore'
 import type { Ticker } from '@/types'
 
 export type { MarketStatus } from '@/store/marketStore'
@@ -76,6 +76,8 @@ function builtInTickers(rows: RawTicker[]): Record<string, Ticker> | null {
     if (!row?.s && !row?.symbol) continue
     const symbol = String(row.s ?? row.symbol)
     if (!symbol.endsWith('USDT')) continue
+    // Gerçek emtialar platforma girmez (V-XAU/V-XAG kullanılır).
+    if (EXCLUDED_REAL_COMMODITIES.has(symbol.toUpperCase())) continue
     const parsed = parseRaw(row)
     if (parsed) next[parsed.symbol] = parsed
   }

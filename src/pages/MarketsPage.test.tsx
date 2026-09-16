@@ -49,7 +49,28 @@ describe('MarketsPage', () => {
     expect(screen.getByText('SOL')).toBeInTheDocument()
     expect(screen.getByText('XRP')).toBeInTheDocument()
     expect(screen.queryByText('ETHBTC')).not.toBeInTheDocument()
-    expect(screen.getByText(/USDT çifti/)).toBeInTheDocument()
+    expect(screen.getByText(/işlem çifti/)).toBeInTheDocument()
+  })
+
+  it('lists virtual coins in the same table with no special badge', async () => {
+    renderAt('/markets')
+
+    await screen.findByText('ENTES')
+    // BTC satırıyla birebir aynı format: sembol + USDT etiketi.
+    const row = screen.getByText('ENTES').closest('tr')!
+    expect(row.textContent).toContain('USDT')
+    // Rozet/ayrım yok: ne Sanal ibaresi ne ayrı sekme.
+    expect(screen.queryByText(/Sanal/)).not.toBeInTheDocument()
+    expect(screen.getByText('V-XAU')).toBeInTheDocument()
+  })
+
+  it('navigates a virtual coin to the trade screen with its own symbol', async () => {
+    const user = userEvent.setup()
+    // SpotStub /spot rotasında symbol parametresini gösterir.
+    renderAt('/markets')
+    await screen.findByText('ENTES')
+    await user.click(screen.getByText('ENTES'))
+    expect(await screen.findByText('spot-page:ENTES')).toBeInTheDocument()
   })
 
   it('filters coins with the search bar (aliases like solana work)', async () => {

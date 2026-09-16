@@ -1,4 +1,5 @@
-// Sanal Piyasa (AMM) headed testi — kayıt → promo → sanal alış → sanal satış.
+// Sanal Piyasa (birleşik) headed testi — kayıt → promo → piyasalar (rozetsiz
+// tek tablo) → spot ekranında sanal grafik + AMM al/sat.
 // Calistirma: dev server ayaktayken `node e2e/virtual.mjs` (tarayıcı görünür).
 import { mkdirSync } from 'node:fs'
 import { chromium } from '@playwright/test'
@@ -48,7 +49,7 @@ async function runViewport(browser, vp) {
     await page.getByText('Varlıklarınız').waitFor({ timeout: 8000 })
     log(vp.name, true, 'kayit-ol')
 
-    // Promo ile bakiye yükle (sanal alış için sermaye)
+    // Promo ile bakiye yükle
     await page.locator('header button[aria-haspopup="menu"]').click()
     await page.getByRole('menuitem', { name: 'Cüzdan' }).click()
     await page.getByPlaceholder('Örn. dnztrd100').fill('dnztrd100')
@@ -56,48 +57,80 @@ async function runViewport(browser, vp) {
     await page.getByText(/Tebrikler!/).waitFor({ timeout: 8000 })
     log(vp.name, true, 'promo +100 USDT')
 
-    // Piyasalar → Sanal Piyasa sekmesi
+    // Piyasalar: tek birleşik tablo — sanal satırlar rozetsiz, sekme yok
     const moreBtn = page.getByRole('button', { name: /Piyasaları Gör|Tümünü gör/ }).first()
     if (await moreBtn.count()) await moreBtn.click()
     else await page.goto(`${BASE}#/markets`)
-    await page.getByRole('tab', { name: 'Sanal Piyasa' }).click()
     for (const s of ['ENTES', 'V-XAU', 'V-XAG', 'RGC', 'MPRC', 'SVGC']) {
       await page.getByText(s, { exact: true }).first().waitFor({ timeout: 8000 })
     }
-    log(vp.name, true, '6 sanal coin listede')
+    const hasVirtualTab = await page.getByRole('tab', { name: 'Sanal Piyasa' }).count()
+    const hasBadge = await page.getByText('Emtia', { exact: true }).count()
+    log(vp.name, hasVirtualTab === 0 && hasBadge === 0, 'tek tablo, rozet/sekme ayrimi yok')
+    // Gerçek emtia (PAXG/XAUT) listede olmamalı
+    const paxg = await page.getByText('PAXG', { exact: true }).count()
+    log(vp.name, paxg === 0, 'gercek emtia listede yok')
     await page.screenshot({ path: `e2e/shots/${vp.name}-virtual-list.png` })
 
-    // Sığ havuzda (SVGC) 100 USDT'lik alım: etki + hacim ölçülebilir olmalı
-    await page.locator('tr', { hasText: 'SVGCOIN' }).click()
+    // Al-Sat ekranı (sanal): canlı sıralama satırı her saniye oynattığı
+    // için satır tıklaması flake oluyor; satır→spot yönlendirmesi birim
+    // testte kanıtlı (MarketsPage.test), burada rotaya doğrudan gidiliyor.
+    await page.goto(`${BASE}#/spot?symbol=SVGC`)
+    await page.waitForURL('**#/spot?symbol=SVGC', { timeout: 8000 })
+    // Grafik kendi mumlarımızdan çizildi (canvas var, hata bandı yok)
+    await page.locator('canvas').first().waitFor({ timeout: 15000 })
+    const marketFail = await page.getByText('Failed to load market data').count()
+    log(vp.name, marketFail === 0, 'sanal grafik cizildi (Binance hatasi yok)')
+    await page.screenshot({ path: `e2e/shots/${vp.name}-virtual-chart.png` })
+
+    if (vp.mobile) {
+      // Mobil: sheet içinde AMM paneli
+      await page.getByRole('button', { name: 'Al', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: 'Emir ver' })
+      await dialog.waitFor({ timeout: 8000 })
+      await dialog.getByLabel('Alış tutarı (USDT)').fill('100')
+      const preview = dialog.getByText(/Alacağın/)
+      await preview.waitFor({ timeout: 15000 })
+      await dialog.getByRole('button', { name: 'SVGC Al' }).click()
+      await page.getByText(/alındı\./).first().waitFor({ timeout: 8000 })
+      log(vp.name, true, 'mobil sheet sanal alis (100 USDT → SVGC)')
+      await page.screenshot({ path: `e2e/shots/${vp.name}-virtual-buy.png` })
+
+      // Satış için sheet'i kapatıp yeniden aç, Sat tarafına geç
+      await dialog.getByRole('button', { name: 'Kapat' }).click()
+      await page.getByRole('button', { name: 'Al', exact: true }).click()
+      const dialog2 = page.getByRole('dialog', { name: 'Emir ver' })
+      await dialog2.waitFor({ timeout: 8000 })
+      await dialog2.getByRole('button', { name: 'Sat (Sell)' }).click()
+      await dialog2.getByLabel('Satış adedi').fill('1000')
+      await dialog2.getByRole('button', { name: 'SVGC Sat' }).click()
+      await page.getByText(/USDT alındı\./).waitFor({ timeout: 8000 })
+      log(vp.name, true, 'mobil sheet sanal satis (SVGC → USDT)')
+    } else {
+      // Masaüstü: yan AMM paneli
     await page.getByLabel('Alış tutarı (USDT)').fill('100')
-    const preview = page.getByText(/Alacağın:/)
-    await preview.waitFor({ timeout: 5000 })
-    const previewText = await preview.innerText()
-    const impactMatch = previewText.match(/Etki %([\d.,]+)/)
-    const impactValue = impactMatch ? parseFloat(impactMatch[1].replace(/\./g, '').replace(',', '.')) : 0
-    log(vp.name, impactValue > 0, 'fiyat etkisi onizlemede (slippage)', previewText.slice(0, 80))
-    await page.getByRole('button', { name: 'SVGC Al' }).click()
-    await page.getByText(/alındı\./).first().waitFor({ timeout: 8000 })
-    log(vp.name, true, 'sanal alis (100 USDT → SVGC)')
-    await page.screenshot({ path: `e2e/shots/${vp.name}-virtual-buy.png` })
+    await page.getByText(/Alacağın/).waitFor({ timeout: 15000 })
+      const panelText = await page.locator('aside').innerText()
+      const m = panelText.match(/etkisi\s*%([\d.,]+)/i)
+      const impact = m ? parseFloat(m[1].replace(/\./g, '').replace(',', '.')) : 0
+      log(vp.name, impact > 0, 'fiyat etkisi onizlemede', (m?.[0] ?? 'yok'))
+      await page.getByRole('button', { name: 'SVGC Al' }).click()
+      await page.getByText(/alındı\./).first().waitFor({ timeout: 8000 })
+      log(vp.name, true, 'sanal alis (100 USDT → SVGC)')
+      await page.screenshot({ path: `e2e/shots/${vp.name}-virtual-buy.png` })
 
-    // Hacim hücresi havuzun güncellendiğini kanıtlar
-    const volumeCell = page.locator('tr', { hasText: 'SVGCOIN' }).locator('td').nth(3)
-    const volumeText = (await volumeCell.innerText()).trim()
-    log(vp.name, volumeText.includes('100'), 'hacim 24s guncellendi', volumeText)
-
-    // Eldeki SVGC'den 1000 adet sat
-    await page.getByRole('button', { name: 'Sat' }).click()
-    await page.getByLabel('Satış adedi').fill('1000')
-    await page.getByRole('button', { name: 'SVGC Sat' }).click()
-    await page.getByText(/USDT alındı\./).waitFor({ timeout: 8000 })
-    log(vp.name, true, 'sanal satis (SVGC → USDT)')
-    await page.screenshot({ path: `e2e/shots/${vp.name}-virtual-sell.png` })
+      // Satış: panele dön, Sat tarafı
+      await page.getByRole('button', { name: 'Sat (Sell)' }).first().click()
+      await page.getByLabel('Satış adedi').fill('1000')
+      await page.getByRole('button', { name: 'SVGC Sat' }).click()
+      await page.getByText(/USDT alındı\./).waitFor({ timeout: 8000 })
+      log(vp.name, true, 'sanal satis (SVGC → USDT)')
+    }
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth + 1,
     )
-    log(vp.name, !overflow, 'yatay tasma yok (sanal piyasa)')
+    log(vp.name, !overflow, 'yatay tasma yok')
   } catch (e) {
     log(vp.name, false, 'ADIM HATASI', String(e).split('\n').slice(0, 3).join(' | '))
     await page.screenshot({ path: `e2e/shots/${vp.name}-FAIL.png` })

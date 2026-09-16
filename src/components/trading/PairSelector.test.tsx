@@ -18,9 +18,16 @@ function mockExchangeInfo(symbols: { symbol: string; status: string; contractTyp
   )
 }
 
-function renderSelector(mode?: 'spot' | 'futures') {
+function renderSelector(mode?: 'spot' | 'futures', virtualSymbols?: Set<string>) {
   return render(
-    <PairSelector symbol="BTCUSDT" onSymbolChange={() => {}} tickers={tickers} live mode={mode} />,
+    <PairSelector
+      symbol="BTCUSDT"
+      onSymbolChange={() => {}}
+      tickers={tickers}
+      live
+      mode={mode}
+      virtualSymbols={virtualSymbols}
+    />,
   )
 }
 
@@ -66,6 +73,29 @@ describe('PairSelector futures filtresi', () => {
     })
     expect(screen.getByRole('option', { name: /BTC/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /ETH/ })).toBeInTheDocument()
+  })
+
+  it('spot modda sanal sembolleri de listeler (USDT soneki aranmaz)', async () => {
+    mockExchangeInfo([])
+    render(
+      <PairSelector
+        symbol="BTCUSDT"
+        onSymbolChange={() => {}}
+        tickers={{
+          ...tickers,
+          ENTES: { symbol: 'ENTES', price: 10, change24h: 0, changePercent24h: 0, volume24h: 5 },
+        }}
+        live
+        mode="spot"
+        virtualSymbols={new Set(['ENTES'])}
+      />,
+    )
+    await openMenu()
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /ENTES/ })).toBeInTheDocument()
+    })
+    expect(screen.getByRole('option', { name: /BTC/ })).toBeInTheDocument()
   })
 
   it('kontrat listesi alınamazsa filtre uygulamaz (fail-open)', async () => {

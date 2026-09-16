@@ -1,8 +1,9 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useBinanceKlines } from '@/hooks/useBinanceKlines'
-import { useAllTickers } from '@/hooks/useAllTickers'
+import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
+import { useVirtualKlines } from '@/hooks/useVirtualKlines'
 import { useLivePrices } from '@/hooks/useLivePrices'
 import { useTradeStore } from '@/store/tradeStore'
 import { useOrderStore } from '@/store/orderStore'
@@ -21,6 +22,7 @@ import type { Interval } from '@/types'
 import type { TradingMode } from '@/types'
 import { TradingChart, type ChartIndicators } from '@/components/chart/TradingChart'
 import { TradingPanel, type PanelSide } from '@/components/trading/TradingPanel'
+import { VirtualTradePanel } from '@/components/markets/VirtualTradePanel'
 import { MobileTradeTabs } from '@/components/trading/MobileTradeTabs'
 import { Button } from '@/components/ui/Button'
 import { PairSelector } from '@/components/trading/PairSelector'
@@ -83,7 +85,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   const pushToast = useToastStore((s) => s.push)
   const pendingOrders = useOrderStore((s) => s.pendingOrders)
 
-  const { tickers, status: marketStatus } = useAllTickers()
+  const { tickers, virtualSymbols, status: marketStatus } = useUnifiedTickers()
 
   // Lightweight per-symbol streams: the active pair, every open position and
   // held spot coins each get their own dedicated `@ticker` socket feeding the
@@ -135,10 +137,22 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   // `null` = kapalı, aksi halde sheet'in açılış yönü.
   const [sheetSide, setSheetSide] = useState<PanelSide | null>(null)
 
+  // Sanal coinlerde (ENTES, V-XAU…) grafik + işlem sanal altyapıdan gelir;
+  // gerçek coinlerde Binance akışı aynen korunur.
+  const isVirtual = virtualSymbols.has(symbol.toUpperCase())
+
   // Full 24h row (change %, volume) for the selected pair.
   const ticker = tickers[symbol] ?? null
-  const livePrice = livePrices[symbol]
-  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, interval)
+  const livePrice = livePrices[symbol] ?? ticker?.price
+  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, interval, !isVirtual)
+  const {
+    klines: virtualKlines,
+    isLoading: virtualLoading,
+    error: virtualError,
+  } = useVirtualKlines(isVirtual ? symbol : '', interval)
+  const shownKlines = isVirtual ? virtualKlines : klines
+  const chartLoading = isVirtual ? virtualLoading : isLoading
+  const chartError = isVirtual ? virtualError : error
 
   const handleSymbolChange = (next: string) => {
     setSearchParams({ symbol: next }, { replace: true })
@@ -146,8 +160,9 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
 
   // Market-data fallback — when klines cannot be loaded (e.g. the pair was
   // delisted or is suspended on Binance) switch the user to the default pair.
+  // Sanal coinlerde Binance hatası aranmaz (grafikleri kendi tablomuzdan gelir).
   useEffect(() => {
-    if (!error) return
+    if (isVirtual || !error) return
     pushToast({
       message: `${symbol} için piyasa verisi alınamadı. Otomatik olarak BTCUSDT yükleniyor.`,
       tone: 'error',
@@ -156,7 +171,16 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       handleSymbolChange(DEFAULT_SYMBOL)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error])
+  }, [error, isVirtual])
+
+  // Sanal coinlerde vadeli kontrat yoktur — vadeli rotası spot'a yönlenir.
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (isVirtual && mode === 'futures') {
+      navigate(`/spot?symbol=${symbol}`, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVirtual, mode])
 
   // Auto-liquidation watchdog — all open futures positions, tracked against
   // their own live price from the dedicated per-symbol feed. Prices are
@@ -312,8 +336,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
 
   // Grafik lejantı: açık indikatörlerin son değerleri.
   const legendItems = useMemo(() => {
-    if (klines.length === 0) return []
-    const closes = klines.map((k) => k.close)
+    if (shownKlines.length === 0) return []
+    const closes = shownKlines.map((k) => k.close)
     const items: { color: string; text: string }[] = []
     if (indicators.ma) {
       const fast = lastDefined(sma(closes, 7))
@@ -332,11 +356,11 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       if (basis !== null) items.push({ color: '#f1f5f9', text: `BOLL ${formatPrice(basis)}` })
     }
     if (indicators.volume) {
-      const last = klines[klines.length - 1]
+      const last = shownKlines[shownKlines.length - 1]
       items.push({ color: '#8b95a1', text: `Hacim ${formatCompact(last.volume)}` })
     }
     return items
-  }, [klines, indicators])
+  }, [shownKlines, indicators])
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-clip overflow-y-auto md:overflow-hidden">
@@ -351,6 +375,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 tickers={tickers}
                 live={marketStatus === 'live'}
                 mode={mode}
+                virtualSymbols={virtualSymbols}
               />
               <span className="min-w-0 flex-1 basis-24 truncate font-mono text-lg font-bold text-exchange-text sm:flex-none sm:basis-auto sm:text-2xl">
                 {livePrice ? formatPrice(livePrice) : '—'}
@@ -411,7 +436,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
           </div>
 
           <div className="relative h-[220px] w-full max-w-full flex-none sm:h-[340px] md:h-[500px]">
-            {legendItems.length > 0 && !isLoading && !error && (
+            {legendItems.length > 0 && !chartLoading && !chartError && (
               <div className="pointer-events-none absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap gap-x-2.5 gap-y-0.5">
                 {legendItems.map((item) => (
                   <span
@@ -427,17 +452,17 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 ))}
               </div>
             )}
-            {isLoading ? (
+            {chartLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-exchange-muted">
                 Loading chart data…
               </div>
-            ) : error ? (
+            ) : chartError ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-exchange-sell">
                 <span>Failed to load market data</span>
-                <span className="text-xs text-exchange-muted">{error}</span>
+                <span className="text-xs text-exchange-muted">{chartError}</span>
               </div>
             ) : (
-              <TradingChart klines={klines} indicators={indicators} className="h-full w-full" />
+              <TradingChart klines={shownKlines} indicators={indicators} className="h-full w-full" />
             )}
           </div>
 
@@ -559,15 +584,20 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
           </div>
         </section>
 
-        {/* Right: trading panel (yalnızca masaüstü — mobilde bottom sheet kullanılır) */}
+        {/* Right: trading panel (yalnızca masaüstü — mobilde bottom sheet kullanılır).
+            Sanal sembolde AMM paneli, gerçekte standart panel. */}
         <aside className="hidden max-w-full border-t border-exchange-border bg-exchange-surface md:block md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
-          <TradingPanel
-            key={symbol}
-            ticker={ticker}
-            mode={mode}
-            balance={balance}
-            marketPrice={livePrices[symbol]}
-          />
+          {isVirtual ? (
+            <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} />
+          ) : (
+            <TradingPanel
+              key={symbol}
+              ticker={ticker}
+              mode={mode}
+              balance={balance}
+              marketPrice={livePrices[symbol]}
+            />
+          )}
         </aside>
       </main>
 
@@ -622,16 +652,20 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 </button>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-exchange-border">
-                <TradingPanel
-                  key={`${symbol}-${sheetSide}`}
-                  ticker={ticker}
-                  mode={mode}
-                  balance={balance}
-                  marketPrice={livePrices[symbol]}
-                  initialSide={sheetSide}
-                  onSubmitted={() => setSheetSide(null)}
-                  showTriggerType={false}
-                />
+                {isVirtual ? (
+                  <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} />
+                ) : (
+                  <TradingPanel
+                    key={`${symbol}-${sheetSide}`}
+                    ticker={ticker}
+                    mode={mode}
+                    balance={balance}
+                    marketPrice={livePrices[symbol]}
+                    initialSide={sheetSide}
+                    onSubmitted={() => setSheetSide(null)}
+                    showTriggerType={false}
+                  />
+                )}
               </div>
             </motion.div>
           </motion.div>

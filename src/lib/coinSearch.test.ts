@@ -23,6 +23,15 @@ describe('matchPairQuery', () => {
     expect(matchPairQuery('BTCUSDT', 'ada')).toBe(false)
   })
 
+  it('matches virtual commodities by Turkish names', () => {
+    expect(matchPairQuery('V-XAU', 'altın')).toBe(true)
+    expect(matchPairQuery('V-XAU', 'altin')).toBe(true)
+    expect(matchPairQuery('V-XAG', 'gümüş')).toBe(true)
+    expect(matchPairQuery('V-XAG', 'gumus')).toBe(true)
+    expect(matchPairQuery('ENTES', 'entes')).toBe(true)
+    expect(matchPairQuery('BTCUSDT', 'altın')).toBe(false)
+  })
+
   it('matches everything on an empty query', () => {
     expect(matchPairQuery('BTCUSDT', '')).toBe(true)
     expect(matchPairQuery('XRPUSDT', '   ')).toBe(true)
