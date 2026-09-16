@@ -421,6 +421,66 @@ export async function login(identifier: string, password: string): Promise<User>
 }
 
 /**
+ * Oturum sahibinin şifresini değiştirir (Ayarlar → Şifre Değiştir).
+ *
+ * - Supabase modunda önce mevcut şifre `signInWithPassword` ile doğrulanır
+ *   (yanlışsa işlem durur), ardından `updateUser` yeni şifreyi yazar.
+ * - Yerel modda (test/çevrimdışı) kayıtlı `passwordHash` karşılaştırılır ve
+ *   yenisiyle değiştirilir.
+ */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  if (!currentPassword) {
+    throw new Error('Mevcut şifreni gir.')
+  }
+  if (newPassword.length < 6) {
+    throw new Error('Yeni şifren en az 6 karakter olmalı.')
+  }
+  if (newPassword === currentPassword) {
+    throw new Error('Yeni şifren mevcut şifrenden farklı olmalı.')
+  }
+
+  if (isSupabaseConfigured && supabase) {
+    const email = getSessionUser()?.email ?? ''
+    if (!email) {
+      throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+    }
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email,
+      password: currentPassword,
+    })
+    if (verifyError) {
+      throw new Error('Mevcut şifren hatalı.')
+    }
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    })
+    if (updateError) {
+      throw new Error(toTurkishAuthError(updateError.message))
+    }
+    return
+  }
+
+  const sessionUser = getSessionUser()
+  if (!sessionUser) {
+    throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+  }
+  const users = readUsers()
+  const idx = users.findIndex((u) => u.id === sessionUser.id)
+  if (idx < 0) {
+    throw new Error('Kullanıcı bulunamadı.')
+  }
+  if ((await hashPassword(currentPassword)) !== users[idx].passwordHash) {
+    throw new Error('Mevcut şifren hatalı.')
+  }
+  const updated = [...users]
+  updated[idx] = { ...updated[idx], passwordHash: await hashPassword(newPassword) }
+  writeUsers(updated)
+}
+
+/**
  * Devam eden çıkış yarışı koruması: `supabase.auth.signOut()` önce ağa
  * çıkar (`/logout`), depolamadaki tokenları EN SON siler. Kullanıcı çıkışa
  * basıp hemen yeniden giriş yaparsa, kuyruktaki signOut'un sonundaki

@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore } from '@/store/toastStore'
+import { changePassword } from '@/services/authService'
 import { removeAvatarFile, uploadAvatarFile } from '@/services/supabaseWallet'
 import { cn } from '@/lib/utils'
 import { Toggle } from '@/components/ui/Toggle'
@@ -45,6 +46,8 @@ export function SettingsPage() {
         </section>
 
         <AvatarSection />
+
+        <PasswordSection />
 
         <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -152,6 +155,91 @@ function AvatarSection() {
               Kaldır
             </Button>
           )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function PasswordSection() {
+  const user = useAuthStore((s) => s.user)
+  const pushToast = useToastStore((s) => s.push)
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [show, setShow] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  if (!user) return null
+
+  const onSave = async () => {
+    if (busy) return
+    if (!current || !next || !confirm) {
+      pushToast({ message: 'Tüm şifre alanlarını doldur.', tone: 'error' })
+      return
+    }
+    if (next !== confirm) {
+      pushToast({ message: 'Yeni şifreler birbiriyle eşleşmiyor.', tone: 'error' })
+      return
+    }
+    setBusy(true)
+    try {
+      await changePassword(current, next)
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+      pushToast({ message: 'Şifren güncellendi.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Şifre güncellenemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const fields = [
+    { id: 'pw-current', label: 'Mevcut şifre', value: current, set: setCurrent, auto: 'current-password' },
+    { id: 'pw-next', label: 'Yeni şifre (en az 6 karakter)', value: next, set: setNext, auto: 'new-password' },
+    { id: 'pw-confirm', label: 'Yeni şifre (tekrar)', value: confirm, set: setConfirm, auto: 'new-password' },
+  ] as const
+
+  return (
+    <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
+        Şifre Değiştir
+      </h2>
+      <p className="mt-1 text-xs text-exchange-muted">
+        Hesabının şifresini güncelle. Değişiklik anında geçerli olur.
+      </p>
+      <div className="mt-4 grid gap-3">
+        {fields.map((f) => (
+          <div key={f.id} className="min-w-0">
+            <label htmlFor={f.id} className="mb-1 block text-xs font-semibold text-exchange-muted">
+              {f.label}
+            </label>
+            <input
+              id={f.id}
+              type={show ? 'text' : 'password'}
+              value={f.value}
+              onChange={(e) => f.set(e.target.value)}
+              autoComplete={f.auto}
+              disabled={busy}
+              className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+            />
+          </div>
+        ))}
+        <label className="flex cursor-pointer items-center gap-2.5 text-xs font-semibold text-exchange-muted">
+          <input
+            type="checkbox"
+            checked={show}
+            onChange={(e) => setShow(e.target.checked)}
+            className="h-4 w-4 shrink-0 accent-yellow-400"
+          />
+          Şifreleri göster
+        </label>
+        <div>
+          <Button size="md" onClick={() => void onSave()} disabled={busy}>
+            {busy ? 'Güncelleniyor…' : 'Şifreyi Güncelle'}
+          </Button>
         </div>
       </div>
     </section>
