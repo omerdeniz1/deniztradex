@@ -1694,7 +1694,7 @@ function ModalShell({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:items-center"
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-3 pb-safe backdrop-blur-[2px] sm:items-center"
       onClick={onClose}
     >
       <div

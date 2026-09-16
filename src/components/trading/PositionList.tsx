@@ -78,7 +78,8 @@ export function PositionList({ livePrices }: Props) {
             <th className="px-3 py-2 text-right font-medium">Liquidation</th>
             <th className="px-3 py-2 text-right font-medium">TP / SL</th>
             <th className="px-3 py-2 text-right font-medium">PnL (ROE)</th>
-            <th className="px-3 py-2 text-right font-medium" />
+            {/* Kapat kolonu mobilde yatay kaydırsa da ekranda kalır */}
+            <th className="sticky right-0 bg-exchange-bg px-3 py-2 text-right font-medium" />
           </tr>
         </thead>
         <tbody>
@@ -146,7 +147,7 @@ export function PositionList({ livePrices }: Props) {
                   )}
                 </td>
                 <PnlCell pnl={pnl} roe={roe} />
-                <td className="px-3 py-2 text-right">
+                <td className="sticky right-0 bg-exchange-bg px-3 py-2 text-right">
                   <Button
                     size="sm"
                     variant="outline"
