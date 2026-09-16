@@ -470,6 +470,79 @@ async function createRemote(
   }
 }
 
+/**
+ * Bot personası adına forum gönderisi (Bot Simülasyon Motoru).
+ * Uzak modda `post_bot_message` RPC'si (süper admin zorunlu), yerel
+ * modda sahte beğenili doğrudan kayıt. Oturumdaki admin değişmez —
+ * akış anında güncellenir (realtime/polling).
+ */
+export async function createBotForumPost(
+  username: string,
+  rawContent: string,
+  fakeLikes = 0,
+): Promise<ForumPost> {
+  const content = validateContent(rawContent)
+  const name = username.trim()
+  if (!name) throw new Error('Geçersiz bot adı.')
+  const likes = Math.max(0, Math.floor(fakeLikes))
+
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    try {
+      const { data: newId, error: rpcError } = await supabase.rpc('post_bot_message', {
+        p_username: name,
+        p_content: content,
+        p_fake_likes: likes,
+      })
+      if (rpcError) throw rpcError
+      if (typeof newId !== 'string' || !newId) throw new Error('unexpected-create-shape')
+      const { data, error } = await supabase
+        .from('forum_posts')
+        .select('id,user_id,username,content,like_count,reply_count,verified_tier,avatar_url,created_at')
+        .eq('id', newId)
+        .maybeSingle()
+      if (error || !data) throw error ?? new Error('unexpected-create-shape')
+      const row = data as {
+        id: string
+        user_id: string
+        username: string
+        content: string
+        like_count: number
+        reply_count: number
+        verified_tier: unknown
+        avatar_url: unknown
+        created_at: string
+      }
+      return {
+        id: row.id,
+        userId: row.user_id,
+        username: forumDisplayName(row.username, row.user_id),
+        content: row.content,
+        likeCount: row.like_count ?? 0,
+        likedByMe: false,
+        replyCount: row.reply_count ?? 0,
+        verifiedTier: parseVerifiedTier(row.verified_tier),
+        avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : null,
+        createdAt: Date.parse(row.created_at) || Date.now(),
+      }
+    } catch (err) {
+      throw classifyForumRemoteError(err, 'Bot mesajı gönderilemedi')
+    }
+  }
+
+  const post: LocalStoredPost = {
+    id: makeId('post'),
+    userId: `bot_${name.toLowerCase().replace(/[^a-z0-9]+/g, '')}`,
+    username: name,
+    content,
+    likedBy: Array.from({ length: likes }, (_, i) => `botfan_${i}`),
+    replies: [],
+    createdAt: Date.now(),
+  }
+  writeLocalPosts([post, ...readLocalPosts()])
+  return toForumPost(post, getSessionUser()?.id ?? null)
+}
+
 function toggleLocal(
   user: { id: string },
   postId: string,

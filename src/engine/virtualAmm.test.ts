@@ -3,6 +3,7 @@ import {
   VIRTUAL_AMM_FEE_RATE,
   quoteVirtualBuy,
   quoteVirtualSell,
+  quoteVirtualSellForUsdt,
   seedPrice,
 } from '@/engine/virtualAmm'
 
@@ -45,6 +46,23 @@ describe('quoteVirtualBuy', () => {
   it('geçersiz tutarı reddeder', () => {
     expect(() => quoteVirtualBuy(ENTES, 0)).toThrow('Geçersiz tutar.')
     expect(() => quoteVirtualBuy(ENTES, -5)).toThrow('Geçersiz tutar.')
+  })
+})
+
+describe('quoteVirtualSellForUsdt (bot satışı)', () => {
+  it('hedef USDT çıkışına uygun token girişini tersine çözer', () => {
+    const q = quoteVirtualSellForUsdt(ENTES, 10000)
+    // 10.000 USDT çıkış ≈ 1.000 token girişi (ücretle biraz üstü).
+    expect(q.usdtAmount).toBe(10000)
+    expect(q.tokenAmount).toBeGreaterThan(1000)
+    expect(q.tokenAmount).toBeLessThan(1000 * 1.01)
+    expect(q.newPrice).toBeLessThan(q.oldPrice)
+    expect(q.newReserveUsdt).toBeCloseTo(ENTES.reserveUsdt - 10000, 6)
+  })
+
+  it('havuzdan büyük hedefi reddeder', () => {
+    expect(() => quoteVirtualSellForUsdt(ENTES, 50000000)).toThrow('Havuz derinliği')
+    expect(() => quoteVirtualSellForUsdt(ENTES, 0)).toThrow('Geçersiz tutar.')
   })
 })
 

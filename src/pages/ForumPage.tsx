@@ -75,6 +75,16 @@ export function ForumPage() {
     void refresh()
   }, [refresh])
 
+  // Yerel modda realtime yok: bot/admin hamleleri akışa düşsün diye
+  // sessiz yoklama (uzak modda yukarıdaki realtime+yoklama çalışır).
+  useEffect(() => {
+    if (isSupabaseConfigured && supabase) return
+    const timer = window.setInterval(() => {
+      void refresh({ silent: true })
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [refresh])
+
   // Canlı akış: başka cihazda paylaşılan gönderi bu ekrana da düşsün.
   // Birincil kanal realtime'dır (<1 sn). Soket sağlığı izlenir:
   // bağlanana/kopunca yoklama agresifleşir (1 sn), sağlıklı realtime'da

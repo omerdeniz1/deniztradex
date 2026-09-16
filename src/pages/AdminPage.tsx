@@ -33,6 +33,7 @@ import {
   type Announcement,
   type AnnouncementsSetupStatus,
 } from '@/services/announcementService'
+import { BOT_DEFINITIONS } from '@/services/botSimulationService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
@@ -94,21 +95,23 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   // Sekme yapısı (mobil + masaüstü): büyük bloklar üstte yatay
   // kaydırılabilir sekmelere bölünür, yalnızca seçili sekme gösterilir.
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins' | 'announce'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots'>('overview')
   const showForum = can('ban_users')
   const showAdmins = can('manage_admins')
-  // Sistem duyurusu YALNIZCA süper admin yayınlar (sunucu RLS de aynısını zorlar).
+  // Sistem duyurusu ve botlar YALNIZCA süper admin (sunucu da aynısını zorlar).
   const showAnnounce = access.isSuperAdmin
+  const showBots = access.isSuperAdmin
   const tabs = useMemo(() => {
-    const list: { id: 'overview' | 'users' | 'forum' | 'admins' | 'announce'; label: string }[] = [
+    const list: { id: 'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots'; label: string }[] = [
       { id: 'overview', label: 'Genel Bakış' },
       { id: 'users', label: 'Kullanıcılar' },
     ]
     if (showForum) list.push({ id: 'forum', label: 'Forum' })
     if (showAdmins) list.push({ id: 'admins', label: 'Yöneticiler' })
     if (showAnnounce) list.push({ id: 'announce', label: 'Duyurular' })
+    if (showBots) list.push({ id: 'bots', label: 'Botlar' })
     return list
-  }, [showForum, showAdmins, showAnnounce])
+  }, [showForum, showAdmins, showAnnounce, showBots])
 
   // Süper admin hedef dokunulmazlığı: süper admin satırlarına yalnız
   // süper admin dokunur (sunucu da aynı kuralı zorunlu kılar).
@@ -714,6 +717,17 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           </div>
         )}
 
+        {/* Bot Test Paneli: manipülasyon simülasyonu (yalnızca süper admin) */}
+        {showBots && (
+          <div
+            role="tabpanel"
+            aria-label="Botlar"
+            className={cn(activeTab === 'bots' ? 'block' : 'hidden')}
+          >
+            <BotTestPanel />
+          </div>
+        )}
+
         {/* Forum denetimi: tekli + toplu silme (ban yetkisi gerekir) */}
         {showForum && (
           <div
@@ -1143,6 +1157,62 @@ function AnnouncementManager() {
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+function BotTestPanel() {
+  const pushToast = useToastStore((s) => s.push)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  const run = async (id: string, name: string, fn: () => Promise<{ summary: string }>) => {
+    if (busyId) return
+    setBusyId(id)
+    try {
+      const res = await fn()
+      pushToast({ message: `${name}: ${res.summary}`, tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : `${name} çalıştırılamadı.`, tone: 'error' })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+      <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
+        <h2 className="text-sm font-bold text-exchange-text">Bot Test Paneli</h2>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
+          Botlar foruma mesaj düşüp havuzda balina hamlesi yapar; fiyat, grafik ve
+          piyasa listesi gerçek takastaki gibi güncellenir. Bakiyelere dokunulmaz.
+        </p>
+      </div>
+      <ul>
+        {BOT_DEFINITIONS.map((b) => (
+          <li
+            key={b.id}
+            className="flex flex-wrap items-center gap-2 border-b border-exchange-border/50 px-3 py-3 last:border-0 sm:px-4"
+          >
+            <div className="min-w-0 flex-1 basis-40">
+              <div className="truncate text-sm font-bold text-exchange-text">{b.name}</div>
+              <div className="mt-0.5 font-mono text-[11px] font-bold text-exchange-yellow">
+                {b.target}
+              </div>
+              <div className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
+                {b.description}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => void run(b.id, b.name, b.run)}
+              disabled={busyId !== null}
+              className="shrink-0"
+            >
+              {busyId === b.id ? 'Çalışıyor…' : 'Çalıştır'}
+            </Button>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

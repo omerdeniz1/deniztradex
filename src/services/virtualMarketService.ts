@@ -1,7 +1,12 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { getSessionUserId } from '@/services/authService'
 import { useTradeStore } from '@/store/tradeStore'
-import { quoteVirtualBuy, quoteVirtualSell, type VirtualQuote } from '@/engine/virtualAmm'
+import {
+  quoteVirtualBuy,
+  quoteVirtualSell,
+  quoteVirtualSellForUsdt,
+  type VirtualQuote,
+} from '@/engine/virtualAmm'
 import type { Interval, Kline } from '@/types'
 
 /**
@@ -399,6 +404,73 @@ export async function listVirtualKlines(
   const coins = await listVirtualCoins()
   const price = coins.find((c) => c.symbol === symbol)?.price ?? 0
   return bucketVirtualKlines(syntheticKlines(symbol, price, need1m), interval).slice(-limit)
+}
+
+/**
+ * Bot havuz hamlesi (USDT cinsinden balina hareketi).
+ * Kullanıcı bakiyesine DOKUNMAZ — yalnızca havuzu oynatır (rezerv +
+ * fiyat + hacim + mum). Uzak modda `execute_bot_trade` RPC'si (süper
+ * admin zorunlu), yerel modda aynı matematik doğrudan havuza uygulanır.
+ * - buy:  usdtAmount havuza girer.
+ * - sell: usdtAmount havuzdan çıkar (gerekli token tersine çözülür).
+ */
+export async function executeBotPoolTrade(
+  symbol: string,
+  side: VirtualTradeSide,
+  usdtAmount: number,
+): Promise<VirtualTradeResult> {
+  if (!Number.isFinite(usdtAmount) || usdtAmount <= 0) {
+    throw new Error('Geçersiz tutar.')
+  }
+  const userId = getSessionUserId()
+  if (!userId) throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+
+  if (isSupabaseConfigured && supabase) {
+    const { data, error } = await supabase.rpc('execute_bot_trade', {
+      p_symbol: symbol,
+      p_trade_type: side,
+      p_usdt_amount: usdtAmount,
+    })
+    if (error) {
+      throw new Error(mapRpcError(error))
+    }
+    const r = data as Record<string, unknown> | null
+    if (!r || r.ok !== true) throw new Error('İşlem gerçekleştirilemedi.')
+    return {
+      tokenAmount: toNumber(r.token_amount),
+      usdtAmount: toNumber(r.usdt_amount),
+      price: toNumber(r.price),
+      newPrice: toNumber(r.new_price),
+      priceImpactPct: toNumber(r.price_impact_pct),
+    }
+  }
+
+  const pools = readPools()
+  const pool = pools[symbol]
+  if (!pool) throw new Error('Coin bulunamadı.')
+  const quote =
+    side === 'buy'
+      ? quoteVirtualBuy(
+          { symbol, reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
+          usdtAmount,
+        )
+      : quoteVirtualSellForUsdt(
+          { symbol, reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
+          usdtAmount,
+        )
+  pools[symbol] = {
+    reserveUsdt: quote.newReserveUsdt,
+    reserveToken: quote.newReserveToken,
+    volume24h: pool.volume24h + quote.usdtAmount,
+  }
+  writePools(pools)
+  return {
+    tokenAmount: quote.tokenAmount,
+    usdtAmount: quote.usdtAmount,
+    price: quote.oldPrice,
+    newPrice: quote.newPrice,
+    priceImpactPct: quote.priceImpactPct,
+  }
 }
 
 function mapRpcError(error: unknown): string {

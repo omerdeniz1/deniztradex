@@ -84,3 +84,29 @@ export function quoteVirtualSell(pool: VirtualPool, tokenIn: number): VirtualQuo
 export function seedPrice(reserveUsdt: number, reserveToken: number): number {
   return reserveUsdt / reserveToken
 }
+
+/**
+ * Bot satışı (USDT cinsinden hedef): havuzdan `usdtOut` çıkarmak için
+ * gereken token girişi tersine çözülür. Bakiye dokunulmaz — sistem likiditesi.
+ */
+export function quoteVirtualSellForUsdt(pool: VirtualPool, usdtOut: number): VirtualQuote {
+  if (!(usdtOut > 0)) throw new Error('Geçersiz tutar.')
+  if (usdtOut >= pool.reserveUsdt) throw new Error('Havuz derinliği yetersiz.')
+  const { k, oldPrice } = base(pool)
+  const tokenIn = (k / (pool.reserveUsdt - usdtOut) - pool.reserveToken) / (1 - VIRTUAL_AMM_FEE_RATE)
+  if (!(tokenIn > 0)) throw new Error('Havuz derinliği yetersiz.')
+  const inAfterFee = tokenIn * (1 - VIRTUAL_AMM_FEE_RATE)
+  const newReserveToken = pool.reserveToken + inAfterFee
+  const newReserveUsdt = pool.reserveUsdt - usdtOut
+  const newPrice = newReserveUsdt / newReserveToken
+  return {
+    amountOut: usdtOut,
+    usdtAmount: usdtOut,
+    tokenAmount: tokenIn,
+    newReserveUsdt,
+    newReserveToken,
+    oldPrice,
+    newPrice,
+    priceImpactPct: ((newPrice - oldPrice) / oldPrice) * 100,
+  }
+}
