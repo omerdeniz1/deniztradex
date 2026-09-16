@@ -58,23 +58,24 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
         <Logo className="[&>span]:text-xl [&>span]:sm:text-2xl" />
       </Link>
 
-      <nav className="hidden min-w-0 items-center gap-1 md:flex">
+      {/* Tablet genişliğinde (md altı-üstü) sığmazsa içten kayar; sağ küme asla örtülmez */}
+      <nav className="no-scrollbar hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.end}
-            className={({ isActive }) =>
-              cn(
-                'whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
-                isActive
-                  ? 'bg-exchange-yellow/12 text-exchange-yellow'
-                  : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
-              )
-            }
-          >
-            {item.label}
-          </NavLink>
+          className={({ isActive }) =>
+            cn(
+              'shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
+              isActive
+                ? 'bg-exchange-yellow/12 text-exchange-yellow'
+                : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
+            )
+          }
+        >
+          {item.label}
+        </NavLink>
         ))}
         {isAdmin && (
           <NavLink
@@ -82,7 +83,7 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
             end={false}
             className={({ isActive }) =>
               cn(
-                'whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
+                'shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
                 isActive
                   ? 'bg-exchange-yellow/12 text-exchange-yellow'
                   : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
@@ -94,7 +95,7 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
         )}
       </nav>
 
-      <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-3">
+      <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-3">
         <div className="hidden text-right sm:block">
           <div className="text-[10px] uppercase text-exchange-muted">Bakiye</div>
           <div className="whitespace-nowrap font-mono text-sm font-bold">

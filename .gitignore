@@ -17,6 +17,9 @@ release
 # Logs
 logs
 *.log
+
+# Playwright e2e artefacts (script korunur, ekran görüntüleri korunmaz)
+e2e/shots/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*

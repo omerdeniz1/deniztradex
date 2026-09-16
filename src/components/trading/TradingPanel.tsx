@@ -74,6 +74,11 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
   const heldCoin = spotBalances[coin] ?? 0
 
   const [side, setSide] = useState<PanelSide>(initialSide ?? (mode === 'spot' ? 'buy' : 'long'))
+  // Spot↔Vadeli geçişinde (aynı sembolde bileşen yeniden kullanılınca)
+  // yön state'i takılı kalmasın: moda uygun varsayılana dön.
+  useEffect(() => {
+    setSide(initialSide ?? (mode === 'spot' ? 'buy' : 'long'))
+  }, [mode, initialSide])
   const [leverage, setLeverage] = useState(10)
   // Vadeli marjin modu: tek tıkla İzole/Çapraz geçiş (varsayılan İzole —
   // mevcut motorun teminat davranışı değişmez).

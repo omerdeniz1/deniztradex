@@ -287,6 +287,22 @@ describe('TradingPanel futures mode', () => {
   })
 })
 
+describe('TradingPanel mode switching', () => {
+  it('resets side to the mode default when spot/futures changes without remount', () => {
+    // Masaüstü: aynı sembolde Al-Sat ↔ Vadeli geçişi bileşeni yeniden
+    // kurmaz — yön takılı kalırsa vadeli panel "Sell / Short" sunar (bug).
+    const { rerender } = renderPanel({ mode: 'spot', balance: 1000 })
+    expect(screen.getAllByRole('button', { name: 'Al (Buy)' }).length).toBeGreaterThan(0)
+
+    rerender(
+      <TradingPanel ticker={btcTicker} mode="futures" balance={1000} />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Buy / Long' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sell / Short' })).not.toBeInTheDocument()
+  })
+})
+
 describe('TradingPanel Max button', () => {
   it('writes the full available balance rounded to 2 decimals in spot buy mode', async () => {
     const user = userEvent.setup()
