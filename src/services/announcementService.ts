@@ -51,6 +51,44 @@ export async function listAnnouncements(limit = 5): Promise<Announcement[]> {
   }
 }
 
+export type AnnouncementsSetupStatus = 'ok' | 'missing-table' | 'offline' | 'denied' | 'error'
+
+/** Duyuru altyapısı hazır mı? (tablo yoksa migration uygulanmamış demektir) */
+export async function getAnnouncementsStatus(): Promise<AnnouncementsSetupStatus> {
+  if (!isSupabaseConfigured || !supabase) return 'offline'
+  try {
+    const { error } = await supabase.from('announcements').select('id').limit(1)
+    if (!error) return 'ok'
+    return classifyDbError(error)
+  } catch {
+    return 'error'
+  }
+}
+
+function classifyDbError(error: unknown): 'missing-table' | 'denied' | 'error' {
+  const code = (error as { code?: unknown })?.code
+  const msg = String((error as { message?: unknown })?.message ?? '').toLowerCase()
+  if (code === '42P01' || msg.includes('does not exist') || msg.includes('could not find the table')) {
+    return 'missing-table'
+  }
+  if (code === '42501' || msg.includes('policy') || msg.includes('permission denied')) {
+    return 'denied'
+  }
+  return 'error'
+}
+
+function publishErrorMessage(error: unknown): string {
+  const kind = classifyDbError(error)
+  if (kind === 'missing-table') {
+    return 'Duyuru tablosu veritabanında yok. Supabase SQL editöründe 20260916110000_announcements migration’ını uygulayın.'
+  }
+  if (kind === 'denied') {
+    return 'Yetki reddedildi: yalnızca süper admin yayınlayabilir.'
+  }
+  const detail = String((error as { message?: unknown })?.message ?? '').trim()
+  return detail ? `Duyuru yayınlanamadı: ${detail}` : 'Duyuru yayınlanamadı. Lütfen tekrar dene.'
+}
+
 function validateAnnouncementInput(title: string, body: string): { title: string; body: string } {
   const t = title.trim()
   const b = body.trim()
@@ -92,7 +130,7 @@ export async function createAnnouncement(title: string, body: string): Promise<A
     .select('id,title,body,created_at')
     .maybeSingle()
   if (error || !data) {
-    throw new Error('Duyuru yayınlanamadı. Lütfen tekrar dene.')
+    throw new Error(publishErrorMessage(error))
   }
   const row = data as AnnouncementRow
   return {
@@ -108,5 +146,11 @@ export async function deleteAnnouncement(id: string): Promise<void> {
   if (!id) throw new Error('Duyuru bulunamadı.')
   const { client } = await requireSuperAdmin()
   const { error } = await client.from('announcements').delete().eq('id', id)
-  if (error) throw new Error('Duyuru silinemedi. Lütfen tekrar dene.')
+  if (error) {
+    throw new Error(
+      classifyDbError(error) === 'missing-table'
+        ? 'Duyuru tablosu veritabanında yok. Supabase SQL editöründe 20260916110000_announcements migration’ını uygulayın.'
+        : 'Duyuru silinemedi. Lütfen tekrar dene.',
+    )
+  }
 }

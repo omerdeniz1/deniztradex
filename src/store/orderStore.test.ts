@@ -43,6 +43,65 @@ describe('orderStore.placeOrder', () => {
     expect(res).toEqual({ ok: false, error: 'Piyasa emri Post-Only ile kullanılamaz.' })
   })
 
+  it('rejects a Post-Only limit that would fill immediately', () => {
+    useTradeStore.setState({ balance: 1000 })
+    const res = useOrderStore.getState().placeOrder({
+      symbol: 'BTCUSDT',
+      mode: 'futures',
+      side: 'long',
+      orderType: 'limit',
+      quantity: 1,
+      entryPrice: 90,
+      leverage: 10,
+      marketPrice: 100,
+      postOnly: true,
+    })
+
+    expect(res).toEqual({ ok: false, error: 'Post-Only: emir anında gerçekleşir.' })
+    expect(useOrderStore.getState().pendingOrders).toHaveLength(0)
+    expect(useTradeStore.getState().positions).toHaveLength(0)
+  })
+
+  it('parks a stop-market order as pending', () => {
+    useTradeStore.setState({ balance: 1000 })
+    const res = useOrderStore.getState().placeOrder({
+      symbol: 'BTCUSDT',
+      mode: 'futures',
+      side: 'long',
+      orderType: 'stop-market',
+      quantity: 1,
+      entryPrice: 100,
+      stopPrice: 105,
+      leverage: 10,
+      marketPrice: 100,
+    })
+
+    expect(res).toEqual({ ok: true, pending: true })
+    expect(useOrderStore.getState().pendingOrders[0].stopPrice).toBe(105)
+    expect(useTradeStore.getState().positions).toHaveLength(0)
+  })
+
+  it('fires one OCO leg and clears its sibling', () => {
+    useTradeStore.setState({ balance: 1000 })
+    useOrderStore.getState().placeOrder({
+      symbol: 'BTCUSDT',
+      mode: 'futures',
+      side: 'long',
+      orderType: 'oco',
+      quantity: 1,
+      entryPrice: 100,
+      stopPrice: 95,
+      leverage: 10,
+    })
+    const legs = useOrderStore.getState().pendingOrders
+    expect(legs).toHaveLength(2)
+
+    const res = useOrderStore.getState().fireOrder(legs[1].id, 95)
+    expect(res.ok).toBe(true)
+    expect(useOrderStore.getState().pendingOrders).toHaveLength(0)
+    expect(useTradeStore.getState().positions).toHaveLength(1)
+  })
+
   it('keeps a limit order pending when the market price does not cross it', () => {
     useTradeStore.setState({ balance: 1000 })
     const res = useOrderStore.getState().placeOrder({
@@ -137,6 +196,28 @@ describe('orderStore.cancelPendingOrder', () => {
     expect(pendingOrders).toHaveLength(2)
 
     useOrderStore.getState().cancelPendingOrder(pendingOrders[0].id)
+    expect(useOrderStore.getState().pendingOrders).toHaveLength(0)
+  })
+
+  it('removes both legs when the stop leg is cancelled (no orphan orders)', () => {
+    useTradeStore.setState({ balance: 1000 })
+    useOrderStore.getState().placeOrder({
+      symbol: 'BTCUSDT',
+      mode: 'futures',
+      side: 'long',
+      orderType: 'oco',
+      quantity: 1,
+      entryPrice: 100,
+      stopPrice: 95,
+      leverage: 10,
+    })
+
+    const { pendingOrders } = useOrderStore.getState()
+    expect(pendingOrders).toHaveLength(2)
+    const stopLeg = pendingOrders.find((o) => o.leg === 'stop')
+    expect(stopLeg).toBeDefined()
+
+    useOrderStore.getState().cancelPendingOrder(stopLeg!.id)
     expect(useOrderStore.getState().pendingOrders).toHaveLength(0)
   })
 })
@@ -259,6 +340,40 @@ describe('tradeStore.fillNow', () => {
     const trade = useTradeStore.getState().trades[0]
     expect(trade.reason).toBe('reduce')
     expect(trade.pnl).toBe(20)
+  })
+
+  it('futures IOC fills only the affordable quantity', () => {
+    useTradeStore.setState({ balance: 150 })
+    const res = useTradeStore.getState().fillNow({
+      symbol: 'BTCUSDT',
+      mode: 'futures',
+      side: 'long',
+      quantity: 5,
+      entryPrice: 100,
+      leverage: 10,
+      tif: 'IOC',
+    })
+
+    expect(res.ok).toBe(true)
+    // 150 USDT × 10x = 1500 USDT güç ≥ 500 USDT ihtiyaç → tamamı dolar.
+    expect(useTradeStore.getState().positions[0].quantity).toBe(5)
+  })
+
+  it('futures IOC caps the fill at leveraged buying power', () => {
+    useTradeStore.setState({ balance: 100 })
+    const res = useTradeStore.getState().fillNow({
+      symbol: 'BTCUSDT',
+      mode: 'futures',
+      side: 'long',
+      quantity: 20,
+      entryPrice: 100,
+      leverage: 10,
+      tif: 'IOC',
+    })
+
+    expect(res.ok).toBe(true)
+    // 100 USDT × 10x = 1000 USDT güç → en fazla 10 adet.
+    expect(useTradeStore.getState().positions[0].quantity).toBe(10)
   })
 
   it('opening via fillNow attaches tpPrice and slPrice to the position', () => {

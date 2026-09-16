@@ -132,9 +132,17 @@ export const useOrderStore = create<OrderState>()((set, get) => ({
   },
 
   cancelPendingOrder: (id) =>
-    set((s) => ({
-      pendingOrders: s.pendingOrders.filter((p) => p.id !== id && p.ocoId !== id),
-    })),
+    set((s) => {
+      // OCO bacakları aynı ocoId'yi paylaşır: hangi bacak iptal edilirse
+      // edilsin kardeş bacak da kalkar (yetim emir kalmaz).
+      const target = s.pendingOrders.find((p) => p.id === id)
+      const group = target?.ocoId ?? null
+      return {
+        pendingOrders: s.pendingOrders.filter(
+          (p) => p.id !== id && p.ocoId !== id && !(group && (p.ocoId === group || p.id === group)),
+        ),
+      }
+    }),
 
   fireOrder: (id, refPrice) => {
     const order = get().pendingOrders.find((p) => p.id === id)

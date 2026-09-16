@@ -206,7 +206,8 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
       reduceOnly,
       postOnly,
       tif,
-      cbRate: cbValue,
+      // Geçersiz izleme oranı anında tetiklemeye yol açmasın diye varsayılana çekilir.
+      cbRate: cbValue > 0 ? cbValue : 0.5,
       marketPrice: markPrice || 0,
     }
   }

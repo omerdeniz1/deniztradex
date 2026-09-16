@@ -28,8 +28,10 @@ import {
   ANNOUNCEMENT_TITLE_MAX,
   createAnnouncement,
   deleteAnnouncement,
+  getAnnouncementsStatus,
   listAnnouncements,
   type Announcement,
+  type AnnouncementsSetupStatus,
 } from '@/services/announcementService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
@@ -1002,11 +1004,14 @@ function AnnouncementManager() {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
+  const [setup, setSetup] = useState<AnnouncementsSetupStatus | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setItems(await listAnnouncements(10))
+      const [list, status] = await Promise.all([listAnnouncements(10), getAnnouncementsStatus()])
+      setItems(list)
+      setSetup(status)
     } catch (err) {
       pushToast({ message: err instanceof Error ? err.message : 'Duyurular yüklenemedi.', tone: 'error' })
     } finally {
@@ -1055,6 +1060,13 @@ function AnnouncementManager() {
         <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
           Yayınlanan duyuru tüm kullanıcıların ekranında bant olarak görünür.
         </p>
+        {setup === 'missing-table' && (
+          <div className="mt-2 rounded-xl border border-exchange-sell/40 bg-exchange-sell/10 px-3 py-2.5 text-xs leading-relaxed text-exchange-text">
+            Duyuru tablosu veritabanında yok — yayın yapılamaz. Supabase SQL
+            editöründe <span className="font-mono">20260916110000_announcements</span> migration’ını
+            uygulayın (veya <span className="font-mono">APPLY_ALL_PENDING.sql</span>’i çalıştırın).
+          </div>
+        )}
       </div>
       <div className="grid gap-2.5 border-b border-exchange-border px-3 py-3 sm:px-4">
         <div className="min-w-0">
