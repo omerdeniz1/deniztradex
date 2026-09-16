@@ -3,33 +3,45 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { cn, formatNumber, formatPrice } from '@/lib/utils'
 import { matchPairQuery } from '@/lib/coinSearch'
 import { isDelisted } from '@/lib/delisted'
-import type { Ticker } from '@/types'
+import { useFuturesSymbols } from '@/hooks/useFuturesSymbols'
+import type { Ticker, TradingMode } from '@/types'
 
 interface Props {
   symbol: string
   onSymbolChange: (symbol: string) => void
   tickers: Record<string, Ticker>
   live: boolean
+  /** Vadeli modda long/short açılamayan coinler listelenmez. */
+  mode?: TradingMode
 }
 
-export function PairSelector({ symbol, onSymbolChange, tickers, live }: Props) {
+export function PairSelector({ symbol, onSymbolChange, tickers, live, mode }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const scopeRef = useRef<HTMLDivElement>(null)
+  const futuresSymbols = useFuturesSymbols()
 
   const base = symbol.replace('USDT', '')
 
-  const pairs = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    let entries = Object.values(tickers).filter(
+  // Vadeli mod + kontrat listesi biliniyorsa yalnızca vadeli kontratlar.
+  // Liste bilinmiyorsa (çevrimdışı) filtre uygulanmaz — menü boş kalmaz.
+  const allPairs = useMemo(() => {
+    const entries = Object.values(tickers).filter(
       (t) => t.symbol.endsWith('USDT') && !isDelisted(t.symbol),
     )
-    if (q) {
-      entries = entries.filter((t) => matchPairQuery(t.symbol, q))
-    }
-    return entries.sort((a, b) => a.symbol.localeCompare(b.symbol)).slice(0, 300)
-  }, [tickers, query])
+    const inFutures = mode === 'futures' && futuresSymbols
+    const filtered = inFutures
+      ? entries.filter((t) => futuresSymbols.has(t.symbol.toUpperCase()))
+      : entries
+    return filtered.sort((a, b) => a.symbol.localeCompare(b.symbol))
+  }, [tickers, mode, futuresSymbols])
+
+  const pairs = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const entries = q ? allPairs.filter((t) => matchPairQuery(t.symbol, q)) : allPairs
+    return entries.slice(0, 300)
+  }, [allPairs, query])
 
   useEffect(() => {
     if (!open) return
@@ -162,7 +174,11 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live }: Props) {
             </div>
 
             <div className="flex items-center justify-between border-t border-exchange-border px-4 py-2 text-[10px] text-exchange-muted">
-              <span>{Object.keys(tickers).length} USDT çifti</span>
+              <span>
+                {mode === 'futures' && futuresSymbols
+                  ? `${allPairs.length} vadeli kontrat`
+                  : `${Object.keys(tickers).length} USDT çifti`}
+              </span>
               <span className={cn('flex items-center gap-1', live ? 'text-exchange-buy' : 'text-exchange-sell')}>
                 <span className={cn('h-1 w-1 rounded-full', live ? 'bg-exchange-buy' : 'bg-exchange-sell')} />
                 {live ? 'CANLI' : 'BAĞLANTI KOPTU'}

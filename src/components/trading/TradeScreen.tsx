@@ -350,6 +350,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 onSymbolChange={handleSymbolChange}
                 tickers={tickers}
                 live={marketStatus === 'live'}
+                mode={mode}
               />
               <span className="min-w-0 flex-1 basis-24 truncate font-mono text-lg font-bold text-exchange-text sm:flex-none sm:basis-auto sm:text-2xl">
                 {livePrice ? formatPrice(livePrice) : '—'}

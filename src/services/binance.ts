@@ -109,6 +109,46 @@ export function fetchFutures24hTickers(): Promise<RawTicker24h[]> {
   return getFirst([FUTURES_REST_BASE], FUTURES_24HR)
 }
 
+interface RawFuturesSymbol {
+  symbol: unknown
+  status: unknown
+  contractType: unknown
+  quoteAsset: unknown
+}
+
+interface RawFuturesExchangeInfo {
+  symbols: unknown
+}
+
+/**
+ * Vadeli menü filtresi: USDT-M perpetual kontratlar (TRADING).
+ * Long/Short açılamayan coinler vadeli listelerde gösterilmez.
+ * Dönüş boş küme ise liste BİLİNEMİYOR demektir — çağıran filtre
+ * uygulamaz (fail-open: liste asla boş kalmaz).
+ */
+export async function fetchFuturesSymbols(): Promise<Set<string>> {
+  try {
+    const res = await fetch(`${restBase(FUTURES_REST_BASE)}/fapi/v1/exchangeInfo`)
+    if (!res.ok) return new Set()
+    const data = (await res.json()) as RawFuturesExchangeInfo
+    if (!Array.isArray(data?.symbols)) return new Set()
+    const out = new Set<string>()
+    for (const row of data.symbols as RawFuturesSymbol[]) {
+      if (
+        typeof row?.symbol === 'string' &&
+        row.status === 'TRADING' &&
+        row.contractType === 'PERPETUAL' &&
+        row.quoteAsset === 'USDT'
+      ) {
+        out.add(row.symbol.toUpperCase())
+      }
+    }
+    return out
+  } catch {
+    return new Set()
+  }
+}
+
 export async function fetchKlines(
   mode: TradingMode,
   symbol: string = DEFAULT_SYMBOL,
