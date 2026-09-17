@@ -10,6 +10,8 @@ import { useOrderStore } from '@/store/orderStore'
 import { useToastStore } from '@/store/toastStore'
 import {
   calculateLiquidationPrice,
+  getCrossAccountStatus,
+  getCrossRiskLevel,
   getRiskLevel,
   MARGIN_CALL_THROTTLE_MS,
 } from '@/engine/calculations'
@@ -81,7 +83,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   const positions = useTradeStore((s) => s.positions)
   const spotBalances = useTradeStore((s) => s.spotBalances)
   const spotPositions = useTradeStore((s) => s.spotPositions)
-  const forceLiquidate = useTradeStore((s) => s.forceLiquidate)
+  const liquidateIsolated = useTradeStore((s) => s.liquidateIsolated)
+  const liquidateCrossAccount = useTradeStore((s) => s.liquidateCrossAccount)
   const closeSpotPosition = useTradeStore((s) => s.closeSpotPosition)
   const pushToast = useToastStore((s) => s.push)
   const pendingOrders = useOrderStore((s) => s.pendingOrders)
@@ -197,19 +200,30 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   // Auto-liquidation watchdog — ADİL likidasyon (Binance Futures mantığı):
   //  1) karar mark fiyatla verilir (fitil koruması),
   //  2) ihlal `liqConfirmTicks` ardışık kontrolde SÜRERSE işletilir
-  //     (tek tik patlatmaz; toparlanan fiyat sayacı sıfırlar).
+  //     (tek tik patlatmaz; toparlanan fiyat sayacı sıfırlar),
+  //  3) İZOLE pozisyon tek başına tasfiye olur (yalnızca kilitli teminat
+  //     gider); ÇAPRAZ pozisyonlar tek tek değil HESAP olarak değerlendirilir.
   // Fiyatlar canlı değilken işletilmez (sahte likidasyon yok).
   const liqBreachCount = useRef<Record<string, number>>({})
 
   useEffect(() => {
     if (marketStatus !== 'live') return
     const seen = new Set<string>()
+    const marks: Record<string, number> = {}
+    const markOf = (sym: string): number => {
+      const live = livePrices[sym]
+      if (!live || live <= 0) return 0
+      if (marks[sym] === undefined) marks[sym] = getMarkPrice(sym, live)
+      return marks[sym]
+    }
     for (const pos of positions) {
       if (pos.mode !== 'futures') continue
+      // Çapraz pozisyonlar bireysel liq'a girmez — aşağıda hesapça bakılır.
+      if ((pos.marginMode ?? 'isolated') !== 'isolated') continue
       const live = livePrices[pos.symbol]
       if (!live || live <= 0) continue
       seen.add(pos.id)
-      const mark = getMarkPrice(pos.symbol, live)
+      const mark = markOf(pos.symbol)
       const liq = calculateLiquidationPrice(
         pos.entryPrice,
         pos.leverage,
@@ -225,17 +239,42 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       liqBreachCount.current[pos.id] = count
       if (count >= risk.liqConfirmTicks) {
         delete liqBreachCount.current[pos.id]
-        forceLiquidate(pos.id, liq)
+        liquidateIsolated(pos.id, liq)
+      }
+    }
+    // Hesap-seviyesi ÇAPRAZ tasfiye: özsermaye bakım gereksinimine
+    // düşünceye kadar tek pozisyon kapanmaz; düşünce TÜMÜ birlikte gider.
+    {
+      const status = getCrossAccountStatus(
+        positions,
+        balance,
+        markOf,
+        risk.maintenanceMarginRate,
+      )
+      if (status.breached) {
+        const count = (liqBreachCount.current.__cross__ ?? 0) + 1
+        liqBreachCount.current.__cross__ = count
+        if (count >= risk.liqConfirmTicks) {
+          delete liqBreachCount.current.__cross__
+          liquidateCrossAccount(marks)
+          pushToast({
+            message: '🚨 Çapraz hesap likide oldu — tüm cross pozisyonlar kapatıldı.',
+            tone: 'error',
+          })
+        }
+      } else {
+        delete liqBreachCount.current.__cross__
       }
     }
     for (const id of Object.keys(liqBreachCount.current)) {
-      if (!seen.has(id)) delete liqBreachCount.current[id]
+      if (id !== '__cross__' && !seen.has(id)) delete liqBreachCount.current[id]
     }
-  }, [livePrices, positions, forceLiquidate, marketStatus, risk])
+  }, [livePrices, positions, balance, liquidateIsolated, liquidateCrossAccount, marketStatus, pushToast, risk])
 
   // Kademeli margin-call merdiveni (likidasyondan ÖNCE iki seviye uyarı):
   //  watch (teminatın ~yarısı eridi) → bilgi toast'u,
   //  margin-call (teminatın ~%80'i eridi) → kritik toast + kalıcı bayrak.
+  // İzolede merdiven pozisyon bazında; çaprazda HESAP bazında işler.
   // Bayrak toparlanınca temizlenir; her seviye kendi penceresinde kısılır.
   const lastWarnAt = useRef<Record<string, number>>({})
 
@@ -243,18 +282,35 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     if (marketStatus !== 'live') return
     const now = Date.now()
     const { markMarginCalled, clearMarginCalled } = useTradeStore.getState()
+    // Çapraz portföy seviyesi (bir kez hesaplanır, tüm cross satırlar kullanır).
+    const crossLevel = getCrossRiskLevel(
+      getCrossAccountStatus(
+        positions,
+        balance,
+        (sym) => {
+          const live = livePrices[sym]
+          return live && live > 0 ? getMarkPrice(sym, live) : 0
+        },
+        risk.maintenanceMarginRate,
+      ),
+      risk.warnLossFrac,
+      risk.criticalLossFrac,
+    )
     for (const pos of positions) {
       if (pos.mode !== 'futures') continue
       const live = livePrices[pos.symbol]
       if (!live || live <= 0) continue
       const mark = getMarkPrice(pos.symbol, live)
-      const level = getRiskLevel(
-        pos,
-        mark,
-        risk.warnLossFrac,
-        risk.criticalLossFrac,
-        risk.maintenanceMarginRate,
-      )
+      const isolated = (pos.marginMode ?? 'isolated') === 'isolated'
+      const level = isolated
+        ? getRiskLevel(
+            pos,
+            mark,
+            risk.warnLossFrac,
+            risk.criticalLossFrac,
+            risk.maintenanceMarginRate,
+          )
+        : crossLevel
       if (level === 'safe') {
         if (pos.marginCalledAt) clearMarginCalled(pos.id)
         continue
@@ -264,20 +320,21 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       const lastAt = lastWarnAt.current[key] ?? 0
       if (now - lastAt < MARGIN_CALL_THROTTLE_MS) continue
       lastWarnAt.current[key] = now
+      const scope = isolated ? 'pozisyon' : 'çapraz hesap'
       if (level === 'watch') {
         pushToast({
-          message: `⚠️ ${pos.symbol} teminatın yarısı eridi — pozisyon izlemeye alındı. Marjin ekleyin veya küçültün.`,
+          message: `⚠️ ${pos.symbol} ${scope} teminatının yarısı eridi — izlemeye alındı. Marjin ekleyin veya küçültün.`,
           tone: 'info',
         })
       } else {
         markMarginCalled(pos.id)
         pushToast({
-          message: `🚨 MARGIN CALL: ${pos.symbol} pozisyonunuz likidasyona yaklaşıyor! Acil marjin ekleyin veya kapatın.`,
+          message: `🚨 MARGIN CALL: ${pos.symbol} ${scope} likidasyona yaklaşıyor! Acil marjin ekleyin veya kapatın.`,
           tone: 'error',
         })
       }
     }
-  }, [livePrices, positions, marketStatus, pushToast, risk])
+  }, [livePrices, positions, balance, marketStatus, pushToast, risk])
 
   // TP/SL watchdog — futures positions carrying a take-profit or stop-loss
   // price are closed as soon as the live mark/last price crosses them,

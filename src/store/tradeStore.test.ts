@@ -118,21 +118,103 @@ describe('closePosition', () => {
   })
 })
 
-describe('forceLiquidate', () => {
-  it('closes the position as liquidation and wipes the balance', () => {
-    useTradeStore.getState().deposit(1000)
+describe('liquidateIsolated', () => {
+  it('loses only the locked margin — free balance survives (5k/2k senaryosu)', () => {
+    useTradeStore.getState().deposit(5000)
     const state = useTradeStore.getState()
-    state.openPosition(makeOrder({ mode: 'futures', leverage: 10, quantity: 1, entryPrice: 100 }))
+    // 10x, 200 adet @100 → 2.000 teminat kilitlenir, serbest 3.000 kalır.
+    state.openPosition(makeOrder({ mode: 'futures', leverage: 10, quantity: 200, entryPrice: 100 }))
+    expect(useTradeStore.getState().balance).toBe(3000)
 
     const positionId = useTradeStore.getState().positions[0].id
     // long liquidation price ~ 90.4 (bakım marjini %0.4 dahil)
-    useTradeStore.getState().forceLiquidate(positionId, 90.4)
+    useTradeStore.getState().liquidateIsolated(positionId, 90.4)
+
+    const after = useTradeStore.getState()
+    expect(after.positions).toHaveLength(0)
+    // KRİTİK: tüm bakiye sıfırlanmaz — yalnızca 2k kilitli teminat gider.
+    expect(after.balance).toBe(3000)
+    expect(after.trades[0].reason).toBe('liquidation')
+    expect(after.trades[0].pnl).toBeCloseTo(-2000)
+  })
+
+  it('does not touch other open positions', () => {
+    useTradeStore.getState().deposit(5000)
+    const state = useTradeStore.getState()
+    state.openPosition(makeOrder({ mode: 'futures', leverage: 10, quantity: 200, entryPrice: 100 }))
+    state.openPosition(
+      makeOrder({ symbol: 'ETHUSDT', mode: 'futures', leverage: 10, quantity: 10, entryPrice: 100 }),
+    )
+    // ETH teminatı 100 → serbest 2.900
+    expect(useTradeStore.getState().balance).toBe(2900)
+
+    const firstId = useTradeStore.getState().positions[0].id
+    useTradeStore.getState().liquidateIsolated(firstId, 90.4)
+
+    const after = useTradeStore.getState()
+    expect(after.positions).toHaveLength(1)
+    expect(after.positions[0].symbol).toBe('ETHUSDT')
+    expect(after.balance).toBe(2900)
+  })
+
+  it('is a no-op for unknown position ids', () => {
+    useTradeStore.getState().deposit(1000)
+    useTradeStore.getState().liquidateIsolated('yok', 90)
+    expect(useTradeStore.getState().balance).toBe(1000)
+    expect(useTradeStore.getState().trades).toHaveLength(0)
+  })
+})
+
+describe('liquidateCrossAccount', () => {
+  function openCross(symbol = 'BTCUSDT', quantity = 200) {
+    const res = useTradeStore.getState().fillNow({
+      symbol,
+      side: 'long',
+      mode: 'futures',
+      quantity,
+      entryPrice: 100,
+      leverage: 10,
+      marginMode: 'cross',
+    })
+    expect(res.ok).toBe(true)
+  }
+
+  it('wipes the shared pool only after it is exhausted', () => {
+    useTradeStore.getState().deposit(5000)
+    openCross()
+    // 2.000 kilitli → serbest 3.000
+    expect(useTradeStore.getState().balance).toBe(3000)
+
+    useTradeStore.getState().liquidateCrossAccount({ BTCUSDT: 80 })
 
     const after = useTradeStore.getState()
     expect(after.positions).toHaveLength(0)
     expect(after.balance).toBe(0)
     expect(after.trades[0].reason).toBe('liquidation')
-    expect(after.trades[0].pnl).toBeCloseTo(-9.6)
+    expect(after.trades[0].pnl).toBeCloseTo(-4000)
+  })
+
+  it('spares isolated positions when the cross pool wipes', () => {
+    useTradeStore.getState().deposit(5000)
+    const state = useTradeStore.getState()
+    state.openPosition(makeOrder({ mode: 'futures', leverage: 10, quantity: 100, entryPrice: 100 }))
+    openCross()
+    // serbest: 5000 - 1000 (izole) - 2000 (cross) = 2000
+    expect(useTradeStore.getState().balance).toBe(2000)
+
+    useTradeStore.getState().liquidateCrossAccount({ BTCUSDT: 80 })
+
+    const after = useTradeStore.getState()
+    expect(after.positions).toHaveLength(1)
+    expect(after.positions[0].marginMode ?? 'isolated').toBe('isolated')
+    expect(after.balance).toBe(0)
+  })
+
+  it('is a no-op without cross positions', () => {
+    useTradeStore.getState().deposit(1000)
+    useTradeStore.getState().liquidateCrossAccount({ BTCUSDT: 1 })
+    expect(useTradeStore.getState().balance).toBe(1000)
+    expect(useTradeStore.getState().trades).toHaveLength(0)
   })
 })
 

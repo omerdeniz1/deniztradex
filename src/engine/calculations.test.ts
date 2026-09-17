@@ -5,6 +5,8 @@ import {
   calculateRoe,
   capQuantityByBalance,
   clampLeverage,
+  getCrossAccountStatus,
+  getCrossRiskLevel,
   getRiskLevel,
   isLiquidated,
   MAINTENANCE_MARGIN_RATE,
@@ -15,6 +17,7 @@ import {
   MARGIN_CALL_WARN_LOSS_FRAC,
   marginLossFraction,
   maxQuantityByBalance,
+  positionLockedMargin,
   positionSize,
   requiredMargin,
   type OrderInput,
@@ -208,6 +211,39 @@ describe('marginLossFraction / getRiskLevel (kademeli uyarı merdiveni)', () => 
     expect(getRiskLevel(p, 95)).toBe('watch')
     expect(getRiskLevel(p, 92)).toBe('margin-call')
     expect(getRiskLevel(p, 88)).toBe('liquidating')
+  })
+})
+
+describe('positionLockedMargin / cross portföy (izole vs çapraz)', () => {
+  it('kilitli teminatı notionel / kaldıraçtan hesaplar', () => {
+    // 200 adet @100, 10x → 2.000 kilitli
+    expect(positionLockedMargin(basePosition({ quantity: 200, leverage: 10 }))).toBeCloseTo(2000)
+  })
+
+  it('cross hesap tükenene kadar likide olmaz', () => {
+    const cross = [
+      basePosition({ quantity: 200, leverage: 10, marginMode: 'cross' }),
+    ]
+    // serbest 3.000 + kilitli 2.000; mark 90 → upl -2.000, özsermaye 3.000
+    const alive = getCrossAccountStatus(cross, 3000, () => 90)
+    expect(alive.breached).toBe(false)
+    expect(getCrossRiskLevel(alive)).toBe('safe')
+    // mark 80 → upl -4.000, özsermaye 1.000, kayıp %80 → margin-call ama hâlâ açık
+    const critical = getCrossAccountStatus(cross, 3000, () => 80)
+    expect(critical.breached).toBe(false)
+    expect(getCrossRiskLevel(critical)).toBe('margin-call')
+    // mark ~75 → özsermaye bakım gereksinimine düşer → tasfiye
+    const wiped = getCrossAccountStatus(cross, 3000, () => 75)
+    expect(wiped.breached).toBe(true)
+    expect(getCrossRiskLevel(wiped)).toBe('liquidating')
+  })
+
+  it('cross hesaba izole pozisyonlar dahil edilmez', () => {
+    const onlyIsolated = [basePosition({ quantity: 200, leverage: 10 })]
+    const status = getCrossAccountStatus(onlyIsolated, 3000, () => 1)
+    // izoleler sayılmaz → notionel 0 → gereksinim 0, ihlal yok
+    expect(status.requirement).toBe(0)
+    expect(status.breached).toBe(false)
   })
 })
 

@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import {
   calculatePnl,
   capQuantityByBalance,
+  positionLockedMargin,
   positionSize,
   type OrderInput,
 } from '@/engine/calculations'
@@ -147,7 +148,18 @@ interface TradeState {
   openPosition: (input: OrderInput) => OpenPositionResult
   closePosition: (id: string, marketPrice: number, reason?: 'manual' | 'liquidation' | 'tp_sl' | 'reduce') => void
   closeSpotPosition: (id: string, marketPrice: number) => void
-  forceLiquidate: (id: string, liquidationPrice: number) => void
+  /**
+   * İZOLE likidasyon: kaybedilebilecek azami tutar, açılışta kilitlenen
+   * teminattır (zaten bakiyeden düşülmüştü). Serbest bakiye ve diğer
+   * pozisyonlara DOKUNULMAZ — bakiye aynen korunur.
+   */
+  liquidateIsolated: (id: string, liquidationPrice: number) => void
+  /**
+   * ÇAPRAZ hesap tasfiyesi: portföy özsermayesi bakım gereksinimine
+   * düşünce TÜM cross pozisyonlar birlikte kapatılır ve ortak havuz
+   * (serbest + kilitli) sıfırlanır. İzole pozisyonlar etkilenmez.
+   */
+  liquidateCrossAccount: (marks: Record<string, number>) => void
   fillNow: (input: FillNowInput) => TradeActionResult
   redeemPromo: (code: string) => RedeemPromoResult
   /**
@@ -277,10 +289,7 @@ export const useTradeStore = create<TradeState>()(
         if (!position) return
 
         const pnl = calculatePnl(position, marketPrice)
-        const entryNotional = position.entryPrice * position.quantity
-        const margin = position.mode === 'futures'
-          ? entryNotional / position.leverage
-          : entryNotional
+        const margin = positionLockedMargin(position)
 
         const record: TradeRecord = {
           id: makeId('trade'),
@@ -315,10 +324,92 @@ export const useTradeStore = create<TradeState>()(
         })
       },
 
-      forceLiquidate: (id, liquidationPrice) => {
-        get().closePosition(id, liquidationPrice, 'liquidation')
-        set({ balance: 0 })
-        void pushBalanceToServer(getSessionUserId() ?? '', 0)
+      liquidateIsolated: (id, liquidationPrice) => {
+        const { positions, balance } = get()
+        const position = positions.find((p) => p.id === id)
+        if (!position) return
+
+        // Kilitli teminat açılışta bakiyeden düşülmüştü; kayıp onunla
+        // sınırlıdır — serbest bakiyeye DOKUNULMAZ (cross sanılmaz).
+        const locked = positionLockedMargin(position)
+        const record: TradeRecord = {
+          id: makeId('trade'),
+          symbol: position.symbol,
+          side: position.side,
+          mode: position.mode,
+          quantity: position.quantity,
+          entryPrice: position.entryPrice,
+          exitPrice: liquidationPrice,
+          leverage: position.leverage,
+          pnl: -locked,
+          reason: 'liquidation',
+          closedAt: Date.now(),
+        }
+
+        set(() => ({
+          positions: positions.filter((p) => p.id !== id),
+          trades: [record, ...get().trades].slice(0, 200),
+        }))
+        // Bakiye değişmedi ama sunucuyla eşitlenir (oturum tutarlılığı).
+        void pushBalanceToServer(getSessionUserId() ?? '', balance)
+
+        void recordTransaction({
+          userId: getSessionUserId() ?? '',
+          type: position.side === 'long' ? 'trade_buy' : 'trade_sell',
+          symbol: position.symbol,
+          side: position.side === 'long' ? 'buy' : 'sell',
+          quantity: position.quantity,
+          price: liquidationPrice,
+          amountUsdt: liquidationPrice * position.quantity,
+        })
+      },
+
+      liquidateCrossAccount: (marks) => {
+        const { positions } = get()
+        const cross = positions.filter(
+          (p) => p.mode === 'futures' && (p.marginMode ?? 'isolated') === 'cross',
+        )
+        if (cross.length === 0) return
+
+        const records: TradeRecord[] = cross.map((position) => {
+          const mark = marks[position.symbol] ?? position.entryPrice
+          return {
+            id: makeId('trade'),
+            symbol: position.symbol,
+            side: position.side,
+            mode: position.mode,
+            quantity: position.quantity,
+            entryPrice: position.entryPrice,
+            exitPrice: mark,
+            leverage: position.leverage,
+            pnl: calculatePnl(position, mark > 0 ? mark : position.entryPrice),
+            reason: 'liquidation' as const,
+            closedAt: Date.now(),
+          }
+        })
+        const userId = getSessionUserId() ?? ''
+
+        set((s) => ({
+          balance: 0,
+          positions: s.positions.filter(
+            (p) => !(p.mode === 'futures' && (p.marginMode ?? 'isolated') === 'cross'),
+          ),
+          trades: [...records, ...s.trades].slice(0, 200),
+        }))
+        void pushBalanceToServer(userId, 0)
+
+        for (const position of cross) {
+          const mark = marks[position.symbol] ?? position.entryPrice
+          void recordTransaction({
+            userId,
+            type: position.side === 'long' ? 'trade_buy' : 'trade_sell',
+            symbol: position.symbol,
+            side: position.side === 'long' ? 'buy' : 'sell',
+            quantity: position.quantity,
+            price: mark,
+            amountUsdt: mark * position.quantity,
+          })
+        }
       },
 
       closeSpotPosition: (id, marketPrice) => {

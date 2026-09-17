@@ -138,15 +138,89 @@ export function calculateLiquidationPrice(
 }
 
 /**
+ * Pozisyona kilitli teminat: açılışta bakiyeden düşülen tutar.
+ * futures → notionel / kaldıraç; spot → notionelin tamamı.
+ * İzole likidasyonda kaybedilebilecek AZAMİ tutar budur.
+ */
+export function positionLockedMargin(position: Position): number {
+  const entryNotional = position.entryPrice * position.quantity
+  if (entryNotional <= 0) return 0
+  return position.mode === 'futures'
+    ? entryNotional / clampLeverage(position.leverage)
+    : entryNotional
+}
+
+/**
  * Tüketilen teminat oranı: -pnl / margin (0 = başabaş, 1 = teminat bitti,
  * >1 = likidasyon bölgesi). Kademeli uyarı merdiveni bununla çalışır.
  */
 export function marginLossFraction(position: Position, currentPrice: number): number {
-  const entryNotional = position.entryPrice * position.quantity
-  if (entryNotional <= 0) return 0
-  const margin = entryNotional / clampLeverage(position.leverage)
+  const margin = positionLockedMargin(position)
   if (margin <= 0) return 0
   return -calculatePnl(position, currentPrice) / margin
+}
+
+export interface CrossAccountStatus {
+  /** Hesaptaki cross pozisyon adedi. */
+  crossCount: number
+  /** Serbest bakiye + kilitli cross teminatlar + gerçekleşmemiş kâr/zarar. */
+  equity: number
+  /** Bakım gereksinimi: MMR × toplam güncel notionel. */
+  requirement: number
+  /** Tüketilen toplam cross teminat oranı (uyarı merdiveni için). */
+  lossFraction: number
+  breached: boolean
+}
+
+/**
+ * Çapraz (cross) portföy değerlendirmesi (Binance Futures mantığı):
+ * cross pozisyonlar tek tek değil, HESAP olarak yaşar — serbest bakiye +
+ * kilitli teminatlar ortak havuzdur. Likidasyon, toplam özsermaye bakım
+ * gereksinimine düşünceye kadar TETİKLENMEZ; düşünce TÜM cross pozisyonlar
+ * birlikte tasfiye olur. İzole pozisyonlar bu hesaba DAHİL DEĞİLDİR
+ * (fonksiyon içinde filtrelenir — yanlışlıkla karıştırılamaz).
+ *
+ * @param allPositions tüm açık pozisyonlar (cross olanlar seçilir)
+ * @param freeBalance kilitli teminatlar düşülmüş serbest bakiye
+ * @param markOf sembol → mark fiyat (yoksa giriş fiyatı kullanılır)
+ */
+export function getCrossAccountStatus(
+  allPositions: Position[],
+  freeBalance: number,
+  markOf: (symbol: string) => number,
+  mmr: number = MAINTENANCE_MARGIN_RATE,
+): CrossAccountStatus {
+  let locked = 0
+  let upl = 0
+  let notional = 0
+  let crossCount = 0
+  for (const pos of allPositions) {
+    if (pos.mode !== 'futures') continue
+    if ((pos.marginMode ?? 'isolated') !== 'cross') continue
+    crossCount += 1
+    const mark = markOf(pos.symbol)
+    const ref = mark > 0 ? mark : pos.entryPrice
+    locked += positionLockedMargin(pos)
+    upl += calculatePnl(pos, ref)
+    notional += pos.quantity * ref
+  }
+  const equity = freeBalance + locked + upl
+  const requirement = mmr * notional
+  const backing = freeBalance + locked
+  const lossFraction = backing > 0 ? Math.max(0, (backing - equity) / backing) : equity < 0 ? 1 : 0
+  return { crossCount, equity, requirement, lossFraction, breached: crossCount > 0 && equity <= requirement }
+}
+
+/** Portföy seviyesinde kademeli risk (cross rozeti/bildirimleri için). */
+export function getCrossRiskLevel(
+  status: CrossAccountStatus,
+  warnFrac: number = MARGIN_CALL_WARN_LOSS_FRAC,
+  criticalFrac: number = MARGIN_CALL_CRITICAL_LOSS_FRAC,
+): RiskLevel {
+  if (status.breached) return 'liquidating'
+  if (status.lossFraction >= criticalFrac) return 'margin-call'
+  if (status.lossFraction >= warnFrac) return 'watch'
+  return 'safe'
 }
 
 /** Kademeli risk seviyesi: safe → watch → margin-call → liquidating. */

@@ -4,6 +4,8 @@ import {
   calculateLiquidationPrice,
   calculatePnl,
   calculateRoe,
+  getCrossAccountStatus,
+  getCrossRiskLevel,
   getRiskLevel,
   isLiquidated,
   type RiskLevel,
@@ -64,8 +66,23 @@ const RISK_CHIP: Record<RiskLevel, { label: string; cls: string }> = {
 
 export function PositionList({ livePrices }: Props) {
   const positions = useTradeStore((s) => s.positions)
+  const balance = useTradeStore((s) => s.balance)
   const closePosition = useTradeStore((s) => s.closePosition)
   const risk = useRiskParams()
+  // Çapraz portföy seviyesi: cross satırların rozeti hesapça belirlenir.
+  const crossLevel = getCrossRiskLevel(
+    getCrossAccountStatus(
+      positions,
+      balance,
+      (sym) => {
+        const live = livePrices[sym]
+        return live && live > 0 ? getMarkPrice(sym, live) : 0
+      },
+      risk.maintenanceMarginRate,
+    ),
+    risk.warnLossFrac,
+    risk.criticalLossFrac,
+  )
 
   if (positions.length === 0) {
     return (
@@ -111,14 +128,19 @@ export function PositionList({ livePrices }: Props) {
               pos.side,
               risk.maintenanceMarginRate,
             )
-            const liquidated = isLiquidated(pos, mark, risk.maintenanceMarginRate)
-            const level = getRiskLevel(
-              pos,
-              mark,
-              risk.warnLossFrac,
-              risk.criticalLossFrac,
-              risk.maintenanceMarginRate,
-            )
+            const isolated = (pos.marginMode ?? 'isolated') === 'isolated'
+            const liquidated = isolated
+              ? isLiquidated(pos, mark, risk.maintenanceMarginRate)
+              : crossLevel === 'liquidating'
+            const level = isolated
+              ? getRiskLevel(
+                  pos,
+                  mark,
+                  risk.warnLossFrac,
+                  risk.criticalLossFrac,
+                  risk.maintenanceMarginRate,
+                )
+              : crossLevel
             const chip = RISK_CHIP[level]
 
             return (
