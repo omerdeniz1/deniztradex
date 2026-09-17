@@ -67,7 +67,10 @@ export function MobileTradeTabs({ mode, livePrices }: Props) {
         ))}
       </div>
 
-      <div className="min-h-[10rem]">
+      {/* İki yönlü kaydırma: yatay (geniş tablolar) korunur, dikey de
+          kutu içinde akar — 4+ pozisyonda alttaki işlem görünür kalır.
+          Alt boşluk sabit alt menünün altına kaymayı önler. */}
+      <div className="max-h-[42dvh] min-h-[10rem] overflow-auto overscroll-contain pb-6">
         {tab === 'open' ? (
           mode === 'futures' ? (
             <FuturesOpen livePrices={livePrices} />

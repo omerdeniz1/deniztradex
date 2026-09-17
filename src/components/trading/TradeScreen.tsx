@@ -491,20 +491,24 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 mode={mode}
                 virtualSymbols={virtualSymbols}
               />
-              <span className="min-w-0 flex-1 basis-24 truncate font-mono text-lg font-bold text-exchange-text sm:flex-none sm:basis-auto sm:text-2xl">
-                {livePrice ? formatPrice(livePrice) : '—'}
-              </span>
-              {ticker && (
-                <span
-                  className={cn(
-                    'whitespace-nowrap font-mono text-xs font-semibold sm:text-sm',
-                    change! >= 0 ? 'text-exchange-buy' : 'text-exchange-sell',
-                  )}
-                >
-                  {change! >= 0 ? '+' : ''}
-                  {formatNumber(change!, 2)}%
+              {/* Fiyat + yüzde tek satırda kilitli: değer oynasa da yüzde
+                  hep değerin sağında kalır, alt satıra düşmez. */}
+              <span className="flex min-w-0 flex-1 items-baseline gap-1.5 sm:flex-none">
+                <span className="min-w-0 flex-1 truncate font-mono text-lg font-bold text-exchange-text sm:flex-none sm:text-2xl">
+                  {livePrice ? formatPrice(livePrice) : '—'}
                 </span>
-              )}
+                {ticker && (
+                  <span
+                    className={cn(
+                      'shrink-0 whitespace-nowrap font-mono text-xs font-semibold sm:text-sm',
+                      change! >= 0 ? 'text-exchange-buy' : 'text-exchange-sell',
+                    )}
+                  >
+                    {change! >= 0 ? '+' : ''}
+                    {formatNumber(change!, 2)}%
+                  </span>
+                )}
+              </span>
             </div>
             <div className="ml-auto hidden items-center gap-4 sm:flex">
               {stats.map((s) => (

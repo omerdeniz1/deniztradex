@@ -28,6 +28,7 @@ const NAV_ITEMS = [
   { to: '/futures', label: 'Vadeli', end: false },
   { to: '/forum', label: 'Forum', end: false },
   { to: '/leaderboard', label: 'Sıralama', end: false },
+  { to: '/events', label: 'Etkinlik', end: false },
 ] as const
 
 export function Navbar({ balance, username, avatarUrl }: Props) {

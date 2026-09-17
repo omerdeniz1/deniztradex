@@ -48,6 +48,15 @@ import {
   pumpCoinWithNews,
   type PumpDirection,
 } from '@/services/coinPumpService'
+import {
+  deleteEvent,
+  EVENT_BODY_MAX,
+  EVENT_TITLE_MAX,
+  listEvents,
+  saveEvent,
+  type EventInput,
+  type EventItem,
+} from '@/services/eventService'
 import { BOT_DEFINITIONS } from '@/services/botSimulationService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
@@ -111,15 +120,16 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   // Sekme yapısı (mobil + masaüstü): büyük bloklar üstte yatay
   // kaydırılabilir sekmelere bölünür, yalnızca seçili sekme gösterilir.
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots' | 'coins'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots' | 'coins' | 'events'>('overview')
   const showForum = can('ban_users')
   const showAdmins = can('manage_admins')
-  // Sistem duyurusu, botlar ve coinler YALNIZCA süper admin (sunucu da aynısını zorlar).
+  // Sistem duyurusu, botlar, coinler ve etkinlikler YALNIZCA süper admin (sunucu da aynısını zorlar).
   const showAnnounce = access.isSuperAdmin
   const showBots = access.isSuperAdmin
   const showCoins = access.isSuperAdmin
+  const showEvents = access.isSuperAdmin
   const tabs = useMemo(() => {
-    const list: { id: 'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots' | 'coins'; label: string }[] = [
+    const list: { id: 'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots' | 'coins' | 'events'; label: string }[] = [
       { id: 'overview', label: 'Genel Bakış' },
       { id: 'users', label: 'Kullanıcılar' },
     ]
@@ -128,8 +138,9 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     if (showAnnounce) list.push({ id: 'announce', label: 'Duyurular' })
     if (showBots) list.push({ id: 'bots', label: 'Botlar' })
     if (showCoins) list.push({ id: 'coins', label: 'Coinler' })
+    if (showEvents) list.push({ id: 'events', label: 'Etkinlikler' })
     return list
-  }, [showForum, showAdmins, showAnnounce, showBots, showCoins])
+  }, [showForum, showAdmins, showAnnounce, showBots, showCoins, showEvents])
 
   // Süper admin hedef dokunulmazlığı: süper admin satırlarına yalnız
   // süper admin dokunur (sunucu da aynı kuralı zorunlu kılar).
@@ -744,6 +755,17 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
             className={cn(activeTab === 'coins' ? 'block' : 'hidden')}
           >
             <CoinManager />
+          </div>
+        )}
+
+        {/* Etkinlik yönetimi (yalnızca süper admin) */}
+        {showEvents && (
+          <div
+            role="tabpanel"
+            aria-label="Etkinlikler"
+            className={cn(activeTab === 'events' ? 'block' : 'hidden')}
+          >
+            <EventManager />
           </div>
         )}
 
@@ -1601,6 +1623,275 @@ function NewsPumpModal({
         </Button>
       </div>
     </ModalShell>
+  )
+}
+
+/** Tarih damgasını `datetime-local` girdi formatına çevirir. */
+function toLocalInput(value: number | null): string {
+  if (!value) return ''
+  const d = new Date(value)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function EventManager() {
+  const pushToast = useToastStore((s) => s.push)
+  const [items, setItems] = useState<EventItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [startsAt, setStartsAt] = useState('')
+  const [endsAt, setEndsAt] = useState('')
+  const [isActive, setIsActive] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setItems(await listEvents(50))
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Etkinlikler yüklenemedi.', tone: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }, [pushToast])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const resetForm = () => {
+    setEditingId(null)
+    setTitle('')
+    setBody('')
+    setStartsAt('')
+    setEndsAt('')
+    setIsActive(true)
+  }
+
+  const startEdit = (e: EventItem) => {
+    setEditingId(e.id)
+    setTitle(e.title)
+    setBody(e.body)
+    setStartsAt(toLocalInput(e.startsAt))
+    setEndsAt(toLocalInput(e.endsAt))
+    setIsActive(e.isActive)
+  }
+
+  const save = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const input: EventInput = { title, body, startsAt, endsAt, isActive }
+      await saveEvent(editingId, input)
+      pushToast({
+        message: editingId ? 'Etkinlik güncellendi.' : 'Etkinlik yayınlandı.',
+        tone: 'success',
+      })
+      resetForm()
+      await load()
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Etkinlik kaydedilemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (id: string, eventTitle: string) => {
+    if (busy) return
+    if (!window.confirm(`"${eventTitle}" silinsin mi?`)) return
+    setBusy(true)
+    try {
+      await deleteEvent(id)
+      if (editingId === id) resetForm()
+      pushToast({ message: 'Etkinlik silindi.', tone: 'success' })
+      await load()
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Etkinlik silinemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleActive = async (e: EventItem) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await saveEvent(e.id, {
+        title: e.title,
+        body: e.body,
+        startsAt: toLocalInput(e.startsAt),
+        endsAt: toLocalInput(e.endsAt),
+        isActive: !e.isActive,
+      })
+      pushToast({
+        message: e.isActive ? 'Etkinlik pasife alındı.' : 'Etkinlik aktife alındı.',
+        tone: 'success',
+      })
+      await load()
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Durum değiştirilemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+      <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
+        <h2 className="text-sm font-bold text-exchange-text">
+          {editingId ? 'Etkinliği Düzenle' : 'Yeni Etkinlik'}
+        </h2>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
+          Yayınlanan etkinlik menüdeki Etkinlik sekmesinde görünür.
+        </p>
+      </div>
+      <div className="grid gap-2.5 border-b border-exchange-border px-3 py-3 sm:px-4">
+        <div className="min-w-0">
+          <label htmlFor="event-title" className="mb-1 block text-xs font-semibold text-exchange-muted">
+            Başlık ({title.trim().length}/{EVENT_TITLE_MAX})
+          </label>
+          <input
+            id="event-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={EVENT_TITLE_MAX}
+            placeholder="örn. Haftalık işlem yarışması"
+            disabled={busy}
+            className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+          />
+        </div>
+        <div className="min-w-0">
+          <label htmlFor="event-body" className="mb-1 block text-xs font-semibold text-exchange-muted">
+            Metin ({body.trim().length}/{EVENT_BODY_MAX})
+          </label>
+          <textarea
+            id="event-body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            maxLength={EVENT_BODY_MAX}
+            rows={3}
+            placeholder="Etkinlik detaylarını yaz…"
+            disabled={busy}
+            className="w-full min-w-0 resize-y rounded-xl border border-exchange-border bg-exchange-bg px-3 py-2.5 text-sm leading-relaxed text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <div className="min-w-0">
+            <label htmlFor="event-starts" className="mb-1 block text-xs font-semibold text-exchange-muted">
+              Başlangıç (opsiyonel)
+            </label>
+            <input
+              id="event-starts"
+              type="datetime-local"
+              value={startsAt}
+              onChange={(e) => setStartsAt(e.target.value)}
+              disabled={busy}
+              className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+            />
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="event-ends" className="mb-1 block text-xs font-semibold text-exchange-muted">
+              Bitiş (opsiyonel)
+            </label>
+            <input
+              id="event-ends"
+              type="datetime-local"
+              value={endsAt}
+              onChange={(e) => setEndsAt(e.target.value)}
+              disabled={busy}
+              className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+            />
+          </div>
+        </div>
+        <label
+          className={cn(
+            'flex min-w-0 cursor-pointer items-center gap-2 text-xs font-semibold text-exchange-text',
+            busy && 'pointer-events-none opacity-50',
+          )}
+        >
+          <Toggle checked={isActive} onChange={setIsActive} />
+          Aktif olarak yayınla
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => void save()} disabled={busy || !title.trim() || !body.trim()}>
+            {busy ? 'Kaydediliyor…' : editingId ? 'Güncelle' : 'Yayınla'}
+          </Button>
+          {editingId && (
+            <Button size="sm" variant="ghost" onClick={resetForm} disabled={busy}>
+              Vazgeç
+            </Button>
+          )}
+        </div>
+      </div>
+      {loading && items.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+          Etkinlikler yükleniyor…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+          Henüz etkinlik girilmedi.
+        </div>
+      ) : (
+        <ul>
+          {items.map((e) => (
+            <li
+              key={e.id}
+              className="flex items-start gap-2 border-b border-exchange-border/50 px-3 py-2.5 last:border-0 sm:px-4"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-bold text-exchange-text">
+                    {e.title}
+                  </span>
+                  <span
+                    className={cn(
+                      'shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide',
+                      e.isActive
+                        ? 'bg-exchange-buy/15 text-exchange-buy'
+                        : 'bg-exchange-border/40 text-exchange-muted',
+                    )}
+                  >
+                    {e.isActive ? 'Aktif' : 'Pasif'}
+                  </span>
+                </div>
+                <p className="mt-0.5 line-clamp-2 break-words text-xs leading-relaxed text-exchange-muted">
+                  {e.body}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => void toggleActive(e)}
+                  disabled={busy}
+                  className="whitespace-nowrap rounded-lg border border-exchange-border px-2.5 py-1.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow disabled:opacity-40"
+                >
+                  {e.isActive ? 'Pasife Al' : 'Aktife Al'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startEdit(e)}
+                  disabled={busy}
+                  className="whitespace-nowrap rounded-lg border border-exchange-border px-2.5 py-1.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow disabled:opacity-40"
+                >
+                  Düzenle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(e.id, e.title)}
+                  disabled={busy}
+                  aria-label={`${e.title} etkinliğini sil`}
+                  className="whitespace-nowrap rounded-lg border border-exchange-sell/40 px-2.5 py-1.5 text-xs font-bold text-exchange-sell transition-colors hover:bg-exchange-sell/10 disabled:opacity-40"
+                >
+                  Sil
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

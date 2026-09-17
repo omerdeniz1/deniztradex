@@ -71,6 +71,9 @@ security definer
 set search_path = public
 as $$
   select case
+    -- Bot personaları HER ZAMAN mavi tik (user_id süper admin olsa bile).
+    when translate(lower(trim(coalesce(p_username, ''))), 'İI' || chr(775), 'iı')
+      in ('elon musk', 'faik erdem', 'ilham memiş', 'ihsan memiş', 'kripto kaplanı') then 'admin'
     when lower(coalesce(p_username, '')) = 'deniztradex' then 'super'
     when exists (select 1 from public.profiles where id = p_user_id and is_admin = true) then 'super'
     when exists (

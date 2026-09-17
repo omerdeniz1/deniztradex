@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { useTradeStore } from '@/store/tradeStore'
 import { useUiStore } from '@/store/uiStore'
-import { useAllTickers } from '@/hooks/useAllTickers'
+import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { getSessionUserId } from '@/services/authService'
 import { syncDepositToSupabase } from '@/services/supabaseWallet'
+import { getVirtualHoldings } from '@/services/virtualMarketService'
 import { formatNumber, formatPrice } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 
@@ -19,13 +20,43 @@ export function WalletPage() {
   const openDeposit = useUiStore((s) => s.openDeposit)
   const openWithdraw = useUiStore((s) => s.openWithdraw)
 
-  const { tickers } = useAllTickers()
+  // Birleşik tickers: gerçek (BTCUSDT) + sanal (ENTES) fiyatlar tek map'te.
+  const { tickers } = useUnifiedTickers()
 
   const [code, setCode] = useState('')
   const [applying, setApplying] = useState(false)
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(
     null,
   )
+  const [virtualHoldings, setVirtualHoldings] = useState<Record<string, number>>({})
+
+  const priceOf = useCallback(
+    (coin: string): number => {
+      if (coin === 'USDT') return 1
+      return tickers[`${coin}USDT`]?.price ?? tickers[coin]?.price ?? 0
+    },
+    [tickers],
+  )
+
+  // Sanal AMM bakiyeleri ayrı defterde tutulur (tradeStore.spotBalances'ta
+  // değil) — cüzdanda görünmesi için ayrıca okunur.
+  const loadVirtual = useCallback(() => {
+    void getVirtualHoldings().then((h) => setVirtualHoldings(h))
+  }, [])
+
+  useEffect(() => {
+    loadVirtual()
+    const onFocus = loadVirtual
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') loadVirtual()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [loadVirtual])
 
   const totalDeposited = deposits.reduce((sum, d) => sum + d.amount, 0)
 
@@ -35,13 +66,22 @@ export function WalletPage() {
       ...Object.entries(spotBalances).map(([coin, qty]) => ({
         symbol: coin,
         qty,
-        price: tickers[`${coin}USDT`]?.price ?? 0,
+        price: priceOf(coin),
       })),
     ].filter((r) => r.qty > 0)
     return rows.sort((a, b) => b.qty * b.price - a.qty * a.price)
-  }, [spotBalances, balance, tickers])
+  }, [spotBalances, balance, priceOf])
 
   const totalValue = holdings.reduce((sum, h) => sum + h.qty * h.price, 0)
+
+  const virtualRows = useMemo(() => {
+    const rows = Object.entries(virtualHoldings)
+      .filter(([, qty]) => qty > 0)
+      .map(([coin, qty]) => ({ symbol: coin, qty, price: priceOf(coin) }))
+    return rows.sort((a, b) => b.qty * b.price - a.qty * a.price)
+  }, [virtualHoldings, priceOf])
+
+  const virtualTotal = virtualRows.reduce((sum, h) => sum + h.qty * h.price, 0)
 
   const apply = async () => {
     if (applying) return
@@ -214,6 +254,66 @@ export function WalletPage() {
               <span className="font-semibold text-exchange-muted">Toplam Değer</span>
               <span className="font-mono text-base font-bold text-exchange-yellow">
                 {formatNumber(totalValue, 2)} USDT
+              </span>
+            </div>
+          </>
+        )}
+      </section>
+
+      <section className="mx-4 mb-4 rounded-2xl border border-exchange-border bg-exchange-card sm:mx-6 sm:mb-6">
+        <div className="flex items-center justify-between gap-2 border-b border-exchange-border px-4 py-3 sm:px-5">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
+            Sanal Varlıklar
+          </h2>
+          <button
+            type="button"
+            onClick={loadVirtual}
+            className="shrink-0 whitespace-nowrap text-xs font-bold text-exchange-yellow hover:underline"
+          >
+            Yenile
+          </button>
+        </div>
+        {virtualRows.length === 0 ? (
+          <div className="px-5 py-12 text-center text-sm text-exchange-muted">
+            Sanal piyasada coin tutmuyorsun. Piyasalar → sanal coinlerden alabilirsin.
+          </div>
+        ) : (
+          <>
+            <div className="max-h-72 overflow-auto">
+              <table className="w-full min-w-[26rem] text-sm">
+                <thead className="sticky top-0 bg-exchange-card">
+                  <tr className="border-b border-exchange-border text-xs text-exchange-muted">
+                    <th className="px-5 py-2 text-left font-medium">Varlık</th>
+                    <th className="px-5 py-2 text-right font-medium">Miktar</th>
+                    <th className="px-5 py-2 text-right font-medium">Fiyat (USDT)</th>
+                    <th className="px-5 py-2 text-right font-medium">Değer (USDT)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {virtualRows.map((h) => (
+                    <tr
+                      key={h.symbol}
+                      className="border-b border-exchange-border/40 text-sm last:border-0"
+                    >
+                      <td className="px-5 py-2.5 font-medium text-exchange-text">{h.symbol}</td>
+                      <td className="px-5 py-2.5 text-right font-mono">
+                        {formatNumber(h.qty, 6)}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-exchange-muted">
+                        {h.price > 0 ? formatPrice(h.price) : '—'}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono font-semibold text-exchange-text">
+                        {formatNumber(h.qty * h.price, 2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between border-t border-exchange-border px-5 py-3 text-sm">
+              <span className="font-semibold text-exchange-muted">Toplam Değer</span>
+              <span className="font-mono text-base font-bold text-exchange-yellow">
+                {formatNumber(virtualTotal, 2)} USDT
               </span>
             </div>
           </>
