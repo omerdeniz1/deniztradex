@@ -164,6 +164,64 @@ export async function listVirtualCoins(): Promise<VirtualCoin[]> {
   })
 }
 
+export interface VirtualChange {
+  change: number
+  changePct: number
+}
+
+/**
+ * Sanal coinlerin 24 saatlik fiyat değişimi (Piyasalar'daki % sütunu için).
+ *
+ * Referans: 24 saat öncesine ait en yakın mum kapanışı (`virtual_kline_data`);
+ * mum yoksa (henüz 24 saati dolmamış coin) en eski kapanış kullanılır.
+ * Kline altyapısı yoksa (çevrimdışı/yerel) boş döner — % sütunu 0 kalır.
+ */
+export async function listVirtual24hChanges(): Promise<Record<string, VirtualChange>> {
+  if (!isSupabaseConfigured || !supabase) return {}
+  try {
+    const [coins, refRows, earlyRows] = await Promise.all([
+      listVirtualCoins(),
+      supabase
+        .from('virtual_kline_data')
+        .select('symbol,close,timestamp')
+        .lte('timestamp', new Date(Date.now() - 24 * 3600 * 1000).toISOString())
+        .order('timestamp', { ascending: false })
+        .limit(300),
+      supabase
+        .from('virtual_kline_data')
+        .select('symbol,close,timestamp')
+        .order('timestamp', { ascending: true })
+        .limit(300),
+    ])
+    const pickFirst = (
+      rows: unknown,
+    ): Map<string, number> => {
+      const out = new Map<string, number>()
+      if (!Array.isArray(rows)) return out
+      for (const r of rows as Record<string, unknown>[]) {
+        const sym = typeof r.symbol === 'string' ? r.symbol.toUpperCase() : ''
+        if (!sym || out.has(sym)) continue
+        const close = toNumber(r.close)
+        if (close > 0) out.set(sym, close)
+      }
+      return out
+    }
+    const ref = pickFirst(refRows.data)
+    const early = pickFirst(earlyRows.data)
+    const out: Record<string, VirtualChange> = {}
+    for (const c of coins) {
+      const key = c.symbol.toUpperCase()
+      const base = ref.get(key) ?? early.get(key) ?? 0
+      if (!(base > 0) || !(c.price > 0)) continue
+      const change = c.price - base
+      out[key] = { change, changePct: (change / base) * 100 }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
 /** Kullanıcının sanal coin bakiyeleri (sembol → adet). */
 export async function getVirtualHoldings(): Promise<Record<string, number>> {
   const userId = getSessionUserId()

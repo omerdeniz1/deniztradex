@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAllTickers } from '@/hooks/useAllTickers'
-import { listVirtualCoins, VIRTUAL_SEED, type VirtualCoin } from '@/services/virtualMarketService'
+import {
+  listVirtual24hChanges,
+  listVirtualCoins,
+  VIRTUAL_SEED,
+  type VirtualChange,
+  type VirtualCoin,
+} from '@/services/virtualMarketService'
 import type { Ticker } from '@/types'
 
 /**
@@ -27,12 +33,17 @@ const SEED_COINS: VirtualCoin[] = VIRTUAL_SEED.map((s) => ({
 export function useUnifiedTickers() {
   const { tickers, status } = useAllTickers()
   const [virtualCoins, setVirtualCoins] = useState<VirtualCoin[]>(SEED_COINS)
+  // Sanal coin 24s değişimleri: mum kapanışlarından hesaplanır (0 değil).
+  const [virtualChanges, setVirtualChanges] = useState<Record<string, VirtualChange>>({})
 
   useEffect(() => {
     let live = true
     const load = () => {
       void listVirtualCoins().then((list) => {
         if (live) setVirtualCoins(list)
+      })
+      void listVirtual24hChanges().then((map) => {
+        if (live) setVirtualChanges(map)
       })
     }
     load()
@@ -46,16 +57,17 @@ export function useUnifiedTickers() {
   const merged = useMemo(() => {
     const out: Record<string, Ticker> = { ...tickers }
     for (const c of virtualCoins) {
+      const ch = virtualChanges[c.symbol.toUpperCase()]
       out[c.symbol] = {
         symbol: c.symbol,
         price: c.price,
-        change24h: 0,
-        changePercent24h: 0,
+        change24h: ch?.change ?? 0,
+        changePercent24h: ch?.changePct ?? 0,
         volume24h: c.volume24h,
       }
     }
     return out
-  }, [tickers, virtualCoins])
+  }, [tickers, virtualCoins, virtualChanges])
 
   const virtualSymbols = useMemo(
     () => new Set(virtualCoins.map((c) => c.symbol.toUpperCase())),

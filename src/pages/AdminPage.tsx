@@ -41,6 +41,13 @@ import {
   type Announcement,
   type AnnouncementsSetupStatus,
 } from '@/services/announcementService'
+import {
+  NEWS_BODY_MAX,
+  NEWS_PUMP_TARGET_PCT,
+  NEWS_TITLE_MAX,
+  pumpCoinWithNews,
+  type PumpDirection,
+} from '@/services/coinPumpService'
 import { BOT_DEFINITIONS } from '@/services/botSimulationService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
@@ -1294,36 +1301,35 @@ function CoinManager() {
     setCoins((list) => list.map((c) => (c.symbol === key ? { ...c, status } : c)))
   }, [])
 
-  const changeStatus = async (symbol: string, status: CoinStatus) => {
-    if (busySymbol) return
-    setBusySymbol(symbol)
-    try {
-      const res = await updateCoinStatus(symbol, status)
-      applyStatusResult(res.coin.symbol || symbol, res.coin.status)
-      pushToast({ message: `${symbol.toUpperCase()} durumu "${status}" olarak güncellendi.`, tone: 'success' })
-    } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : 'Durum güncellenemedi.', tone: 'error' })
-    } finally {
-      setBusySymbol(null)
-    }
-  }
+  const [pumpModal, setPumpModal] = useState<{
+    symbol: string
+    direction: PumpDirection
+    virtual: boolean
+  } | null>(null)
 
-  const addNews = async (symbol: string, title: string, body: string) => {
+  /**
+   * Haberle Yükselt / Düşür: önce haber girilir → panele + foruma yayınlanır →
+   * fiyat ~%1.8 oynar (yalnızca sanal havuzda; gerçek sembolde fiyat adımı yok).
+   */
+  const runPump = async (symbol: string, direction: PumpDirection, title: string, body: string) => {
     if (busySymbol) return
     setBusySymbol(symbol)
     try {
-      const res = await updateCoinStatus(
+      const res = await pumpCoinWithNews(
         symbol,
-        effectiveStatus(symbol, coins.find((c) => c.symbol === symbol.toUpperCase())?.status ?? 'normal'),
+        direction,
         title,
         body,
+        effectiveStatus(symbol, coins.find((c) => c.symbol === symbol.toUpperCase())?.status ?? 'normal'),
       )
-      applyStatusResult(res.coin.symbol || symbol, res.coin.status)
-      pushToast({ message: `${symbol.toUpperCase()} için haber eklendi.`, tone: 'success' })
-      // Reload news for this coin
+      applyStatusResult(res.symbol, effectiveStatus(symbol))
+      pushToast({ message: res.summary, tone: 'success' })
+      setPumpModal(null)
       void loadNews(symbol.toUpperCase())
+      // Havuz fiyatı değişti — listeyi tazele.
+      void load()
     } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : 'Haber eklenemedi.', tone: 'error' })
+      pushToast({ message: err instanceof Error ? err.message : 'İşlem yapılamadı.', tone: 'error' })
     } finally {
       setBusySymbol(null)
     }
@@ -1362,18 +1368,6 @@ function CoinManager() {
     }
   }
 
-  const statusLabel = (s: CoinStatus) => ({
-    normal: 'Normal',
-    promoted: 'Öne Çıkan (Promote)',
-    demoted: 'Gizli (Demote)',
-  })[s]
-
-  const statusColor = (s: CoinStatus) =>
-    s === 'promoted' ? 'text-exchange-buy' : s === 'demoted' ? 'text-exchange-sell' : 'text-exchange-muted'
-
-  const statusVariant = (s: CoinStatus) =>
-    s === 'promoted' ? 'buy' : s === 'demoted' ? 'sell' : 'default'
-
   if (loading && coins.length === 0) {
     return (
       <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
@@ -1382,22 +1376,30 @@ function CoinManager() {
     )
   }
 
-  // Birleştirilmiş satırlar: sanal coinler + yalnızca override'ı olan
-  // semboller (örn. BTCUSDT). Böylece TÜM coinler yönetilebilir.
+  // Birleştirilmiş satırlar: sanal coinler (kripto + emtia aynen) ile
+  // yalnızca kaydı olan piyasa sembolleri (örn. BTCUSDT).
   const virtualKeys = new Set(coins.map((c) => c.symbol.toUpperCase()))
   const extraSymbols = Object.keys(overrides).filter((s) => !virtualKeys.has(s)).sort()
-  const rows: { symbol: string; name: string; detail: string | null; status: CoinStatus }[] = [
+  const rows: {
+    symbol: string
+    name: string
+    kind: 'crypto' | 'commodity' | null
+    detail: string | null
+    virtual: boolean
+  }[] = [
     ...coins.map((c) => ({
       symbol: c.symbol.toUpperCase(),
       name: c.name,
+      kind: c.type as 'crypto' | 'commodity',
       detail: `Fiyat: ${c.currentPrice.toFixed(c.currentPrice < 1 ? 6 : 4)} | Havuz: ${c.reserveUsdt.toLocaleString()} USDT`,
-      status: effectiveStatus(c.symbol, c.status),
+      virtual: true,
     })),
     ...extraSymbols.map((s) => ({
       symbol: s,
       name: 'Piyasa sembolü',
+      kind: null,
       detail: null,
-      status: overrides[s] ?? 'normal',
+      virtual: false,
     })),
   ]
 
@@ -1406,8 +1408,8 @@ function CoinManager() {
       <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
         <h2 className="text-sm font-bold text-exchange-text">Coin Yönetimi</h2>
         <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
-          TÜM coinlerde durum değiştir (promote/demote) ve coin bazlı haber ekle. Yükseltilenler
-          Piyasalar'da en üstte rozetli, düşürülenler en altta görünür; haberler işlem ekranında gösterilir.
+          Haberi gir → forumda yayınlansın → fiyat ~%1.8 oynasın. Fiyat adımı yalnızca
+          sanal havuzlarda işler; gerçek piyasa coinlerinde haber + forum yayınlanır.
         </p>
         <div className="mt-2 flex min-w-0 items-center gap-2">
           <input
@@ -1437,11 +1439,11 @@ function CoinManager() {
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-exchange-text">{coin.symbol}</span>
                     <span className="text-xs text-exchange-muted">{coin.name}</span>
-                    <span
-                      className={cn('text-xs font-bold uppercase', statusColor(coin.status))}
-                    >
-                      {statusLabel(coin.status)}
-                    </span>
+                    {coin.kind && (
+                      <span className="rounded-full bg-exchange-border/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-exchange-muted">
+                        {coin.kind === 'crypto' ? 'Kripto' : 'Emtia'}
+                      </span>
+                    )}
                   </div>
                   {coin.detail && (
                     <div className="mt-1 text-[11px] text-exchange-muted font-mono">
@@ -1450,32 +1452,27 @@ function CoinManager() {
                   )}
                 </div>
                 <div className="flex flex-wrap shrink-0 gap-1.5">
-                  {(['normal', 'promoted', 'demoted'] as const).map((s) => (
-                    <Button
-                      key={s}
-                      size="sm"
-                      variant={coin.status === s ? statusVariant(s) : 'outline'}
-                      onClick={() => void changeStatus(coin.symbol, s)}
-                      disabled={busySymbol !== null}
-                      className="whitespace-nowrap"
-                    >
-                      {busySymbol === coin.symbol ? '…' : statusLabel(s)}
-                    </Button>
-                  ))}
                   <Button
                     size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      const title = prompt('Haber başlığı (max 200 krk):')
-                      if (!title) return
-                      const body = prompt('Haber metni (max 2000 krk):')
-                      if (!body) return
-                      void addNews(coin.symbol, title, body)
-                    }}
+                    variant="buy"
+                    onClick={() =>
+                      setPumpModal({ symbol: coin.symbol, direction: 'up', virtual: coin.virtual })
+                    }
                     disabled={busySymbol !== null}
                     className="whitespace-nowrap"
                   >
-                    {busySymbol === coin.symbol ? '…' : 'Haber Ekle'}
+                    {busySymbol === coin.symbol ? '…' : 'Haberle Yükselt'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="sell"
+                    onClick={() =>
+                      setPumpModal({ symbol: coin.symbol, direction: 'down', virtual: coin.virtual })
+                    }
+                    disabled={busySymbol !== null}
+                    className="whitespace-nowrap"
+                  >
+                    {busySymbol === coin.symbol ? '…' : 'Haberle Düşür'}
                   </Button>
                   <Button
                     size="sm"
@@ -1527,7 +1524,83 @@ function CoinManager() {
           ))}
         </ul>
       )}
+      {pumpModal && (
+        <NewsPumpModal
+          symbol={pumpModal.symbol}
+          direction={pumpModal.direction}
+          virtual={pumpModal.virtual}
+          busy={busySymbol === pumpModal.symbol}
+          onClose={() => setPumpModal(null)}
+          onConfirm={(title, body) => void runPump(pumpModal.symbol, pumpModal.direction, title, body)}
+        />
+      )}
     </div>
+  )
+}
+
+function NewsPumpModal({
+  symbol,
+  direction,
+  virtual,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  symbol: string
+  direction: PumpDirection
+  virtual: boolean
+  busy: boolean
+  onClose: () => void
+  onConfirm: (title: string, body: string) => void
+}) {
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const up = direction === 'up'
+  return (
+    <ModalShell title={`${up ? 'Haberle Yükselt' : 'Haberle Düşür'} — ${symbol}`} onClose={onClose}>
+      <p className="text-xs leading-relaxed text-exchange-muted">
+        Önce haber girilir → forumda yayınlanır → fiyat ~%{NEWS_PUMP_TARGET_PCT} {up ? 'yükselir' : 'düşer'}.
+        {!virtual && ' Bu sembol gerçek piyasa coini — fiyat adımı atlanır, yalnızca haber + forum yayınlanır.'}
+      </p>
+      <label htmlFor="pump-news-title" className="mt-3 block text-xs font-semibold text-exchange-muted">
+        Haber başlığı ({title.trim().length}/{NEWS_TITLE_MAX})
+      </label>
+      <input
+        id="pump-news-title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={NEWS_TITLE_MAX}
+        placeholder="örn. Dev ortaklık duyurusu"
+        disabled={busy}
+        className="mt-1.5 h-11 w-full rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+      />
+      <label htmlFor="pump-news-body" className="mt-3 block text-xs font-semibold text-exchange-muted">
+        Haber metni ({body.trim().length}/{NEWS_BODY_MAX})
+      </label>
+      <textarea
+        id="pump-news-body"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        maxLength={NEWS_BODY_MAX}
+        rows={4}
+        placeholder="Haber metnini yaz…"
+        disabled={busy}
+        className="mt-1.5 w-full resize-y rounded-xl border border-exchange-border bg-exchange-bg px-3 py-2.5 text-sm leading-relaxed text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+      />
+      <div className="mt-4 flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
+          Vazgeç
+        </Button>
+        <Button
+          size="sm"
+          variant={up ? 'buy' : 'sell'}
+          onClick={() => onConfirm(title, body)}
+          disabled={busy || !title.trim() || !body.trim()}
+        >
+          {busy ? 'Yayınlanıyor…' : up ? 'Yükselt + Yayınla' : 'Düşür + Yayınla'}
+        </Button>
+      </div>
+    </ModalShell>
   )
 }
 
