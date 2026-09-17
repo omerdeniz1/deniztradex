@@ -10,11 +10,11 @@ import { useOrderStore } from '@/store/orderStore'
 import { useToastStore } from '@/store/toastStore'
 import {
   calculateLiquidationPrice,
-  isLiquidated,
-  marginCallDistancePct,
-  MARGIN_CALL_THRESHOLD_PCT,
+  getRiskLevel,
   MARGIN_CALL_THROTTLE_MS,
 } from '@/engine/calculations'
+import { getMarkPrice, pushMarkPrice } from '@/engine/markPrice'
+import { useRiskParams } from '@/hooks/useRiskParams'
 import { cn, formatCompact, formatNumber, formatPrice } from '@/lib/utils'
 import { boll, ema, lastDefined, sma } from '@/lib/indicators'
 import { DEFAULT_SYMBOL } from '@/lib/constants'
@@ -183,45 +183,101 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVirtual, mode])
 
-  // Auto-liquidation watchdog — all open futures positions, tracked against
-  // their own live price from the dedicated per-symbol feed. Prices are
-  // ignored while no market feed is live to avoid fake liquidations.
+  // Risk parametreleri (DB `risk_config` + güvenli varsayılan).
+  const risk = useRiskParams()
+
+  // Mark-price beslemesi: her tik ham fiyatı değil, medyan mark fiyatı
+  // üretir — tek fitiller likidasyon/margin-call kararına giremez.
+  useEffect(() => {
+    for (const [symbol, price] of Object.entries(livePrices)) {
+      if (price > 0) pushMarkPrice(symbol, price)
+    }
+  }, [livePrices])
+
+  // Auto-liquidation watchdog — ADİL likidasyon (Binance Futures mantığı):
+  //  1) karar mark fiyatla verilir (fitil koruması),
+  //  2) ihlal `liqConfirmTicks` ardışık kontrolde SÜRERSE işletilir
+  //     (tek tik patlatmaz; toparlanan fiyat sayacı sıfırlar).
+  // Fiyatlar canlı değilken işletilmez (sahte likidasyon yok).
+  const liqBreachCount = useRef<Record<string, number>>({})
+
   useEffect(() => {
     if (marketStatus !== 'live') return
+    const seen = new Set<string>()
     for (const pos of positions) {
       if (pos.mode !== 'futures') continue
       const live = livePrices[pos.symbol]
       if (!live || live <= 0) continue
-      if (isLiquidated(pos, live)) {
-        const liq = calculateLiquidationPrice(pos.entryPrice, pos.leverage, pos.side)
+      seen.add(pos.id)
+      const mark = getMarkPrice(pos.symbol, live)
+      const liq = calculateLiquidationPrice(
+        pos.entryPrice,
+        pos.leverage,
+        pos.side,
+        risk.maintenanceMarginRate,
+      )
+      const breached = pos.side === 'long' ? mark <= liq : mark >= liq
+      if (!breached) {
+        delete liqBreachCount.current[pos.id]
+        continue
+      }
+      const count = (liqBreachCount.current[pos.id] ?? 0) + 1
+      liqBreachCount.current[pos.id] = count
+      if (count >= risk.liqConfirmTicks) {
+        delete liqBreachCount.current[pos.id]
         forceLiquidate(pos.id, liq)
       }
     }
-  }, [livePrices, positions, forceLiquidate, marketStatus])
+    for (const id of Object.keys(liqBreachCount.current)) {
+      if (!seen.has(id)) delete liqBreachCount.current[id]
+    }
+  }, [livePrices, positions, forceLiquidate, marketStatus, risk])
 
-  // Margin-call watchdog — when the live price gets within a small %, of the
-  // liquidation price, warn the user. Throttled: only one toast per position
-  // per MARGIN_CALL_THROTTLE_MS window so it never spams every second.
-  const lastMarginCallAt = useRef<Record<string, number>>({})
+  // Kademeli margin-call merdiveni (likidasyondan ÖNCE iki seviye uyarı):
+  //  watch (teminatın ~yarısı eridi) → bilgi toast'u,
+  //  margin-call (teminatın ~%80'i eridi) → kritik toast + kalıcı bayrak.
+  // Bayrak toparlanınca temizlenir; her seviye kendi penceresinde kısılır.
+  const lastWarnAt = useRef<Record<string, number>>({})
 
   useEffect(() => {
     if (marketStatus !== 'live') return
     const now = Date.now()
+    const { markMarginCalled, clearMarginCalled } = useTradeStore.getState()
     for (const pos of positions) {
       if (pos.mode !== 'futures') continue
       const live = livePrices[pos.symbol]
       if (!live || live <= 0) continue
-      const distancePct = marginCallDistancePct(pos, live)
-      if (!(distancePct < MARGIN_CALL_THRESHOLD_PCT)) continue
-      const lastAt = lastMarginCallAt.current[pos.id] ?? 0
+      const mark = getMarkPrice(pos.symbol, live)
+      const level = getRiskLevel(
+        pos,
+        mark,
+        risk.warnLossFrac,
+        risk.criticalLossFrac,
+        risk.maintenanceMarginRate,
+      )
+      if (level === 'safe') {
+        if (pos.marginCalledAt) clearMarginCalled(pos.id)
+        continue
+      }
+      if (level === 'liquidating') continue
+      const key = `${pos.id}:${level}`
+      const lastAt = lastWarnAt.current[key] ?? 0
       if (now - lastAt < MARGIN_CALL_THROTTLE_MS) continue
-      lastMarginCallAt.current[pos.id] = now
-      pushToast({
-        message: `⚠️ DİKKAT: ${pos.symbol} pozisyonunuz likidasyon riskine yaklaştı! Marjin ekleyin veya pozisyonu küçültün.`,
-        tone: 'error',
-      })
+      lastWarnAt.current[key] = now
+      if (level === 'watch') {
+        pushToast({
+          message: `⚠️ ${pos.symbol} teminatın yarısı eridi — pozisyon izlemeye alındı. Marjin ekleyin veya küçültün.`,
+          tone: 'info',
+        })
+      } else {
+        markMarginCalled(pos.id)
+        pushToast({
+          message: `🚨 MARGIN CALL: ${pos.symbol} pozisyonunuz likidasyona yaklaşıyor! Acil marjin ekleyin veya kapatın.`,
+          tone: 'error',
+        })
+      }
     }
-  }, [livePrices, positions, marketStatus, pushToast])
+  }, [livePrices, positions, marketStatus, pushToast, risk])
 
   // TP/SL watchdog — futures positions carrying a take-profit or stop-loss
   // price are closed as soon as the live mark/last price crosses them,

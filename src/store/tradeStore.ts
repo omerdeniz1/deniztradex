@@ -167,6 +167,13 @@ interface TradeState {
   setBalance: (value: number) => void
   resetWallet: () => void
   /**
+   * Margin-call bayrağı: kritik teminat uyarısı üretildiğinde damgalanır
+   * (kademeli uyarı 2/2). Pozisyon toparlanırsa `clearMarginCalled` ile
+   * temizlenir — bayrak cihazlar arası senkrona aynen taşınır.
+   */
+  markMarginCalled: (id: string) => void
+  clearMarginCalled: (id: string) => void
+  /**
    * Cihazlar arası senkron: sunucudaki işlem anlık görüntüsünü uygular.
    * Bakiyeye DOKUNMAZ (bakiye `profiles.balance` + useProfileSync'indir).
    */
@@ -598,6 +605,22 @@ export const useTradeStore = create<TradeState>()(
       },
 
       resetWallet: () => set({ ...initialState }),
+
+      markMarginCalled: (id) => {
+        set((s) => ({
+          positions: s.positions.map((p) =>
+            p.id === id && !p.marginCalledAt ? { ...p, marginCalledAt: Date.now() } : p,
+          ),
+        }))
+      },
+
+      clearMarginCalled: (id) => {
+        set((s) => ({
+          positions: s.positions.map((p) =>
+            p.id === id && p.marginCalledAt ? { ...p, marginCalledAt: null } : p,
+          ),
+        }))
+      },
 
       hydrateTradingState: (input) => {
         set({

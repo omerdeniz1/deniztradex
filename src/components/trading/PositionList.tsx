@@ -4,8 +4,12 @@ import {
   calculateLiquidationPrice,
   calculatePnl,
   calculateRoe,
+  getRiskLevel,
   isLiquidated,
+  type RiskLevel,
 } from '@/engine/calculations'
+import { getMarkPrice } from '@/engine/markPrice'
+import { useRiskParams } from '@/hooks/useRiskParams'
 import { useTradeStore } from '@/store/tradeStore'
 import { cn, formatNumber, formatPnl, formatPrice } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
@@ -51,9 +55,17 @@ function PnlCell({ pnl, roe }: { pnl: number; roe: number }) {
   )
 }
 
+const RISK_CHIP: Record<RiskLevel, { label: string; cls: string }> = {
+  safe: { label: 'Güvenli', cls: 'bg-exchange-buy/10 text-exchange-buy' },
+  watch: { label: 'İzle', cls: 'bg-exchange-yellow/15 text-exchange-yellow' },
+  'margin-call': { label: 'Margin Call', cls: 'bg-exchange-sell/15 text-exchange-sell' },
+  liquidating: { label: 'Liq', cls: 'bg-exchange-sell text-white' },
+}
+
 export function PositionList({ livePrices }: Props) {
   const positions = useTradeStore((s) => s.positions)
   const closePosition = useTradeStore((s) => s.closePosition)
+  const risk = useRiskParams()
 
   if (positions.length === 0) {
     return (
@@ -89,10 +101,25 @@ export function PositionList({ livePrices }: Props) {
             // so PnL / ROE recompute on every feed update.
             const live = livePrices[pos.symbol]
             const price = live && live > 0 ? live : pos.entryPrice
+            // Görüntülenen mark fiyat medyandır (tek fitil rozeti oynatmaz).
+            const mark = live && live > 0 ? getMarkPrice(pos.symbol, live) : pos.entryPrice
             const pnl = calculatePnl(pos, price)
             const roe = calculateRoe(pos, price)
-            const liq = calculateLiquidationPrice(pos.entryPrice, pos.leverage, pos.side)
-            const liquidated = isLiquidated(pos, price)
+            const liq = calculateLiquidationPrice(
+              pos.entryPrice,
+              pos.leverage,
+              pos.side,
+              risk.maintenanceMarginRate,
+            )
+            const liquidated = isLiquidated(pos, mark, risk.maintenanceMarginRate)
+            const level = getRiskLevel(
+              pos,
+              mark,
+              risk.warnLossFrac,
+              risk.criticalLossFrac,
+              risk.maintenanceMarginRate,
+            )
+            const chip = RISK_CHIP[level]
 
             return (
               <tr
@@ -104,15 +131,36 @@ export function PositionList({ livePrices }: Props) {
               >
                 <td className="px-3 py-2 font-semibold">{pos.symbol}</td>
                 <td className="px-3 py-2">
-                  <span
-                    className={cn(
-                      'rounded px-1.5 py-0.5 text-xs font-bold uppercase',
-                      pos.side === 'long'
-                        ? 'bg-exchange-buy/10 text-exchange-buy'
-                        : 'bg-exchange-sell/10 text-exchange-sell',
+                  <span className="flex flex-wrap items-center gap-1">
+                    <span
+                      className={cn(
+                        'rounded px-1.5 py-0.5 text-xs font-bold uppercase',
+                        pos.side === 'long'
+                          ? 'bg-exchange-buy/10 text-exchange-buy'
+                          : 'bg-exchange-sell/10 text-exchange-sell',
+                      )}
+                    >
+                      {pos.side}
+                    </span>
+                    {pos.mode === 'futures' && (
+                      <span
+                        className={cn(
+                          'rounded px-1.5 py-0.5 text-[10px] font-extrabold uppercase',
+                          chip.cls,
+                        )}
+                        title={
+                          level === 'margin-call'
+                            ? 'Kritik teminat uyarısı aktif'
+                            : level === 'watch'
+                              ? 'Teminat erimesi izleniyor'
+                              : level === 'liquidating'
+                                ? 'Likidasyon bölgesi'
+                                : 'Teminat sağlıklı'
+                        }
+                      >
+                        {chip.label}
+                      </span>
                     )}
-                  >
-                    {pos.side}
                   </span>
                 </td>
                 <td className="px-3 py-2 text-right font-mono">

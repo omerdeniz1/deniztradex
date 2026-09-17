@@ -5,10 +5,15 @@ import {
   calculateRoe,
   capQuantityByBalance,
   clampLeverage,
+  getRiskLevel,
   isLiquidated,
+  MAINTENANCE_MARGIN_RATE,
+  MARGIN_CALL_CRITICAL_LOSS_FRAC,
   marginCallDistancePct,
   MARGIN_CALL_THRESHOLD_PCT,
   MARGIN_CALL_THROTTLE_MS,
+  MARGIN_CALL_WARN_LOSS_FRAC,
+  marginLossFraction,
   maxQuantityByBalance,
   positionSize,
   requiredMargin,
@@ -77,6 +82,13 @@ describe('calculateLiquidationPrice', () => {
     expect(liq).toBeGreaterThan(80)
   })
 
+  it('applies the maintenance margin rate (Binance lowest tier)', () => {
+    // 10x long: 100 * (1 - 0.1 + 0.004) = 90.4
+    expect(calculateLiquidationPrice(100, 10, 'long')).toBeCloseTo(90.4)
+    // 10x short: 100 * (1 + 0.1 - 0.004) = 109.6
+    expect(calculateLiquidationPrice(100, 10, 'short')).toBeCloseTo(109.6)
+  })
+
   it('short liquidation sits above entry price', () => {
     const liq = calculateLiquidationPrice(100, 10, 'short')
     expect(liq).toBeGreaterThan(100)
@@ -140,8 +152,9 @@ describe('isLiquidated', () => {
 
   it('liquidates a short at/above liquidation price', () => {
     const p = basePosition({ side: 'short', entryPrice: 100, leverage: 10 })
-    expect(isLiquidated(p, 113)).toBe(true)
-    expect(isLiquidated(p, 110)).toBe(false)
+    // short liq ~ 109.6 (bakım marjini %0.4 dahil)
+    expect(isLiquidated(p, 111)).toBe(true)
+    expect(isLiquidated(p, 109)).toBe(false)
   })
 })
 
@@ -172,6 +185,29 @@ describe('marginCallDistancePct', () => {
   it('exposes a 5% default threshold and a 30s throttle window', () => {
     expect(MARGIN_CALL_THRESHOLD_PCT).toBe(5)
     expect(MARGIN_CALL_THROTTLE_MS).toBe(30_000)
+  })
+})
+
+describe('marginLossFraction / getRiskLevel (kademeli uyarı merdiveni)', () => {
+  it('exposes a 0.4% maintenance margin rate by default', () => {
+    expect(MAINTENANCE_MARGIN_RATE).toBe(0.004)
+    expect(MARGIN_CALL_WARN_LOSS_FRAC).toBe(0.5)
+    expect(MARGIN_CALL_CRITICAL_LOSS_FRAC).toBe(0.8)
+  })
+
+  it('loss fraction tracks consumed margin', () => {
+    const p = basePosition({ side: 'long', entryPrice: 100, leverage: 10 })
+    expect(marginLossFraction(p, 100)).toBeCloseTo(0)
+    expect(marginLossFraction(p, 95)).toBeCloseTo(0.5)
+    expect(marginLossFraction(p, 90)).toBeCloseTo(1)
+  })
+
+  it('walks safe -> watch -> margin-call -> liquidating', () => {
+    const p = basePosition({ side: 'long', entryPrice: 100, leverage: 10 })
+    expect(getRiskLevel(p, 100)).toBe('safe')
+    expect(getRiskLevel(p, 95)).toBe('watch')
+    expect(getRiskLevel(p, 92)).toBe('margin-call')
+    expect(getRiskLevel(p, 88)).toBe('liquidating')
   })
 })
 

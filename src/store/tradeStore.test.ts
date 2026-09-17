@@ -125,14 +125,14 @@ describe('forceLiquidate', () => {
     state.openPosition(makeOrder({ mode: 'futures', leverage: 10, quantity: 1, entryPrice: 100 }))
 
     const positionId = useTradeStore.getState().positions[0].id
-    // long liquidation price ~ 89.55
-    useTradeStore.getState().forceLiquidate(positionId, 89.55)
+    // long liquidation price ~ 90.4 (bakım marjini %0.4 dahil)
+    useTradeStore.getState().forceLiquidate(positionId, 90.4)
 
     const after = useTradeStore.getState()
     expect(after.positions).toHaveLength(0)
     expect(after.balance).toBe(0)
     expect(after.trades[0].reason).toBe('liquidation')
-    expect(after.trades[0].pnl).toBeCloseTo(-10.45)
+    expect(after.trades[0].pnl).toBeCloseTo(-9.6)
   })
 })
 

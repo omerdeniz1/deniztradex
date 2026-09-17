@@ -46,6 +46,11 @@ export interface Position {
   readonly slPrice?: number | null
   readonly triggerType?: TriggerType
   readonly reduceOnly?: boolean
+  /**
+   * Margin-call bayrağı: kritik teminat uyarısı üretildiği anın damgası.
+   * Pozisyon kârla toparlanırsa watchdog tarafından temizlenir.
+   */
+  readonly marginCalledAt?: number | null
   /** Yoksa İzole varsayılır (mevcut motor davranışı). */
   readonly marginMode?: MarginMode
 }
