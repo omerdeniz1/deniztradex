@@ -2388,8 +2388,8 @@ $$;
 --
 -- `post_bot_message(p_username, p_content, p_fake_likes)`:
 --   Bot personası adına forum gönderisi (sahte beğeni sayısıyla).
---   Yazar-sistem tetikleyicisi admin rozeti basmasın diye rozet
---   bilerek 'none'a çekilir (test verisi dürüstlüğü).
+--   Bot mesajları default insan silüeti (avatar_url NULL → UI silüeti)
+--   + mavi tik (admin rozeti) ile yayınlanır.
 -- `execute_bot_trade(p_symbol, p_trade_type, p_usdt_amount)`:
 --   USDT cinsinden balina hamlesi — kullanıcı bakiyesine DOKUNMAZ,
 --   yalnızca havuzu oynatır (rezerv + fiyat + hacim + 1m mumu).
@@ -2431,15 +2431,17 @@ begin
     raise exception 'mesaj en fazla 500 karakter olabilir';
   end if;
 
-  insert into public.forum_posts (user_id, username, content, like_count)
+insert into public.forum_posts (user_id, username, content, like_count)
   values (v_uid, trim(p_username), trim(p_content), greatest(coalesce(p_fake_likes, 0), 0))
   returning id into v_id;
 
-  -- Yazar tetikleyicisi admin rozeti basmış olabilir; bot mesajları
-  -- rozetsiz kalır (doğal kullanıcı görünümü).
+  -- Bot mesajları: default insan silüeti (avatar NULL) + mavi tik.
+  -- Yazar tetikleyicisi adminin kendi avatarını basmış olabilir; botlar
+  -- için bilerek NULL'a çekilir (UI default silüeti çizer).
   update public.forum_posts
-    set verified_tier = 'none',
-        is_verified = false
+    set verified_tier = 'admin',
+        is_verified = true,
+        avatar_url = null
     where id = v_id;
 
   return v_id;
@@ -2564,4 +2566,440 @@ $$;
 
 revoke all on function public.execute_bot_trade(text, text, numeric) from public;
 grant execute on function public.execute_bot_trade(text, text, numeric) to authenticated;
+
+
+-- >>> supabase/migrations/20260916160000_altcoin_admin.sql
+-- ============================================================
+-- DenizTradeX — Altcoin Yönetimi (Admin Paneli)
+--
+-- virtual_coins tablosuna durum alanı (promote/demote) eklenir.
+-- coin_news tablosu: coin bazlı haber/duyuru yönetimi.
+-- Tüm yazımlar admin_update_coin RPC'si üzerinden (süper admin).
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) virtual_coins: durum kolonu (promote/demote)
+-- ------------------------------------------------------------
+alter table public.virtual_coins
+  add column if not exists status text not null default 'normal'
+  check (status in ('normal', 'promoted', 'demoted'));
+
+-- Mevcut coinler 'normal' olarak kalır (idempotent).
+
+-- ------------------------------------------------------------
+-- 2) coin_news: coin bazlı haberler
+-- ------------------------------------------------------------
+create table if not exists public.coin_news (
+  id            uuid primary key default gen_random_uuid(),
+  symbol        text not null references public.virtual_coins (symbol) on delete cascade,
+  title         text not null,
+  body          text not null,
+  created_by    uuid not null references auth.users (id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create index if not exists coin_news_symbol_idx
+  on public.coin_news (symbol);
+
+create index if not exists coin_news_created_at_idx
+  on public.coin_news (created_at desc);
+
+alter table public.coin_news enable row level security;
+
+-- Herkes okuyabilir (giriş yapmış kullanıcılar).
+drop policy if exists coin_news_select_all on public.coin_news;
+create policy coin_news_select_all
+  on public.coin_news for select
+  to authenticated
+  using (true);
+
+-- Yazım yalnızca süper admin (is_admin()).
+drop policy if exists coin_news_insert_admin on public.coin_news;
+create policy coin_news_insert_admin
+  on public.coin_news for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists coin_news_update_admin on public.coin_news;
+create policy coin_news_update_admin
+  on public.coin_news for update
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists coin_news_delete_admin on public.coin_news;
+create policy coin_news_delete_admin
+  on public.coin_news for delete
+  to authenticated
+  using (public.is_admin());
+
+-- ------------------------------------------------------------
+-- 3) updated_at tetikleyicisi (coin_news)
+-- ------------------------------------------------------------
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  NEW.updated_at = now();
+  return NEW;
+end;
+$$;
+
+drop trigger if exists coin_news_updated_at on public.coin_news;
+create trigger coin_news_updated_at
+  before update on public.coin_news
+  for each row execute function public.set_updated_at();
+
+-- ------------------------------------------------------------
+-- 4) admin_update_coin: coin durumu ve haber yönetimi (süper admin)
+-- ------------------------------------------------------------
+create or replace function public.admin_update_coin(
+  p_symbol     text,
+  p_status     text default null,
+  p_news_title text default null,
+  p_news_body  text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_exists boolean;
+begin
+  if not public.is_admin() then
+    raise exception 'yetkisiz işlem: yalnızca süper admin coin yönetebilir';
+  end if;
+
+  if coalesce(trim(p_symbol), '') = '' then
+    raise exception 'geçersiz coin sembolü';
+  end if;
+
+  -- Coin var mı?
+  select true into v_exists
+    from public.virtual_coins
+    where symbol = p_symbol;
+  if not found then
+    raise exception 'coin bulunamadı: %', p_symbol;
+  end if;
+
+  -- Durum güncelleme
+  if p_status is not null then
+    if p_status not in ('normal', 'promoted', 'demoted') then
+      raise exception 'geçersiz durum: normal, promoted, demoted olmalı';
+    end if;
+    update public.virtual_coins
+      set status = p_status
+      where symbol = p_symbol;
+  end if;
+
+  -- Haber ekleme
+  if p_news_title is not null and p_news_body is not null then
+    if char_length(trim(p_news_title)) > 200 then
+      raise exception 'haber başlığı en fazla 200 karakter olabilir';
+    end if;
+    if char_length(trim(p_news_body)) > 2000 then
+      raise exception 'haber metni en fazla 2000 karakter olabilir';
+    end if;
+    insert into public.coin_news (symbol, title, body, created_by)
+    values (p_symbol, trim(p_news_title), trim(p_news_body), auth.uid());
+  end if;
+
+  -- Güncel coin + haberleri döndür
+  return jsonb_build_object(
+    'ok', true,
+    'symbol', p_symbol,
+    'status', (select status from public.virtual_coins where symbol = p_symbol),
+    'news', (
+      select jsonb_agg(jsonb_build_object(
+        'id', id,
+        'title', title,
+        'body', body,
+        'created_at', created_at
+      ) order by created_at desc)
+      from public.coin_news
+      where symbol = p_symbol
+      limit 20
+    )
+  );
+end;
+$$;
+
+revoke all on function public.admin_update_coin(text, text, text, text) from public;
+grant execute on function public.admin_update_coin(text, text, text, text) to authenticated;
+
+-- ------------------------------------------------------------
+-- 5) admin_delete_coin_news: haber silme (süper admin)
+-- ------------------------------------------------------------
+create or replace function public.admin_delete_coin_news(
+  p_news_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'yetkisiz işlem: yalnızca süper admin haber silebilir';
+  end if;
+
+  delete from public.coin_news
+    where id = p_news_id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+revoke all on function public.admin_delete_coin_news(uuid) from public;
+grant execute on function public.admin_delete_coin_news(uuid) to authenticated;
+
+-- >>> supabase/migrations/20260916170000_coin_overrides.sql
+-- ============================================================
+-- DenizTradeX — Tüm Coinler için Yükseltme/Düşürme + Haber
+--
+-- Önceki tasarım yalnızca `virtual_coins` tablosundaki 6 sanal coini
+-- kapsıyordu (FK kısıtı yüzünden BTCUSDT gibi gerçek sembollere haber
+-- eklenemiyor, durum değiştirilemiyordu).
+--
+-- Bu migration ile yönetim TÜM sembollere genellenir:
+-- 1) `coin_overrides`: HERHANGİ bir sembol için durum
+--    (normal/promoted/demoted). Sanal coin + Binance sembolleri dahil.
+-- 2) `coin_news.symbol` FK'si kaldırılır (düz metin) — herhangi bir
+--    sembole haber eklenebilir. Mevcut haberler korunur.
+-- 3) `admin_update_coin` güncellenir: sanal coinde hem havuz satırı hem
+--    override yazılır; sanal olmayan sembolde yalnızca override + haber.
+-- 4) Mevcut sanal durumlar override tablosuna taşınır (idempotent).
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) coin_overrides: her sembol için durum
+-- ------------------------------------------------------------
+create table if not exists public.coin_overrides (
+  symbol     text primary key,
+  status     text not null default 'normal'
+    check (status in ('normal', 'promoted', 'demoted')),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.coin_overrides enable row level security;
+
+-- Durumlar herkese açık vitrin (giriş yapmış herkes okur).
+drop policy if exists coin_overrides_select_all on public.coin_overrides;
+create policy coin_overrides_select_all
+  on public.coin_overrides for select
+  to authenticated
+  using (true);
+
+-- Yazım yalnızca süper admin.
+drop policy if exists coin_overrides_write_admin on public.coin_overrides;
+create policy coin_overrides_write_admin
+  on public.coin_overrides for all
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+-- set_updated_at altcoin_admin migration'ında tanımlıdır; tek başına
+-- uygulanırsa diye burada da güvenceye alınır (aynı tanım, idempotent).
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  NEW.updated_at = now();
+  return NEW;
+end;
+$$;
+
+drop trigger if exists coin_overrides_updated_at on public.coin_overrides;
+create trigger coin_overrides_updated_at
+  before update on public.coin_overrides
+  for each row execute function public.set_updated_at();
+
+-- Mevcut sanal durumları taşı (normal dışı olanlar; normal zaten varsayılan).
+insert into public.coin_overrides (symbol, status)
+select symbol, status
+  from public.virtual_coins
+  where status is distinct from 'normal'
+on conflict (symbol)
+do update set
+  status = excluded.status,
+  updated_at = now();
+
+-- ------------------------------------------------------------
+-- 2) coin_news.symbol: FK'yi kaldır, düz metin yap
+-- ------------------------------------------------------------
+do $$
+declare
+  v_con text;
+begin
+  if to_regclass('public.coin_news') is null then
+    return;
+  end if;
+  select conname into v_con
+    from pg_constraint
+    where conrelid = 'public.coin_news'::regclass
+      and contype = 'f'
+  limit 1;
+  if v_con is not null then
+    execute format('alter table public.coin_news drop constraint %I', v_con);
+  end if;
+end;
+$$;
+
+-- ------------------------------------------------------------
+-- 3) admin_update_coin: TÜM semboller
+-- ------------------------------------------------------------
+create or replace function public.admin_update_coin(
+  p_symbol     text,
+  p_status     text default null,
+  p_news_title text default null,
+  p_news_body  text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_symbol text := upper(trim(coalesce(p_symbol, '')));
+  v_status text;
+  v_is_virtual boolean;
+begin
+  if not public.is_admin() then
+    raise exception 'yetkisiz işlem: yalnızca süper admin coin yönetebilir';
+  end if;
+
+  if v_symbol = '' then
+    raise exception 'geçersiz coin sembolü';
+  end if;
+
+  select true into v_is_virtual
+    from public.virtual_coins
+    where symbol = v_symbol;
+  v_is_virtual := coalesce(v_is_virtual, false);
+
+  -- Durum güncelleme (tüm semboller override tablosuna yazılır).
+  if p_status is not null then
+    if p_status not in ('normal', 'promoted', 'demoted') then
+      raise exception 'geçersiz durum: normal, promoted, demoted olmalı';
+    end if;
+    insert into public.coin_overrides (symbol, status)
+    values (v_symbol, p_status)
+    on conflict (symbol)
+    do update set
+      status = excluded.status,
+      updated_at = now();
+    -- Sanal coinde havuz satırı da senkron tutulur (eski okuyucular için).
+    if v_is_virtual then
+      update public.virtual_coins
+        set status = p_status
+        where symbol = v_symbol;
+    end if;
+  end if;
+
+  -- Haber ekleme (tüm semboller).
+  if p_news_title is not null and p_news_body is not null then
+    if char_length(trim(p_news_title)) = 0 or char_length(trim(p_news_body)) = 0 then
+      raise exception 'haber başlığı ve metni gerekli';
+    end if;
+    if char_length(trim(p_news_title)) > 200 then
+      raise exception 'haber başlığı en fazla 200 karakter olabilir';
+    end if;
+    if char_length(trim(p_news_body)) > 2000 then
+      raise exception 'haber metni en fazla 2000 karakter olabilir';
+    end if;
+    insert into public.coin_news (symbol, title, body, created_by)
+    values (v_symbol, trim(p_news_title), trim(p_news_body), auth.uid());
+  end if;
+
+  select coalesce(
+    (select status from public.coin_overrides where symbol = v_symbol),
+    (select status from public.virtual_coins where symbol = v_symbol),
+    'normal'
+  ) into v_status;
+
+  return jsonb_build_object(
+    'ok', true,
+    'symbol', v_symbol,
+    'status', v_status,
+    'news', (
+      select jsonb_agg(jsonb_build_object(
+        'id', id,
+        'title', title,
+        'body', body,
+        'created_at', created_at
+      ) order by created_at desc)
+      from public.coin_news
+      where symbol = v_symbol
+      limit 20
+    )
+  );
+end;
+$$;
+
+revoke all on function public.admin_update_coin(text, text, text, text) from public;
+grant execute on function public.admin_update_coin(text, text, text, text) to authenticated;
+
+
+-- >>> supabase/migrations/20260916180000_trading_state.sql
+-- ============================================================
+-- DenizTradeX — Cihazlar Arası İşlem Senkronu
+--
+-- Sorun: açık pozisyonlar / spot bakiyeler / bekleyen emirler yalnızca
+-- cihazın localStorage'ında (mobilde açılan işlem masaüstünde görünmez).
+-- Bakiye zaten `profiles.balance` üzerinden senkrondu; bu tablo geri
+-- kalan işlem durumunu sunucuya taşır.
+--
+-- `trading_state`: kullanıcı başına tek satır (user_id PK).
+--   - positions / spot_balances / spot_positions / pending_orders /
+--     trades / spot_trades: JSONB anlık görüntüler.
+--   - updated_at: son yazan cihazın zamanı (çatışmada son yazan kazanır).
+--
+-- RLS: satır yalnızca sahibine görünür/yazılır.
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+create table if not exists public.trading_state (
+  user_id        uuid primary key references auth.users (id) on delete cascade,
+  positions      jsonb not null default '[]'::jsonb,
+  spot_balances  jsonb not null default '{}'::jsonb,
+  spot_positions jsonb not null default '[]'::jsonb,
+  pending_orders jsonb not null default '[]'::jsonb,
+  trades         jsonb not null default '[]'::jsonb,
+  spot_trades    jsonb not null default '[]'::jsonb,
+  updated_at     timestamptz not null default now()
+);
+
+alter table public.trading_state enable row level security;
+
+drop policy if exists trading_state_select_own on public.trading_state;
+create policy trading_state_select_own
+  on public.trading_state for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+drop policy if exists trading_state_insert_own on public.trading_state;
+create policy trading_state_insert_own
+  on public.trading_state for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+drop policy if exists trading_state_update_own on public.trading_state;
+create policy trading_state_update_own
+  on public.trading_state for update
+  to authenticated
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists trading_state_delete_own on public.trading_state;
+create policy trading_state_delete_own
+  on public.trading_state for delete
+  to authenticated
+  using (auth.uid() = user_id);
 

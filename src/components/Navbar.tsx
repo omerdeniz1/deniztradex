@@ -13,6 +13,7 @@ import { listAnnouncements, type Announcement } from '@/services/announcementSer
 import { checkIsAdmin } from '@/services/adminService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Logo } from '@/components/ui/Logo'
+import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
 
 interface Props {
   balance: number
@@ -493,13 +494,13 @@ function UserMenu({ username, isAdmin, avatarUrl }: { username: string; isAdmin:
         aria-expanded={open}
         className="flex items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-exchange-border/30"
       >
-        <span className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-exchange-yellow text-xs font-extrabold text-black">
-          {avatarUrl ? (
+        {avatarUrl ? (
+          <span className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-exchange-yellow text-xs font-extrabold text-black">
             <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            username.charAt(0).toUpperCase()
-          )}
-        </span>
+          </span>
+        ) : (
+          <DefaultAvatar size="xs" />
+        )}
         <span className="hidden text-sm font-semibold text-exchange-text sm:block">{username}</span>
         <svg
           width="10"

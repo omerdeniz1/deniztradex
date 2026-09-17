@@ -47,7 +47,7 @@ export async function triggerElonMusk(): Promise<BotActionResult> {
 export async function triggerFaikErdemGood(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'Faik Erdem',
-    'ÖNEMLİ: Erdem Holding, ENTES ekosistemine 500.000 USDT stratejik yatırım yaptığını duyurdu. Uzun vadeli güvenoyu. Kurumsal ilgi artıyor.',
+    'ÖNEMLİ: Faik Erdem, ENTES ekosistemine 500.000 USDT stratejik yatırım yaptığını duyurdu. Uzun vadeli güvenoyu. Kurumsal ilgi artıyor.',
     randomIn(800, 1200),
   )
   const trade = await executeBotPoolTrade('ENTES', 'buy', 500000)

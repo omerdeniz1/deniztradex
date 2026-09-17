@@ -8,6 +8,7 @@ import { removeAvatarFile, uploadAvatarFile } from '@/services/supabaseWallet'
 import { cn } from '@/lib/utils'
 import { Toggle } from '@/components/ui/Toggle'
 import { Button } from '@/components/ui/Button'
+import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
 
 export function SettingsPage() {
   const theme = useSettingsStore((s) => s.theme)
@@ -132,12 +133,7 @@ function AvatarSection() {
             className="h-16 w-16 shrink-0 rounded-full border border-exchange-border object-cover"
           />
         ) : (
-          <span
-            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-2xl font-extrabold text-exchange-yellow"
-            aria-hidden
-          >
-            {(user.username.charAt(0) || '?').toUpperCase()}
-          </span>
+          <DefaultAvatar size="lg" />
         )}
         <div className="flex min-w-0 flex-1 flex-wrap gap-2">
           <input

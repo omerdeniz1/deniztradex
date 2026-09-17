@@ -5,6 +5,7 @@ import { useTradeStore } from '@/store/tradeStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useUiStore } from '@/store/uiStore'
 import { useProfileSync } from '@/hooks/useProfileSync'
+import { useTradingSync } from '@/hooks/useTradingSync'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { Navbar } from '@/components/Navbar'
 import { BottomNav } from '@/components/BottomNav'
@@ -50,6 +51,8 @@ function Shell() {
   const closeWithdraw = useUiStore((s) => s.closeWithdraw)
   // Profil canlı senkronu: admin bakiye/dondurma değişikliği anında yansır.
   useProfileSync()
+  // İşlem senkronu: mobilde açılan pozisyon/emir masaüstünde de görünür.
+  useTradingSync()
 
   return (
     <div className="flex h-dvh min-h-dvh w-full max-w-full flex-col overflow-x-clip bg-exchange-bg text-exchange-text">

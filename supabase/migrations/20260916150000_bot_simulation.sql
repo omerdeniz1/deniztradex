@@ -7,8 +7,8 @@
 --
 -- `post_bot_message(p_username, p_content, p_fake_likes)`:
 --   Bot personası adına forum gönderisi (sahte beğeni sayısıyla).
---   Yazar-sistem tetikleyicisi admin rozeti basmasın diye rozet
---   bilerek 'none'a çekilir (test verisi dürüstlüğü).
+--   Bot mesajları default insan silüeti (avatar_url NULL → UI silüeti)
+--   + mavi tik (admin rozeti) ile yayınlanır.
 -- `execute_bot_trade(p_symbol, p_trade_type, p_usdt_amount)`:
 --   USDT cinsinden balina hamlesi — kullanıcı bakiyesine DOKUNMAZ,
 --   yalnızca havuzu oynatır (rezerv + fiyat + hacim + 1m mumu).
@@ -54,11 +54,13 @@ begin
   values (v_uid, trim(p_username), trim(p_content), greatest(coalesce(p_fake_likes, 0), 0))
   returning id into v_id;
 
-  -- Yazar tetikleyicisi admin rozeti basmış olabilir; bot mesajları
-  -- rozetsiz kalır (doğal kullanıcı görünümü).
+  -- Bot mesajları: default insan silüeti (avatar NULL) + mavi tik.
+  -- Yazar tetikleyicisi adminin kendi avatarını basmış olabilir; botlar
+  -- için bilerek NULL'a çekilir (UI default silüeti çizer).
   update public.forum_posts
-    set verified_tier = 'none',
-        is_verified = false
+    set verified_tier = 'admin',
+        is_verified = true,
+        avatar_url = null
     where id = v_id;
 
   return v_id;

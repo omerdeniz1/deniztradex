@@ -1,5 +1,7 @@
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import { useTradeStore } from '@/store/tradeStore'
+import { getSessionUserId } from '@/services/authService'
 import type {
   MarginMode,
   OrderSide,
@@ -49,15 +51,52 @@ function makeId(prefix: string): string {
     .slice(2, 8)}`
 }
 
+/**
+ * Oturum-kapsamlı depolama: bekleyen emirler kullanıcı başına saklanır
+ * (cüzdan anahtarıyla aynı desen). Cihazlar arası taşıma sunucu
+ * senkronunundur (`trading_state`); bu katman yeniden-yüklemeyi korur.
+ */
+const ORDERS_STORAGE_KEY = 'deniztradx_orders'
+
+function createOrderStorage() {
+  const uid = () => getSessionUserId()
+  return {
+    getItem: (name: string) => {
+      const userId = uid()
+      if (!userId) return null
+      return localStorage.getItem(`${name}_${userId}`)
+    },
+    setItem: (name: string, value: string) => {
+      const userId = uid()
+      if (!userId) return
+      localStorage.setItem(`${name}_${userId}`, value)
+    },
+    removeItem: (name: string) => {
+      const userId = uid()
+      if (!userId) return
+      localStorage.removeItem(`${name}_${userId}`)
+    },
+  }
+}
+
 interface OrderState {
   pendingOrders: OrderSpec[]
   placeOrder: (input: Omit<OrderSpec, 'id' | 'at'>) => PlaceResult
   cancelPendingOrder: (id: string) => void
   fireOrder: (id: string, refPrice?: number) => PlaceResult
+  /** Cihazlar arası senkron: sunucudaki bekleyen emirleri uygular. */
+  hydrateOrders: (orders: OrderSpec[]) => void
+  resetOrders: () => void
 }
 
-export const useOrderStore = create<OrderState>()((set, get) => ({
-  pendingOrders: [],
+export const useOrderStore = create<OrderState>()(
+  persist(
+    (set, get) => ({
+      pendingOrders: [],
+
+      hydrateOrders: (orders) => set({ pendingOrders: [...orders] }),
+
+      resetOrders: () => set({ pendingOrders: [] }),
 
   placeOrder: (n) => {
     const mk = n.marketPrice || 0
@@ -144,15 +183,23 @@ export const useOrderStore = create<OrderState>()((set, get) => ({
       }
     }),
 
-  fireOrder: (id, refPrice) => {
-    const order = get().pendingOrders.find((p) => p.id === id)
-    if (!order) return { ok: false, error: 'Emir bulunamadı.' }
-    const remaining = get().pendingOrders.filter(
-      (p) => p.id !== id && p.ocoId !== order.ocoId,
-    )
-    set({ pendingOrders: remaining })
-    return useTradeStore
-      .getState()
-      .fillNow({ ...order, entryPrice: refPrice || order.entryPrice })
-  },
-}))
+      fireOrder: (id, refPrice) => {
+        const order = get().pendingOrders.find((p) => p.id === id)
+        if (!order) return { ok: false, error: 'Emir bulunamadı.' }
+        const remaining = get().pendingOrders.filter(
+          (p) => p.id !== id && p.ocoId !== order.ocoId,
+        )
+        set({ pendingOrders: remaining })
+        return useTradeStore
+          .getState()
+          .fillNow({ ...order, entryPrice: refPrice || order.entryPrice })
+      },
+    }),
+    {
+      name: ORDERS_STORAGE_KEY,
+      storage: createJSONStorage(() => createOrderStorage()),
+      // Yalnızca bekleyen emirler kalıcıdır; fonksiyonlar dışlanır.
+      partialize: (s) => ({ pendingOrders: s.pendingOrders }),
+    },
+  ),
+)

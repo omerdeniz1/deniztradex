@@ -21,6 +21,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { VerifiedBadge } from '@/components/forum/VerifiedBadge'
+import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
 
 export function ForumPage() {
   const pushToast = useToastStore((s) => s.push)
@@ -407,9 +408,7 @@ function PostRow({
             className="h-9 w-9 shrink-0 rounded-full object-cover"
           />
         ) : (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-sm font-extrabold text-exchange-yellow" aria-hidden>
-            {(displayName.charAt(0) || '?').toUpperCase()}
-          </span>
+          <DefaultAvatar size="md" />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
@@ -493,9 +492,7 @@ function PostRow({
                           className="h-7 w-7 shrink-0 rounded-full object-cover"
                         />
                       ) : (
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-exchange-surface text-[11px] font-extrabold text-exchange-muted" aria-hidden>
-                          {(forumDisplayName(reply.username, reply.userId).charAt(0) || '?').toUpperCase()}
-                        </span>
+                        <DefaultAvatar size="xs" />
                       )}
                       <div className="min-w-0 flex-1 rounded-xl bg-exchange-surface/60 px-2.5 py-1.5">
                         <div className="flex min-w-0 items-baseline gap-1.5">

@@ -35,6 +35,7 @@ describe('botSimulationService (yerel motor)', () => {
     expect(res.trade!.priceImpactPct).toBeGreaterThan(0)
     const posts = await listForumPosts()
     const post = posts.find((p) => p.id === res.postId)!
+    expect(post).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(post.content).toContain('SVG aya çıkıyor')
     expect(post.likeCount).toBeGreaterThanOrEqual(1500)
     expect(post.likeCount).toBeLessThanOrEqual(2000)
@@ -49,7 +50,10 @@ describe('botSimulationService (yerel motor)', () => {
 
     expect(res.trade!.priceImpactPct).toBeGreaterThan(0)
     const posts = await listForumPosts()
-    expect(posts.find((p) => p.id === res.postId)!.content).toContain('Erdem Holding')
+    const post = posts.find((p) => p.id === res.postId)!
+    expect(post.content).toContain('Faik Erdem')
+    expect(post.content).not.toContain('Erdem Holding')
+    expect(post).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(await priceOf('ENTES')).toBeGreaterThan(before)
   })
 
@@ -59,7 +63,9 @@ describe('botSimulationService (yerel motor)', () => {
 
     expect(res.trade!.priceImpactPct).toBeLessThan(0)
     const posts = await listForumPosts()
-    expect(posts.find((p) => p.id === res.postId)!.content).toContain('harika gidiyor')
+    const badPost = posts.find((p) => p.id === res.postId)!
+    expect(badPost.content).toContain('harika gidiyor')
+    expect(badPost).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(await priceOf('ENTES')).toBeLessThan(before)
   })
 
@@ -69,7 +75,9 @@ describe('botSimulationService (yerel motor)', () => {
 
     expect(res.trade!.priceImpactPct).toBeGreaterThan(0)
     const posts = await listForumPosts()
-    expect(posts.find((p) => p.id === res.postId)!.content).toContain('altına geçin')
+    const goldPost = posts.find((p) => p.id === res.postId)!
+    expect(goldPost.content).toContain('altına geçin')
+    expect(goldPost).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(await priceOf('V-XAU')).toBeGreaterThan(before)
   })
 
@@ -81,7 +89,9 @@ describe('botSimulationService (yerel motor)', () => {
 
     expect(res.trade).toBeNull()
     const posts = await listForumPosts()
-    expect(posts.find((p) => p.id === res.postId)!.content).toContain('Ben demiştim')
+    const kaplanPost = posts.find((p) => p.id === res.postId)!
+    expect(kaplanPost.content).toContain('Ben demiştim')
+    expect(kaplanPost).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     const pricesAfter = await Promise.all(
       ['ENTES', 'SVGC', 'V-XAU'].map((s) => priceOf(s)),
     )

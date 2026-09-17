@@ -166,6 +166,17 @@ interface TradeState {
   spotSell: (input: { symbol: string; quantity: number; price: number }) => TradeActionResult
   setBalance: (value: number) => void
   resetWallet: () => void
+  /**
+   * Cihazlar arası senkron: sunucudaki işlem anlık görüntüsünü uygular.
+   * Bakiyeye DOKUNMAZ (bakiye `profiles.balance` + useProfileSync'indir).
+   */
+  hydrateTradingState: (input: {
+    positions: Position[]
+    spotBalances: Record<string, number>
+    spotPositions: SpotPosition[]
+    trades: TradeRecord[]
+    spotTrades: SpotTrade[]
+  }) => void
 }
 
 const initialState = {
@@ -587,6 +598,16 @@ export const useTradeStore = create<TradeState>()(
       },
 
       resetWallet: () => set({ ...initialState }),
+
+      hydrateTradingState: (input) => {
+        set({
+          positions: [...input.positions],
+          spotBalances: { ...input.spotBalances },
+          spotPositions: [...input.spotPositions],
+          trades: [...input.trades].slice(0, 200),
+          spotTrades: [...input.spotTrades].slice(0, 200),
+        })
+      },
     }),
     {
       name: WALLET_STORAGE_KEY,

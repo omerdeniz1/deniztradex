@@ -5,6 +5,7 @@ import { getLeaderboard, type TraderEntry } from '@/services/leaderboardService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { VerifiedBadge } from '@/components/forum/VerifiedBadge'
+import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
 
 export function LeaderboardPage() {
   const pushToast = useToastStore((s) => s.push)
@@ -111,12 +112,7 @@ export function LeaderboardPage() {
                                 className="h-7 w-7 shrink-0 rounded-full object-cover sm:h-8 sm:w-8"
                               />
                             ) : (
-                              <span
-                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-[11px] font-extrabold text-exchange-yellow sm:h-8 sm:w-8 sm:text-xs"
-                                aria-hidden
-                              >
-                                {(e.username.charAt(0) || '?').toUpperCase()}
-                              </span>
+                              <DefaultAvatar size="xs" />
                             )}
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-1">

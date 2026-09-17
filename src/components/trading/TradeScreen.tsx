@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/Button'
 import { PairSelector } from '@/components/trading/PairSelector'
 import { PositionList } from '@/components/trading/PositionList'
 import { TradeHistory } from '@/components/trading/TradeHistory'
+import { CoinNewsPanel } from '@/components/trading/CoinNewsPanel'
 
 const TIMEFRAMES: { v: Interval; l: string }[] = [
   { v: '1m', l: '1m' },
@@ -403,6 +404,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
               ))}
             </div>
           </div>
+
+          <CoinNewsPanel symbol={symbol} />
 
           {/* Zaman dilimi + indikatör araç çubuğu (masaüstü: haplar).
               Mobilde haplar yerine tek dropdown kullanılır (aşağıda). */}

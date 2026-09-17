@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
+import { useCoinOverrides } from '@/hooks/useCoinMeta'
 import type { MarketStatus } from '@/hooks/useAllTickers'
 import { matchPairQuery } from '@/lib/coinSearch'
 import { cn, formatCompact, formatNumber, formatPrice, formatSignedPercent } from '@/lib/utils'
@@ -10,6 +11,7 @@ export function MarketsPage() {
   // Birleşik piyasa: Binance gerçek coinleri + Sanal Piyasa tek tabloda.
   // Sanal satırlar rozetsiz/ayrımsız — BTC satırıyla birebir aynı görünür.
   const { tickers, virtualSymbols, status } = useUnifiedTickers()
+  const overrides = useCoinOverrides()
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
 
@@ -21,10 +23,13 @@ export function MarketsPage() {
     if (query.trim()) {
       entries = entries.filter((t) => matchPairQuery(t.symbol, query))
     }
+    // Admin sıralaması: yükseltilenler en üstte, düşürülenler en altta.
+    const rank = (s: string) =>
+      overrides[s.toUpperCase()] === 'promoted' ? 0 : overrides[s.toUpperCase()] === 'demoted' ? 2 : 1
     return entries
       .map((t) => ({ ...t, quoteVolume: t.price * t.volume24h }))
-      .sort((a, b) => b.quoteVolume - a.quoteVolume)
-  }, [tickers, virtualSymbols, query])
+      .sort((a, b) => rank(a.symbol) - rank(b.symbol) || b.quoteVolume - a.quoteVolume)
+  }, [tickers, virtualSymbols, query, overrides])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -74,7 +79,14 @@ export function MarketsPage() {
                 </td>
               </tr>
             ) : (
-              rows.map((t) => <MarketRow key={t.symbol} ticker={t} onSelect={navigate} />)
+              rows.map((t) => (
+                <MarketRow
+                  key={t.symbol}
+                  ticker={t}
+                  status={overrides[t.symbol.toUpperCase()] ?? 'normal'}
+                  onSelect={navigate}
+                />
+              ))
             )}
           </tbody>
         </table>
@@ -108,21 +120,37 @@ function LiveChip({ status }: { status: MarketStatus }) {
 
 function MarketRow({
   ticker,
+  status,
   onSelect,
 }: {
   ticker: Ticker & { quoteVolume: number }
+  status: 'normal' | 'promoted' | 'demoted'
   onSelect: (to: string) => void
 }) {
   const up = ticker.changePercent24h >= 0
   return (
     <tr
       onClick={() => onSelect(`/spot?symbol=${ticker.symbol}`)}
-      className="cursor-pointer border-b border-exchange-border/50 transition-colors last:border-0 hover:bg-exchange-surface"
+      className={cn(
+        'cursor-pointer border-b border-exchange-border/50 transition-colors last:border-0 hover:bg-exchange-surface',
+        status === 'demoted' && 'opacity-50',
+        status === 'promoted' && 'bg-exchange-yellow/[0.04]',
+      )}
     >
       <td className="px-3 py-2.5 sm:px-4">
-        <span className="flex items-baseline gap-1.5">
+        <span className="flex items-center gap-1.5">
           <span className="font-semibold text-exchange-text">{ticker.symbol.replace('USDT', '')}</span>
           <span className="text-xs text-exchange-muted">USDT</span>
+          {status === 'promoted' && (
+            <span className="rounded-full bg-exchange-buy/15 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-exchange-buy">
+              Öne Çıkan
+            </span>
+          )}
+          {status === 'demoted' && (
+            <span className="rounded-full bg-exchange-border/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-exchange-muted">
+              Düşük
+            </span>
+          )}
         </span>
       </td>
       <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-exchange-text sm:px-4">

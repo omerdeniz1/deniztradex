@@ -9,6 +9,7 @@ import {
 import { getProfileBalanceWithRetry, fetchUsedPromos, claimPromoRemote } from '@/services/supabaseWallet'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useTradeStore } from '@/store/tradeStore'
+import { useOrderStore } from '@/store/orderStore'
 import type { User } from '@/types'
 
 interface AuthState {
@@ -81,6 +82,11 @@ export const useAuthStore = create<AuthState>()((set) => ({
     // Yerel cüzdan (ve yerel promo listesi) önce yüklensin ki sunucuyla
     // eşitlerken migration-öncesi haklar kaybolmasın.
     await useTradeStore.persist.rehydrate()
+    try {
+      await useOrderStore.persist.rehydrate()
+    } catch {
+      // yoksay — bekleyen emir yok sayılır
+    }
     // The account's theme / confirmation preferences live under the user's
     // own storage key — reload them once the session is active.
     void useSettingsStore.persist.rehydrate()
@@ -115,6 +121,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     useSettingsStore.setState({ theme: 'dark', confirmOrders: false })
     // Clear in-memory wallet without persisting (wallet storage is session-scoped).
     useTradeStore.getState().resetWallet()
+    useOrderStore.getState().resetOrders()
   },
 
   setAvatarUrl: (url) => {

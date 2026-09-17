@@ -434,3 +434,169 @@ export async function deleteForumPostsBulk(ids: string[]): Promise<{ deleted: nu
   }
   return { deleted, failed }
 }
+
+// ---------------------------------------------------------------
+// Altcoin Yönetimi (süper admin)
+// ---------------------------------------------------------------
+
+export type CoinStatus = 'normal' | 'promoted' | 'demoted'
+
+export interface VirtualCoin {
+  symbol: string
+  name: string
+  type: 'crypto' | 'commodity'
+  reserveUsdt: number
+  reserveToken: number
+  currentPrice: number
+  volume24h: number
+  status: CoinStatus
+}
+
+export interface CoinNewsItem {
+  id: string
+  symbol: string
+  title: string
+  body: string
+  createdAt: number
+}
+
+export interface CoinWithNews {
+  coin: VirtualCoin
+  news: CoinNewsItem[]
+}
+
+/** Tüm sanal coinler (süper admin). */
+export async function listVirtualCoins(): Promise<VirtualCoin[]> {
+  const { client } = await requireAccess()
+  const { data, error } = await client
+    .from('virtual_coins')
+    .select('symbol,name,type,reserve_usdt,reserve_token,current_price,volume_24h,status')
+    .order('symbol')
+  if (error) throw new Error('Coinler yüklenemedi. Lütfen tekrar dene.')
+  if (!Array.isArray(data)) return []
+  return (data as {
+    symbol: string
+    name: string
+    type: 'crypto' | 'commodity'
+    reserve_usdt: number | string
+    reserve_token: number | string
+    current_price: number | string
+    volume_24h: number | string
+    status: CoinStatus
+  }[]).map((r) => ({
+    symbol: r.symbol,
+    name: r.name,
+    type: r.type,
+    reserveUsdt: Number(r.reserve_usdt),
+    reserveToken: Number(r.reserve_token),
+    currentPrice: Number(r.current_price),
+    volume24h: Number(r.volume_24h),
+    status: r.status,
+  }))
+}
+
+/** Coin durumu güncelle (promote/demote) + haber ekle (süper admin). */
+export async function updateCoinStatus(
+  symbol: string,
+  status: CoinStatus,
+  newsTitle?: string,
+  newsBody?: string
+): Promise<CoinWithNews> {
+  const { client } = await requireAccess()
+  const { data, error } = await client.rpc('admin_update_coin', {
+    p_symbol: symbol,
+    p_status: status,
+    p_news_title: newsTitle ?? null,
+    p_news_body: newsBody ?? null,
+  })
+  if (error) throw new Error('Coin güncellenemedi. Lütfen tekrar dene.')
+  if (!data) throw new Error('Beklenmeyen yanıt.')
+  const row = data as {
+    ok: boolean
+    symbol: string
+    status: CoinStatus
+    news: {
+      id: string
+      title: string
+      body: string
+      created_at: string
+    }[]
+  }
+  return {
+    coin: {
+      symbol: row.symbol,
+      name: '',
+      type: 'crypto',
+      reserveUsdt: 0,
+      reserveToken: 0,
+      currentPrice: 0,
+      volume24h: 0,
+      status: row.status,
+    },
+    news: (row.news ?? []).map((n) => ({
+      id: n.id,
+      symbol: row.symbol,
+      title: n.title,
+      body: n.body,
+      createdAt: Date.parse(n.created_at) || 0,
+    })),
+  }
+}
+
+export async function listCoinNews(symbol: string, limit = 20): Promise<CoinNewsItem[]> {
+  const { client } = await requireAccess()
+  const { data, error } = await client
+    .from('coin_news')
+    .select('id,symbol,title,body,created_at')
+    .ilike('symbol', symbol.trim() || '___none___')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error('Haberler yüklenemedi. Lütfen tekrar dene.')
+  if (!Array.isArray(data)) return []
+  return (data as {
+    id: string
+    symbol: string
+    title: string
+    body: string
+    created_at: string
+  }[]).map((r) => ({
+    id: r.id,
+    symbol: r.symbol,
+    title: r.title,
+    body: r.body,
+    createdAt: Date.parse(r.created_at) || 0,
+  }))
+}
+
+export interface CoinOverride {
+  symbol: string
+  status: CoinStatus
+}
+
+/**
+ * TÜM sembollerin durumları (sanal + gerçek). `coin_overrides` tablosu
+ * herhangi bir sembolü kapsar; sanal coinlerde havuz satırı da aynı
+ * değeri taşır (eski okuyucular için senkron tutulur).
+ */
+export async function listCoinOverrides(): Promise<CoinOverride[]> {
+  const { client } = await requireAccess()
+  const { data, error } = await client
+    .from('coin_overrides')
+    .select('symbol,status')
+    .order('symbol')
+  if (error) throw new Error('Coin durumları yüklenemedi. Lütfen tekrar dene.')
+  if (!Array.isArray(data)) return []
+  return (data as { symbol: string; status: CoinStatus }[]).map((r) => ({
+    symbol: (r.symbol ?? '').toUpperCase(),
+    status: r.status === 'promoted' || r.status === 'demoted' ? r.status : 'normal',
+  }))
+}
+
+/** Coin haberi sil (süper admin). */
+export async function deleteCoinNews(newsId: string): Promise<void> {
+  const { client } = await requireAccess()
+  const { error } = await client.rpc('admin_delete_coin_news', {
+    p_news_id: newsId,
+  })
+  if (error) throw new Error('Haber silinemedi. Lütfen tekrar dene.')
+}

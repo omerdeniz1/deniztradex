@@ -4,24 +4,32 @@ import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
 import {
   ADMIN_PERMISSIONS,
+  deleteCoinNews,
   deleteForumPostsBulk,
   getMyAdminAccess,
   getPlatformStats,
   hasAdminPermission,
   listAdminUsers,
+  listCoinNews,
+  listCoinOverrides,
   listForumAdminPosts,
+  listVirtualCoins,
   sendPasswordReset,
   setAdminPrivileges,
   setMoneyRestrictions,
   setUserBanned,
   setUserFrozen,
+  updateCoinStatus,
   updateUserBalance,
   validateBalanceInput,
   type AdminAccess,
   type AdminForumPost,
   type AdminPermission,
   type AdminUser,
+  type CoinNewsItem,
+  type CoinStatus,
   type PlatformStats,
+  type VirtualCoin,
 } from '@/services/adminService'
 import {
   ANNOUNCEMENT_BODY_MAX,
@@ -37,6 +45,7 @@ import { BOT_DEFINITIONS } from '@/services/botSimulationService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
+import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
 
 export function AdminPage() {
   const [access, setAccess] = useState<AdminAccess | null>(null)
@@ -95,14 +104,15 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
 
   // Sekme yapısı (mobil + masaüstü): büyük bloklar üstte yatay
   // kaydırılabilir sekmelere bölünür, yalnızca seçili sekme gösterilir.
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots' | 'coins'>('overview')
   const showForum = can('ban_users')
   const showAdmins = can('manage_admins')
-  // Sistem duyurusu ve botlar YALNIZCA süper admin (sunucu da aynısını zorlar).
+  // Sistem duyurusu, botlar ve coinler YALNIZCA süper admin (sunucu da aynısını zorlar).
   const showAnnounce = access.isSuperAdmin
   const showBots = access.isSuperAdmin
+  const showCoins = access.isSuperAdmin
   const tabs = useMemo(() => {
-    const list: { id: 'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots'; label: string }[] = [
+    const list: { id: 'overview' | 'users' | 'forum' | 'admins' | 'announce' | 'bots' | 'coins'; label: string }[] = [
       { id: 'overview', label: 'Genel Bakış' },
       { id: 'users', label: 'Kullanıcılar' },
     ]
@@ -110,8 +120,9 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     if (showAdmins) list.push({ id: 'admins', label: 'Yöneticiler' })
     if (showAnnounce) list.push({ id: 'announce', label: 'Duyurular' })
     if (showBots) list.push({ id: 'bots', label: 'Botlar' })
+    if (showCoins) list.push({ id: 'coins', label: 'Coinler' })
     return list
-  }, [showForum, showAdmins, showAnnounce, showBots])
+  }, [showForum, showAdmins, showAnnounce, showBots, showCoins])
 
   // Süper admin hedef dokunulmazlığı: süper admin satırlarına yalnız
   // süper admin dokunur (sunucu da aynı kuralı zorunlu kılar).
@@ -446,12 +457,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                             className="h-9 w-9 shrink-0 rounded-full object-cover"
                           />
                         ) : (
-                          <span
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-sm font-extrabold text-exchange-yellow"
-                            aria-hidden
-                          >
-                            {(u.username.charAt(0) || '?').toUpperCase()}
-                          </span>
+                          <DefaultAvatar size="md" />
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-bold text-exchange-text">
@@ -591,12 +597,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                                 className="h-8 w-8 shrink-0 rounded-full object-cover"
                               />
                             ) : (
-                              <span
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-exchange-yellow/15 text-xs font-extrabold text-exchange-yellow"
-                                aria-hidden
-                              >
-                                {(u.username.charAt(0) || '?').toUpperCase()}
-                              </span>
+                              <DefaultAvatar size="sm" />
                             )}
                             <div className="min-w-0">
                               <div className="truncate font-bold text-exchange-text">{u.username}</div>
@@ -725,6 +726,17 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
             className={cn(activeTab === 'bots' ? 'block' : 'hidden')}
           >
             <BotTestPanel />
+          </div>
+        )}
+
+        {/* Coin Yönetimi: altcoin promote/demote + haberler (yalnızca süper admin) */}
+        {showCoins && (
+          <div
+            role="tabpanel"
+            aria-label="Coinler"
+            className={cn(activeTab === 'coins' ? 'block' : 'hidden')}
+          >
+            <CoinManager />
           </div>
         )}
 
@@ -1213,6 +1225,308 @@ function BotTestPanel() {
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+function CoinManager() {
+  const pushToast = useToastStore((s) => s.push)
+  const [coins, setCoins] = useState<VirtualCoin[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busySymbol, setBusySymbol] = useState<string | null>(null)
+  const [expandedCoin, setExpandedCoin] = useState<string | null>(null)
+  const [coinNews, setCoinNews] = useState<Record<string, CoinNewsItem[]>>({})
+  const [newsLoading, setNewsLoading] = useState<Set<string>>(new Set())
+  const [overrides, setOverrides] = useState<Record<string, CoinStatus>>({})
+  const [newSymbol, setNewSymbol] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [virtual, rows] = await Promise.all([listVirtualCoins(), listCoinOverrides()])
+      setCoins(virtual)
+      setOverrides(Object.fromEntries(rows.map((r) => [r.symbol, r.status])))
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Coinler yüklenemedi.', tone: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }, [pushToast])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const loadNews = useCallback(async (symbol: string) => {
+    setNewsLoading((prev) => new Set([...prev, symbol]))
+    try {
+      const news = await listCoinNews(symbol)
+      setCoinNews((prev) => ({ ...prev, [symbol]: news }))
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Haberler yüklenemedi.', tone: 'error' })
+    } finally {
+      setNewsLoading((prev) => {
+        const next = new Set(prev)
+        next.delete(symbol)
+        return next
+      })
+    }
+  }, [pushToast])
+
+  const handleExpand = (symbol: string) => {
+    setExpandedCoin((prev) => {
+      if (prev === symbol) return null
+      void loadNews(symbol)
+      return symbol
+    })
+  }
+
+  /** Efektif durum: override varsa o, yoksa sanal havuz satırı. */
+  const effectiveStatus = useCallback(
+    (symbol: string, fallback: CoinStatus = 'normal'): CoinStatus =>
+      overrides[symbol.toUpperCase()] ?? fallback,
+    [overrides],
+  )
+
+  const applyStatusResult = useCallback((symbol: string, status: CoinStatus) => {
+    const key = symbol.toUpperCase()
+    setOverrides((prev) => ({ ...prev, [key]: status }))
+    setCoins((list) => list.map((c) => (c.symbol === key ? { ...c, status } : c)))
+  }, [])
+
+  const changeStatus = async (symbol: string, status: CoinStatus) => {
+    if (busySymbol) return
+    setBusySymbol(symbol)
+    try {
+      const res = await updateCoinStatus(symbol, status)
+      applyStatusResult(res.coin.symbol || symbol, res.coin.status)
+      pushToast({ message: `${symbol.toUpperCase()} durumu "${status}" olarak güncellendi.`, tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Durum güncellenemedi.', tone: 'error' })
+    } finally {
+      setBusySymbol(null)
+    }
+  }
+
+  const addNews = async (symbol: string, title: string, body: string) => {
+    if (busySymbol) return
+    setBusySymbol(symbol)
+    try {
+      const res = await updateCoinStatus(
+        symbol,
+        effectiveStatus(symbol, coins.find((c) => c.symbol === symbol.toUpperCase())?.status ?? 'normal'),
+        title,
+        body,
+      )
+      applyStatusResult(res.coin.symbol || symbol, res.coin.status)
+      pushToast({ message: `${symbol.toUpperCase()} için haber eklendi.`, tone: 'success' })
+      // Reload news for this coin
+      void loadNews(symbol.toUpperCase())
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Haber eklenemedi.', tone: 'error' })
+    } finally {
+      setBusySymbol(null)
+    }
+  }
+
+  /** Listede olmayan herhangi bir sembolü yönetime ekle (örn. BTCUSDT). */
+  const addSymbol = async () => {
+    const clean = newSymbol.trim().toUpperCase()
+    if (!clean || busySymbol) return
+    setBusySymbol(clean)
+    try {
+      const res = await updateCoinStatus(clean, 'normal')
+      applyStatusResult(res.coin.symbol || clean, res.coin.status)
+      setNewSymbol('')
+      setExpandedCoin(clean)
+      void loadNews(clean)
+      pushToast({ message: `${clean} yönetime eklendi.`, tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Sembol eklenemedi.', tone: 'error' })
+    } finally {
+      setBusySymbol(null)
+    }
+  }
+
+  const handleDeleteNews = async (newsId: string, symbol: string) => {
+    if (busySymbol) return
+    setBusySymbol(symbol)
+    try {
+      await deleteCoinNews(newsId)
+      pushToast({ message: 'Haber silindi.', tone: 'success' })
+      void loadNews(symbol)
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Haber silinemedi.', tone: 'error' })
+    } finally {
+      setBusySymbol(null)
+    }
+  }
+
+  const statusLabel = (s: CoinStatus) => ({
+    normal: 'Normal',
+    promoted: 'Öne Çıkan (Promote)',
+    demoted: 'Gizli (Demote)',
+  })[s]
+
+  const statusColor = (s: CoinStatus) =>
+    s === 'promoted' ? 'text-exchange-buy' : s === 'demoted' ? 'text-exchange-sell' : 'text-exchange-muted'
+
+  const statusVariant = (s: CoinStatus) =>
+    s === 'promoted' ? 'buy' : s === 'demoted' ? 'sell' : 'default'
+
+  if (loading && coins.length === 0) {
+    return (
+      <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+        <div className="px-3 py-8 text-center text-sm text-exchange-muted">Coinler yükleniyor…</div>
+      </div>
+    )
+  }
+
+  // Birleştirilmiş satırlar: sanal coinler + yalnızca override'ı olan
+  // semboller (örn. BTCUSDT). Böylece TÜM coinler yönetilebilir.
+  const virtualKeys = new Set(coins.map((c) => c.symbol.toUpperCase()))
+  const extraSymbols = Object.keys(overrides).filter((s) => !virtualKeys.has(s)).sort()
+  const rows: { symbol: string; name: string; detail: string | null; status: CoinStatus }[] = [
+    ...coins.map((c) => ({
+      symbol: c.symbol.toUpperCase(),
+      name: c.name,
+      detail: `Fiyat: ${c.currentPrice.toFixed(c.currentPrice < 1 ? 6 : 4)} | Havuz: ${c.reserveUsdt.toLocaleString()} USDT`,
+      status: effectiveStatus(c.symbol, c.status),
+    })),
+    ...extraSymbols.map((s) => ({
+      symbol: s,
+      name: 'Piyasa sembolü',
+      detail: null,
+      status: overrides[s] ?? 'normal',
+    })),
+  ]
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+      <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
+        <h2 className="text-sm font-bold text-exchange-text">Coin Yönetimi</h2>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
+          TÜM coinlerde durum değiştir (promote/demote) ve coin bazlı haber ekle. Yükseltilenler
+          Piyasalar'da en üstte rozetli, düşürülenler en altta görünür; haberler işlem ekranında gösterilir.
+        </p>
+        <div className="mt-2 flex min-w-0 items-center gap-2">
+          <input
+            value={newSymbol}
+            onChange={(e) => setNewSymbol(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void addSymbol()
+            }}
+            placeholder="Sembol ekle… (örn. BTCUSDT)"
+            aria-label="Yönetime sembol ekle"
+            disabled={busySymbol !== null}
+            className="h-9 min-w-0 flex-1 rounded-lg border border-exchange-border bg-exchange-bg px-3 font-mono text-xs text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70 sm:max-w-60"
+          />
+          <Button size="sm" onClick={() => void addSymbol()} disabled={busySymbol !== null || !newSymbol.trim()}>
+            {busySymbol ? '…' : '+ Ekle'}
+          </Button>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="px-3 py-8 text-center text-sm text-exchange-muted">Henüz coin tanımlı değil.</div>
+      ) : (
+        <ul>
+          {rows.map((coin) => (
+            <li key={coin.symbol} className="border-b border-exchange-border/50 px-3 py-3 last:border-0 sm:px-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-exchange-text">{coin.symbol}</span>
+                    <span className="text-xs text-exchange-muted">{coin.name}</span>
+                    <span
+                      className={cn('text-xs font-bold uppercase', statusColor(coin.status))}
+                    >
+                      {statusLabel(coin.status)}
+                    </span>
+                  </div>
+                  {coin.detail && (
+                    <div className="mt-1 text-[11px] text-exchange-muted font-mono">
+                      {coin.detail}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap shrink-0 gap-1.5">
+                  {(['normal', 'promoted', 'demoted'] as const).map((s) => (
+                    <Button
+                      key={s}
+                      size="sm"
+                      variant={coin.status === s ? statusVariant(s) : 'outline'}
+                      onClick={() => void changeStatus(coin.symbol, s)}
+                      disabled={busySymbol !== null}
+                      className="whitespace-nowrap"
+                    >
+                      {busySymbol === coin.symbol ? '…' : statusLabel(s)}
+                    </Button>
+                  ))}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const title = prompt('Haber başlığı (max 200 krk):')
+                      if (!title) return
+                      const body = prompt('Haber metni (max 2000 krk):')
+                      if (!body) return
+                      void addNews(coin.symbol, title, body)
+                    }}
+                    disabled={busySymbol !== null}
+                    className="whitespace-nowrap"
+                  >
+                    {busySymbol === coin.symbol ? '…' : 'Haber Ekle'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleExpand(coin.symbol)}
+                    disabled={busySymbol !== null}
+                    className="whitespace-nowrap"
+                  >
+                    {expandedCoin === coin.symbol ? 'Gizle' : 'Haberler'}
+                  </Button>
+                </div>
+              </div>
+              {expandedCoin === coin.symbol && (
+                <div className="mt-3 ml-3 border-l-2 border-exchange-border/30 pl-3 space-y-2">
+                  {newsLoading.has(coin.symbol) ? (
+                    <div className="text-xs text-exchange-muted">Haberler yükleniyor…</div>
+                  ) : coinNews[coin.symbol]?.length === 0 ? (
+                    <div className="text-xs font-bold text-exchange-muted">Bu coin için henüz haber yok.</div>
+                  ) : (
+                    coinNews[coin.symbol]!.map((news) => (
+                      <div
+                        key={news.id}
+                        className="bg-exchange-bg/50 rounded-xl p-2.5 border border-exchange-border/30"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-bold text-exchange-text">{news.title}</div>
+                            <div className="mt-1 text-xs leading-relaxed text-exchange-muted">{news.body}</div>
+                            <div className="mt-1 font-mono text-[10px] text-exchange-muted">
+                              {new Date(news.createdAt).toLocaleString('tr-TR')}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="sell"
+                            onClick={() => void handleDeleteNews(news.id, coin.symbol)}
+                            disabled={busySymbol !== null}
+                            className="whitespace-nowrap shrink-0"
+                          >
+                            Sil
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { isSupabaseConfigured, supabase } from '@/lib/supabase'
+﻿import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { getSessionUser } from '@/services/authService'
 
 /**
@@ -228,6 +228,34 @@ export function isVerifiedUsername(username: string): boolean {
   return username.trim().toLowerCase() === 'deniztradex'
 }
 
+/**
+ * Bot personaları (4 bot): Elon Musk, Faik Erdem, İlham/İhsan Memiş,
+ * Kripto Kaplanı. Forumda default insan silüeti + mavi tik (admin rozeti)
+ * ile görünürler — uzak modda `post_bot_message` bunu basar, yerel
+ * modda aşağıdaki kural taşır.
+ */
+export const BOT_USERNAMES = [
+  'elon musk',
+  'faik erdem',
+  'ilham memiş',
+  'ihsan memiş',
+  'kripto kaplanı',
+] as const
+
+/**
+ * Bot adı normalizasyonu: JS `toLowerCase()` dotted büyük `İ`'yi `i̇`
+ * (i + birleşen nokta) yapar, düz `i` ile eşleşmez. Önce `İ→i` eşlenip
+ * kalan birleşen noktalar silinir — "İlham"/"ilham"/"ILHAM" hep tutar.
+ */
+function normalizeBotName(username: string): string {
+  return username.trim().replace(/İ/g, 'i').toLowerCase().replace(/̇/g, '')
+}
+
+/** Bot hesabı mı? (mavi tik + default avatar) */
+export function isBotUsername(username: string): boolean {
+  return (BOT_USERNAMES as readonly string[]).includes(normalizeBotName(username))
+}
+
 // ---------------------------------------------------------------
 // Yerel (çevrimdışı/test) arka uç
 // ---------------------------------------------------------------
@@ -296,6 +324,13 @@ function ensureLocalSeed(): LocalStoredPost[] {
   return seed
 }
 
+/** Yerel mod rozet kararı: sistem → super (sarı), bot → admin (mavi). */
+function localVerifiedTier(username: string, rawUsername: string): VerifiedTier {
+  if (isVerifiedUsername(username) || isVerifiedUsername(rawUsername)) return 'super'
+  if (isBotUsername(username) || isBotUsername(rawUsername)) return 'admin'
+  return 'none'
+}
+
 function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
   const username = forumDisplayName(row.username, row.userId)
   return {
@@ -306,8 +341,8 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
     likeCount: row.likedBy.length,
     likedByMe: myId !== null && row.likedBy.includes(myId),
     replyCount: row.replies.length,
-    verifiedTier: isVerifiedUsername(username) || isVerifiedUsername(row.username) ? 'super' : 'none',
-    // Yerel modda profil fotoğrafı yok — baş harf gösterilir.
+    verifiedTier: localVerifiedTier(username, row.username),
+    // Profil fotoğrafı yok → default insan silüeti gösterilir.
     avatarUrl: null,
     createdAt: row.createdAt,
   }
@@ -321,7 +356,7 @@ function toForumReply(postId: string, row: LocalStoredReply): ForumReply {
     userId: row.userId,
     username,
     content: row.content,
-    verifiedTier: isVerifiedUsername(username) || isVerifiedUsername(row.username) ? 'super' : 'none',
+    verifiedTier: localVerifiedTier(username, row.username),
     avatarUrl: null,
     createdAt: row.createdAt,
   }
