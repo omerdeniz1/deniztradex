@@ -302,6 +302,65 @@ describe('ortalama maliyet (spot + sanal)', () => {
   })
 })
 
+describe('sanal pending + TP/SL (AMM askıdaki emirler)', () => {
+  it('bekleyen emir bırakır, alır ve iptal eder', () => {
+    const s = useTradeStore.getState()
+    const order = s.placeVirtualPending({
+      symbol: 'ENTES',
+      side: 'buy',
+      amount: 100,
+      limitPrice: 9,
+      tpPrice: null,
+      slPrice: null,
+    })
+    expect(useTradeStore.getState().virtualPending).toHaveLength(1)
+    const taken = useTradeStore.getState().takeVirtualPending(order.id)
+    expect(taken).toMatchObject({ symbol: 'ENTES', limitPrice: 9 })
+    expect(useTradeStore.getState().virtualPending).toHaveLength(0)
+    expect(useTradeStore.getState().takeVirtualPending(order.id)).toBeNull()
+    const order2 = useTradeStore.getState().placeVirtualPending({
+      symbol: 'ENTES',
+      side: 'sell',
+      amount: 5,
+      limitPrice: 11,
+      tpPrice: null,
+      slPrice: null,
+    })
+    useTradeStore.getState().cancelVirtualPending(order2.id)
+    expect(useTradeStore.getState().virtualPending).toHaveLength(0)
+  })
+
+  it('TP/SL lotu ekler, alır ve iptal eder', () => {
+    const lot = useTradeStore.getState().addVirtualTpSl({
+      symbol: 'ENTES',
+      quantity: 10,
+      tpPrice: 12,
+      slPrice: 8,
+    })
+    expect(useTradeStore.getState().virtualTpSl).toHaveLength(1)
+    const taken = useTradeStore.getState().takeVirtualTpSl(lot.id)
+    expect(taken).toMatchObject({ quantity: 10, tpPrice: 12 })
+    expect(useTradeStore.getState().virtualTpSl).toHaveLength(0)
+    const lot2 = useTradeStore.getState().addVirtualTpSl({
+      symbol: 'ENTES',
+      quantity: 5,
+      tpPrice: null,
+      slPrice: 7,
+    })
+    useTradeStore.getState().cancelVirtualTpSl(lot2.id)
+    expect(useTradeStore.getState().virtualTpSl).toHaveLength(0)
+  })
+
+  it('resetWallet sanal kuyrukları temizler', () => {
+    const s = useTradeStore.getState()
+    s.placeVirtualPending({ symbol: 'ENTES', side: 'buy', amount: 1, limitPrice: 1, tpPrice: null, slPrice: null })
+    s.addVirtualTpSl({ symbol: 'ENTES', quantity: 1, tpPrice: 2, slPrice: null })
+    s.resetWallet()
+    expect(useTradeStore.getState().virtualPending).toHaveLength(0)
+    expect(useTradeStore.getState().virtualTpSl).toHaveLength(0)
+  })
+})
+
 describe('redeemPromo', () => {
   it('adds bonus USDT for a valid unused code (case-insensitive)', () => {
     const result = useTradeStore.getState().redeemPromo('DNZTRD100')

@@ -82,6 +82,34 @@ export interface SpotPosition {
   openedAt: number
 }
 
+/**
+ * Bekleyen sanal limit emir (AMM): piyasa limit fiyata değince havuzda
+ * gerçekleşir. `amount` alışta USDT, satışta token adedidir.
+ */
+export interface VirtualPendingOrder {
+  id: string
+  symbol: string
+  side: 'buy' | 'sell'
+  amount: number
+  limitPrice: number
+  tpPrice?: number | null
+  slPrice?: number | null
+  at: number
+}
+
+/**
+ * Sanal TP/SL lotu: AMM'den alınan miktara bağlı oto-satış.
+ * Havuz fiyatı hedefe değince watchdog `executeVirtualTrade` ile satar.
+ */
+export interface VirtualTpSl {
+  id: string
+  symbol: string
+  quantity: number
+  tpPrice?: number | null
+  slPrice?: number | null
+  openedAt: number
+}
+
 /** Base coin of a pair, e.g. BTCUSDT -> BTC. */
 function coinOf(symbol: string): string {
   return symbol.replace(/USDT$/i, '').toUpperCase()
@@ -149,6 +177,10 @@ interface TradeState {
   virtualAvgCosts: Record<string, number>
   spotTrades: SpotTrade[]
   spotPositions: SpotPosition[]
+  /** Bekleyen sanal limit emirler (havuz fiyatı hedefe değince gerçekleşir). */
+  virtualPending: VirtualPendingOrder[]
+  /** Sanal TP/SL lotları (hedefe değince havuzda oto-satılır). */
+  virtualTpSl: VirtualTpSl[]
 
   deposit: (amount: number, source?: DepositRecord['source']) => void
   withdraw: (amount: number) => void
@@ -195,6 +227,16 @@ interface TradeState {
     usdtValue: number,
     prevHoldingQty?: number,
   ) => void
+  /** Bekleyen sanal limit emir bırakır (havuz hedefe değince watchdog işletir). */
+  placeVirtualPending: (input: Omit<VirtualPendingOrder, 'id' | 'at'>) => VirtualPendingOrder
+  cancelVirtualPending: (id: string) => void
+  /** Watchdog ateşlemesi: emri listeden düşer (icra çağrısı yapmaz). */
+  takeVirtualPending: (id: string) => VirtualPendingOrder | null
+  /** Sanal TP/SL lotu ekler (alışa bağlı oto-satış). */
+  addVirtualTpSl: (input: Omit<VirtualTpSl, 'id' | 'openedAt'>) => VirtualTpSl
+  /** Watchdog satışı: lotu listeden düşer (icra çağrısı yapmaz). */
+  takeVirtualTpSl: (id: string) => VirtualTpSl | null
+  cancelVirtualTpSl: (id: string) => void
   setBalance: (value: number) => void
   resetWallet: () => void
   /**
@@ -229,6 +271,8 @@ const initialState = {
   virtualAvgCosts: {},
   spotTrades: [],
   spotPositions: [],
+  virtualPending: [],
+  virtualTpSl: [],
 }
 
 export const useTradeStore = create<TradeState>()(
@@ -734,6 +778,42 @@ export const useTradeStore = create<TradeState>()(
       setBalance: (value) => {
         if (!Number.isFinite(value) || value < 0) return
         set({ balance: roundTo(value) })
+      },
+
+      placeVirtualPending: (input) => {
+        const order: VirtualPendingOrder = { ...input, id: makeId('vp'), at: Date.now() }
+        set((s) => ({ virtualPending: [...s.virtualPending, order] }))
+        return order
+      },
+
+      cancelVirtualPending: (id) => {
+        set((s) => ({ virtualPending: s.virtualPending.filter((o) => o.id !== id) }))
+      },
+
+      takeVirtualPending: (id) => {
+        const found = get().virtualPending.find((o) => o.id === id) ?? null
+        if (found) {
+          set((s) => ({ virtualPending: s.virtualPending.filter((o) => o.id !== id) }))
+        }
+        return found
+      },
+
+      addVirtualTpSl: (input) => {
+        const lot: VirtualTpSl = { ...input, id: makeId('vtpsl'), openedAt: Date.now() }
+        set((s) => ({ virtualTpSl: [...s.virtualTpSl, lot] }))
+        return lot
+      },
+
+      takeVirtualTpSl: (id) => {
+        const found = get().virtualTpSl.find((l) => l.id === id) ?? null
+        if (found) {
+          set((s) => ({ virtualTpSl: s.virtualTpSl.filter((l) => l.id !== id) }))
+        }
+        return found
+      },
+
+      cancelVirtualTpSl: (id) => {
+        set((s) => ({ virtualTpSl: s.virtualTpSl.filter((l) => l.id !== id) }))
       },
 
       recordVirtualTrade: (symbol, side, tokenQty, usdtValue, prevHoldingQty = 0) => {

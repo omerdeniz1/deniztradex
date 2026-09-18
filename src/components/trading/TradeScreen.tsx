@@ -16,6 +16,7 @@ import {
   MARGIN_CALL_THROTTLE_MS,
 } from '@/engine/calculations'
 import { getMarkPrice, pushMarkPrice } from '@/engine/markPrice'
+import { executeVirtualTrade, getVirtualHoldings } from '@/services/virtualMarketService'
 import { useRiskParams } from '@/hooks/useRiskParams'
 import { cn, formatCompact, formatNumber, formatPrice } from '@/lib/utils'
 import { boll, ema, lastDefined, sma } from '@/lib/indicators'
@@ -83,6 +84,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   const positions = useTradeStore((s) => s.positions)
   const spotBalances = useTradeStore((s) => s.spotBalances)
   const spotAvgCosts = useTradeStore((s) => s.spotAvgCosts)
+  const virtualPending = useTradeStore((s) => s.virtualPending)
+  const virtualTpSl = useTradeStore((s) => s.virtualTpSl)
   const spotPositions = useTradeStore((s) => s.spotPositions)
   const liquidateIsolated = useTradeStore((s) => s.liquidateIsolated)
   const liquidateCrossAccount = useTradeStore((s) => s.liquidateCrossAccount)
@@ -392,6 +395,109 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       }
     }
   }, [livePrices, spotPositions, marketStatus, closeSpotPosition, pushToast])
+
+  // Sanal AMM watchdog'ları — bekleyen limit emirler + TP/SL lotları havuz
+  // fiyatını izler, hedefe değince `executeVirtualTrade` ile gerçekleşir.
+  // Fiyat kaynağı: canlı soket, yoksa birleşik ticker (sanal coinler dahil).
+  useEffect(() => {
+    if (marketStatus !== 'live') return
+    const store = useTradeStore.getState()
+    const priceOf = (sym: string): number =>
+      livePrices[sym] ?? tickers[sym]?.price ?? 0
+    const holdingOf = async (sym: string): Promise<number> => {
+      try {
+        const h = await getVirtualHoldings()
+        return h[sym] ?? 0
+      } catch {
+        return 0
+      }
+    }
+    for (const o of virtualPending) {
+      const px = priceOf(o.symbol)
+      if (!(px > 0)) continue
+      const hit = o.side === 'buy' ? px <= o.limitPrice : px >= o.limitPrice
+      if (!hit) continue
+      const taken = store.takeVirtualPending(o.id)
+      if (!taken) continue
+      void (async () => {
+        try {
+          const res = await executeVirtualTrade(taken.symbol, taken.side, taken.amount)
+          try {
+            const prevQty = await holdingOf(taken.symbol)
+            store.recordVirtualTrade(
+              taken.symbol,
+              taken.side,
+              taken.side === 'buy' ? res.tokenAmount : taken.amount,
+              taken.side === 'buy' ? taken.amount : res.usdtAmount,
+              prevQty,
+            )
+          } catch {
+            // best effort — işlem gerçekleşti
+          }
+          if (taken.side === 'buy' && (taken.tpPrice || taken.slPrice)) {
+            store.addVirtualTpSl({
+              symbol: taken.symbol,
+              quantity: res.tokenAmount,
+              tpPrice: taken.tpPrice ?? null,
+              slPrice: taken.slPrice ?? null,
+            })
+          }
+          pushToast({
+            message: `${taken.symbol} — Askıdaki limit emir gerçekleşti.`,
+            tone: 'success',
+          })
+        } catch (err) {
+          // Bakiye/havuz yetmediyse emri geri park et, kullanıcı bilgilensin.
+          store.placeVirtualPending({
+            symbol: taken.symbol,
+            side: taken.side,
+            amount: taken.amount,
+            limitPrice: taken.limitPrice,
+            tpPrice: taken.tpPrice ?? null,
+            slPrice: taken.slPrice ?? null,
+          })
+          pushToast({
+            message: err instanceof Error ? err.message : 'Sanal emir gerçekleşemedi.',
+            tone: 'error',
+          })
+        }
+      })()
+    }
+    for (const lot of virtualTpSl) {
+      const px = priceOf(lot.symbol)
+      if (!(px > 0)) continue
+      const slHit = lot.slPrice != null && px <= lot.slPrice
+      const tpHit = !slHit && lot.tpPrice != null && px >= lot.tpPrice
+      if (!slHit && !tpHit) continue
+      const taken = store.takeVirtualTpSl(lot.id)
+      if (!taken) continue
+      void (async () => {
+        try {
+          const held = await holdingOf(taken.symbol)
+          const qty = Math.min(taken.quantity, held)
+          if (!(qty > 0)) return
+          const res = await executeVirtualTrade(taken.symbol, 'sell', qty)
+          pushToast({
+            message: slHit
+              ? `${taken.symbol} — Oto-Zarar Durdur tetiklendi (${formatPrice(res.usdtAmount)} USDT).`
+              : `${taken.symbol} — Oto-Kar Al tetiklendi (${formatPrice(res.usdtAmount)} USDT).`,
+            tone: slHit ? 'info' : 'success',
+          })
+        } catch (err) {
+          store.addVirtualTpSl({
+            symbol: taken.symbol,
+            quantity: taken.quantity,
+            tpPrice: taken.tpPrice ?? null,
+            slPrice: taken.slPrice ?? null,
+          })
+          pushToast({
+            message: err instanceof Error ? err.message : 'Sanal TP/SL satılamadı.',
+            tone: 'error',
+          })
+        }
+      })()
+    }
+  }, [livePrices, tickers, virtualPending, virtualTpSl, marketStatus, pushToast])
 
   // Pending-order watchdog — fires limit / stop / OCO legs and trails the
   // stopping orders as the market moves, all against the dedicated per-symbol
@@ -737,7 +843,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             Sanal sembolde AMM paneli, gerçekte standart panel. */}
         <aside className="hidden max-w-full border-t border-exchange-border bg-exchange-surface md:block md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
           {isVirtual ? (
-            <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} />
+            <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} marketPrice={livePrices[symbol]} />
           ) : (
             <TradingPanel
               key={symbol}
@@ -805,6 +911,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                   <VirtualTradePanel
                     key={`v-${symbol}-${sheetSide}`}
                     symbol={symbol}
+                    marketPrice={livePrices[symbol]}
                     initialSide={sheetSide === 'sell' || sheetSide === 'short' ? 'sell' : 'buy'}
                     onSubmitted={() => setSheetSide(null)}
                     lockedSide
