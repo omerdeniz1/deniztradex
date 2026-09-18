@@ -65,7 +65,7 @@ async function login(page, vp, identifier, pass) {
 }
 
 async function openUserMenu(page) {
-  await page.locator('header button[aria-haspopup="menu"]').click()
+  await page.locator('header button[aria-haspopup="menu"]').last().click()
 }
 
 async function redeemPromo(page, vp) {

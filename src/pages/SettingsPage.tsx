@@ -49,6 +49,8 @@ export function SettingsPage() {
 
         <AvatarSection />
 
+        <UsernameSection />
+
         <PasswordSection />
 
         <section className="rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:p-6">
@@ -154,6 +156,129 @@ function AvatarSection() {
           )}
         </div>
       </div>
+    </section>
+  )
+}
+
+function UsernameSection() {
+  const user = useAuthStore((s) => s.user)
+  const changeUsername = useAuthStore((s) => s.changeUsername)
+  const pushToast = useToastStore((s) => s.push)
+  const [name, setName] = useState(user?.username ?? '')
+  const [tag, setTag] = useState(user?.userTag ?? '')
+  const [busy, setBusy] = useState(false)
+  // Şifre menüsüyle aynı açılır yapı.
+  const [open, setOpen] = useState(false)
+
+  if (!user) return null
+
+  const onSave = async () => {
+    if (busy) return
+    const nextName = name.trim()
+    if (!nextName) {
+      pushToast({ message: 'Kullanıcı adı boş olamaz.', tone: 'error' })
+      return
+    }
+    setBusy(true)
+    try {
+      await changeUsername(nextName, tag)
+      pushToast({ message: 'Kullanıcı adın güncellendi.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Güncellenemedi.', tone: 'error' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls="username-body"
+        className="flex w-full items-center gap-3 p-5 text-left transition-colors active:scale-[0.99] sm:p-6"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold uppercase tracking-wide text-exchange-muted">
+            Kullanıcı Adı Değiştir
+          </span>
+          <span className="mt-1 block truncate text-xs text-exchange-muted">
+            <span className="font-bold text-exchange-text">{user.username}</span>
+            {user.userTag ? (
+              <span className="ml-1.5 rounded-full bg-exchange-yellow/15 px-2 py-0.5 text-[10px] font-bold text-exchange-yellow">
+                {user.userTag}
+              </span>
+            ) : (
+              ' — forum etiketin yok'
+            )}
+          </span>
+        </span>
+        <span
+          aria-hidden
+          className={cn('shrink-0 text-xs text-exchange-muted transition-transform', open && 'rotate-180')}
+        >
+          ▼
+        </span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            id="username-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="grid gap-3 px-5 pb-5 sm:px-6 sm:pb-6">
+              <div className="min-w-0">
+                <label htmlFor="username-next" className="mb-1 block text-xs font-semibold text-exchange-muted">
+                  Yeni kullanıcı adı (en az 3 karakter)
+                </label>
+                <input
+                  id="username-next"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={20}
+                  autoComplete="username"
+                  disabled={busy}
+                  placeholder={user.username}
+                  className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+                />
+              </div>
+              <div className="min-w-0">
+                <label htmlFor="username-tag" className="mb-1 block text-xs font-semibold text-exchange-muted">
+                  Forum etiketi (isim altında görünür, opsiyonel — en fazla 24 karakter)
+                </label>
+                <input
+                  id="username-tag"
+                  value={tag}
+                  onChange={(e) => setTag(e.target.value)}
+                  maxLength={24}
+                  disabled={busy}
+                  placeholder="örn. Balina, Analist, Fenomen"
+                  className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+                />
+                {tag.trim() && (
+                  <p className="mt-1.5 text-xs text-exchange-muted">
+                    Önizleme:{' '}
+                    <span className="font-bold text-exchange-text">{name.trim() || user.username}</span>{' '}
+                    <span className="rounded-full bg-exchange-yellow/15 px-2 py-0.5 text-[10px] font-bold text-exchange-yellow">
+                      {tag.trim().slice(0, 24)}
+                    </span>
+                  </p>
+                )}
+              </div>
+              <div>
+                <Button size="md" onClick={() => void onSave()} disabled={busy}>
+                  {busy ? 'Güncelleniyor…' : 'Kullanıcı Adını Güncelle'}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   )
 }

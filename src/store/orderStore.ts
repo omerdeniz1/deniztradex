@@ -101,7 +101,11 @@ export const useOrderStore = create<OrderState>()(
   placeOrder: (n) => {
     const mk = n.marketPrice || 0
     const buy = n.side === 'buy' || n.side === 'long'
-    const mkb = (P: number) => (buy ? P >= n.entryPrice : P <= n.entryPrice)
+    // Piyasayı anında kesen limit: ALIŞTA giriş fiyatı piyasanın
+    // üstündeyse (daha pahalıya razı), SATIŞTA altındaysa (daha ucuza
+    // razı) emir beklemez, o anda gerçekleşir. Tersiyse deftere yazılır.
+    // (TradingPanel'deki `crossesNow` kuralıyla birebir aynıdır.)
+    const mkb = (P: number) => (buy ? n.entryPrice >= P : n.entryPrice <= P)
 
     if (n.orderType === 'market') {
       if (n.postOnly) {

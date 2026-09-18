@@ -1,9 +1,11 @@
 import { create } from 'zustand'
 import {
   getSessionUser,
+  getLocalUserTag,
   login as serviceLogin,
   logout as serviceLogout,
   register as serviceRegister,
+  changeUsername as serviceChangeUsername,
   updateSessionAvatarUrl,
 } from '@/services/authService'
 import { getProfileBalanceWithRetry, fetchUsedPromos, claimPromoRemote } from '@/services/supabaseWallet'
@@ -24,6 +26,8 @@ interface AuthState {
   logout: () => void
   /** Profil fotoğrafı değişince oturumu + arayüzü tazeler. */
   setAvatarUrl: (url: string | null) => void
+  /** Kullanıcı adı + forum etiketi değiştirir (Ayarlar ekranı). */
+  changeUsername: (username: string, tag?: string) => Promise<User>
 }
 
 /**
@@ -77,7 +81,10 @@ export const useAuthStore = create<AuthState>()((set) => ({
   user: getSessionUser(),
 
   login: async (identifier, password) => {
-    const user = await serviceLogin(identifier, password)
+    const logged = await serviceLogin(identifier, password)
+    // Yerel mod etiketi oturuma işle (Supabase modunda servisten gelir).
+    const localTag = !logged.userTag ? getLocalUserTag(logged.id) : null
+    const user = localTag ? { ...logged, userTag: localTag } : logged
     set({ user })
     // Yerel cüzdan (ve yerel promo listesi) önce yüklensin ki sunucuyla
     // eşitlerken migration-öncesi haklar kaybolmasın.
@@ -127,6 +134,14 @@ export const useAuthStore = create<AuthState>()((set) => ({
   setAvatarUrl: (url) => {
     updateSessionAvatarUrl(url)
     set({ user: getSessionUser() })
+  },
+
+  changeUsername: async (username, tag) => {
+    const updated = await serviceChangeUsername(username, tag)
+    // Yerel modda etiket ayrı anahtarda durur — oturuma işle.
+    const localTag = getLocalUserTag(updated.id)
+    set({ user: localTag && !updated.userTag ? { ...updated, userTag: localTag } : updated })
+    return updated
   },
 }))
 

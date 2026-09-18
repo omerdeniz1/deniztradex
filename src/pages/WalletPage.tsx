@@ -16,6 +16,8 @@ export function WalletPage() {
   const withdrawals = useTradeStore((s) => s.withdrawals)
   const redeemedPromos = useTradeStore((s) => s.promos)
   const spotBalances = useTradeStore((s) => s.spotBalances)
+  const spotAvgCosts = useTradeStore((s) => s.spotAvgCosts)
+  const virtualAvgCosts = useTradeStore((s) => s.virtualAvgCosts)
   const redeemPromoAsync = useTradeStore((s) => s.redeemPromoAsync)
   const openDeposit = useUiStore((s) => s.openDeposit)
   const openWithdraw = useUiStore((s) => s.openWithdraw)
@@ -62,24 +64,30 @@ export function WalletPage() {
 
   const holdings = useMemo(() => {
     const rows = [
-      { symbol: 'USDT', qty: balance, price: 1 },
+      { symbol: 'USDT', qty: balance, price: 1, avg: 1 },
       ...Object.entries(spotBalances).map(([coin, qty]) => ({
         symbol: coin,
         qty,
         price: priceOf(coin),
+        avg: spotAvgCosts[coin] ?? 0,
       })),
     ].filter((r) => r.qty > 0)
     return rows.sort((a, b) => b.qty * b.price - a.qty * a.price)
-  }, [spotBalances, balance, priceOf])
+  }, [spotBalances, balance, priceOf, spotAvgCosts])
 
   const totalValue = holdings.reduce((sum, h) => sum + h.qty * h.price, 0)
 
   const virtualRows = useMemo(() => {
     const rows = Object.entries(virtualHoldings)
       .filter(([, qty]) => qty > 0)
-      .map(([coin, qty]) => ({ symbol: coin, qty, price: priceOf(coin) }))
+      .map(([coin, qty]) => ({
+        symbol: coin,
+        qty,
+        price: priceOf(coin),
+        avg: virtualAvgCosts[coin.toUpperCase()] ?? virtualAvgCosts[coin] ?? 0,
+      }))
     return rows.sort((a, b) => b.qty * b.price - a.qty * a.price)
-  }, [virtualHoldings, priceOf])
+  }, [virtualHoldings, priceOf, virtualAvgCosts])
 
   const virtualTotal = virtualRows.reduce((sum, h) => sum + h.qty * h.price, 0)
 
@@ -220,13 +228,15 @@ export function WalletPage() {
         ) : (
           <>
             <div className="max-h-72 overflow-auto">
-              <table className="w-full min-w-[26rem] text-sm">
+              <table className="w-full min-w-[34rem] text-sm">
                 <thead className="sticky top-0 bg-exchange-card">
                   <tr className="border-b border-exchange-border text-xs text-exchange-muted">
                     <th className="px-5 py-2 text-left font-medium">Varlık</th>
                     <th className="px-5 py-2 text-right font-medium">Miktar</th>
+                    <th className="px-5 py-2 text-right font-medium">Ort. Maliyet</th>
                     <th className="px-5 py-2 text-right font-medium">Fiyat (USDT)</th>
                     <th className="px-5 py-2 text-right font-medium">Değer (USDT)</th>
+                    <th className="px-5 py-2 text-right font-medium">K/Z</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -240,10 +250,20 @@ export function WalletPage() {
                         {formatNumber(h.qty, h.symbol === 'USDT' ? 2 : 6)}
                       </td>
                       <td className="px-5 py-2.5 text-right font-mono text-exchange-muted">
+                        {h.symbol === 'USDT' ? '—' : h.avg > 0 ? formatPrice(h.avg) : '—'}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-exchange-muted">
                         {h.symbol === 'USDT' ? '—' : h.price > 0 ? formatPrice(h.price) : '—'}
                       </td>
                       <td className="px-5 py-2.5 text-right font-mono font-semibold text-exchange-text">
                         {formatNumber(h.qty * h.price, 2)}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono">
+                        {h.symbol === 'USDT' || !(h.avg > 0) || !(h.price > 0) ? (
+                          <span className="text-exchange-muted">—</span>
+                        ) : (
+                          <PnlCell qty={h.qty} avg={h.avg} price={h.price} />
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -280,13 +300,15 @@ export function WalletPage() {
         ) : (
           <>
             <div className="max-h-72 overflow-auto">
-              <table className="w-full min-w-[26rem] text-sm">
+              <table className="w-full min-w-[34rem] text-sm">
                 <thead className="sticky top-0 bg-exchange-card">
                   <tr className="border-b border-exchange-border text-xs text-exchange-muted">
                     <th className="px-5 py-2 text-left font-medium">Varlık</th>
                     <th className="px-5 py-2 text-right font-medium">Miktar</th>
+                    <th className="px-5 py-2 text-right font-medium">Ort. Maliyet</th>
                     <th className="px-5 py-2 text-right font-medium">Fiyat (USDT)</th>
                     <th className="px-5 py-2 text-right font-medium">Değer (USDT)</th>
+                    <th className="px-5 py-2 text-right font-medium">K/Z</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -300,10 +322,20 @@ export function WalletPage() {
                         {formatNumber(h.qty, 6)}
                       </td>
                       <td className="px-5 py-2.5 text-right font-mono text-exchange-muted">
+                        {h.avg > 0 ? formatPrice(h.avg) : '—'}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-exchange-muted">
                         {h.price > 0 ? formatPrice(h.price) : '—'}
                       </td>
                       <td className="px-5 py-2.5 text-right font-mono font-semibold text-exchange-text">
                         {formatNumber(h.qty * h.price, 2)}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono">
+                        {!(h.avg > 0) || !(h.price > 0) ? (
+                          <span className="text-exchange-muted">—</span>
+                        ) : (
+                          <PnlCell qty={h.qty} avg={h.avg} price={h.price} />
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -323,8 +355,7 @@ export function WalletPage() {
       <section className="mx-4 mb-4 rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:mx-6 sm:mb-6 sm:p-6">
         <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
           Promosyon Kodu Kullan
-        </h2>
-        <p className="mt-1 text-xs text-exchange-muted">
+        </h2>        <p className="mt-1 text-xs text-exchange-muted">
           Kodu girip Uygula'ya basın — geçerli kodlara bonus USDT yüklenir. Her kod yalnızca bir kez
           kullanılabilir.
         </p>
@@ -367,5 +398,19 @@ export function WalletPage() {
         </AnimatePresence>
       </section>
     </div>
+  )
+}
+
+/** Ortalama maliyete göre gerçekleşmemiş K/Z hücresi (yeşil/kırmızı). */
+function PnlCell({ qty, avg, price }: { qty: number; avg: number; price: number }) {
+  const pnl = (price - avg) * qty
+  const pct = avg > 0 ? ((price - avg) / avg) * 100 : 0
+  const up = pnl >= 0
+  return (
+    <span className={up ? 'font-semibold text-exchange-buy' : 'font-semibold text-exchange-sell'}>
+      {up ? '+' : ''}
+      {formatNumber(pnl, 2)} ({up ? '+' : ''}
+      {formatNumber(pct, 2)}%)
+    </span>
   )
 }

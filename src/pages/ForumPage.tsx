@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
 import { getMyAdminAccess } from '@/services/adminService'
 import { extractMentions, notifyMentions } from '@/services/notificationService'
+import { uploadForumImageFile, validateForumImageFile } from '@/services/supabaseWallet'
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import {
   FORUM_POST_MAX_LENGTH,
@@ -30,6 +31,10 @@ export function ForumPage() {
   const [draft, setDraft] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [liking, setLiking] = useState<Record<string, boolean>>({})
+  // Fotoğraflı gönderi (twitter tarzı: açıklama zorunlu + opsiyonel foto).
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const myId = getSessionUser()?.id ?? null
 
@@ -157,12 +162,30 @@ export function ForumPage() {
 
   const publish = async () => {
     if (publishing || !draft.trim()) return
+    const myId = getSessionUser()?.id ?? null
+    if (!myId) {
+      pushToast({ message: 'Gönderi paylaşmak için giriş yapmalısın.', tone: 'error' })
+      return
+    }
     setPublishing(true)
     const text = draft
+    const file = imageFile
     try {
-      const post = await createForumPost(text)
+      // Fotoğraf önce yüklenir (max 10MB kapısı upload öncesi de denetlenir).
+      let imageUrl: string | null = null
+      if (file) {
+        try {
+          imageUrl = await uploadForumImageFile(myId, file)
+        } catch (err) {
+          pushToast({ message: err instanceof Error ? err.message : 'Fotoğraf yüklenemedi.', tone: 'error' })
+          setPublishing(false)
+          return
+        }
+      }
+      const post = await createForumPost(text, { imageUrl })
       setPosts((prev) => [post, ...prev])
       setDraft('')
+      clearImage()
       pushToast({ message: 'Gönderin paylaşıldı.', tone: 'success' })
       // Etiketlenenlere bildirim (best-effort, akışı etkilemez).
       void notifyMentions(extractMentions(text), { postId: post.id, excerpt: text })
@@ -171,6 +194,38 @@ export function ForumPage() {
     } finally {
       setPublishing(false)
     }
+  }
+
+  const onPickImage = (file: File | undefined) => {
+    if (!file) return
+    try {
+      validateForumImageFile(file)
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Fotoğraf eklenemedi.', tone: 'error' })
+      return
+    }
+    if (imagePreview) {
+      try {
+        URL.revokeObjectURL(imagePreview)
+      } catch {
+        // yoksay
+      }
+    }
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  const clearImage = () => {
+    if (imagePreview) {
+      try {
+        URL.revokeObjectURL(imagePreview)
+      } catch {
+        // yoksay
+      }
+    }
+    setImageFile(null)
+    setImagePreview(null)
+    if (fileRef.current) fileRef.current.value = ''
   }
 
   const toggleLike = async (post: ForumPost) => {
@@ -240,9 +295,55 @@ export function ForumPage() {
             aria-label="Yeni gönderi"
             className="min-h-20 w-full resize-y rounded-xl border border-exchange-border bg-exchange-card px-3 py-2.5 text-base text-exchange-text outline-none transition-colors focus:border-exchange-yellow placeholder:text-exchange-muted/70 sm:text-sm"
           />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            aria-label="Gönderiye fotoğraf ekle"
+            className="hidden"
+            onChange={(e) => onPickImage(e.target.files?.[0])}
+          />
+          {imagePreview && (
+            <div className="relative mt-2 overflow-hidden rounded-xl border border-exchange-border/60">
+              <img
+                src={imagePreview}
+                alt="Eklenecek fotoğraf önizlemesi"
+                className="max-h-60 w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={clearImage}
+                aria-label="Fotoğrafı kaldır"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-sm font-bold text-white transition-colors hover:bg-black"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span className={cn('shrink-0 font-mono text-xs', remaining < 0 ? 'text-exchange-sell' : 'text-exchange-muted')}>
-              {remaining}
+            <span className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                disabled={publishing}
+                aria-label="Fotoğraf ekle (en fazla 10MB)"
+                title="Fotoğraf ekle (en fazla 10MB)"
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50',
+                  imageFile
+                    ? 'bg-exchange-yellow/15 text-exchange-yellow'
+                    : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-yellow',
+                )}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="9" cy="9" r="2" />
+                  <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+                </svg>
+              </button>
+              <span className={cn('shrink-0 font-mono text-xs', remaining < 0 ? 'text-exchange-sell' : 'text-exchange-muted')}>
+                {remaining}
+              </span>
             </span>
             <Button size="sm" onClick={() => void publish()} disabled={!canPublish} className="shrink-0 whitespace-nowrap px-5">
               {publishing ? 'Paylaşılıyor…' : 'Paylaş'}
@@ -329,6 +430,11 @@ function PostRow({
   const [loadingReplies, setLoadingReplies] = useState(false)
   const [replyDraft, setReplyDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [replyFile, setReplyFile] = useState<File | null>(null)
+  const [replyPreview, setReplyPreview] = useState<string | null>(null)
+  const replyFileRef = useRef<HTMLInputElement>(null)
+  // Instagram tarzı büyütme: avatar ya da gönderi fotoğrafına dokununca.
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
 
   const toggleReplies = async () => {
     const next = !showReplies
@@ -348,12 +454,29 @@ function PostRow({
 
   const sendReply = async () => {
     if (sending || !replyDraft.trim()) return
+    const myId = getSessionUser()?.id ?? null
+    if (!myId) {
+      pushToast({ message: 'Yanıt yazmak için giriş yapmalısın.', tone: 'error' })
+      return
+    }
     setSending(true)
     const text = replyDraft
+    const file = replyFile
     try {
-      const reply = await createForumReply(post.id, text)
+      let imageUrl: string | null = null
+      if (file) {
+        try {
+          imageUrl = await uploadForumImageFile(myId, file)
+        } catch (err) {
+          pushToast({ message: err instanceof Error ? err.message : 'Fotoğraf yüklenemedi.', tone: 'error' })
+          setSending(false)
+          return
+        }
+      }
+      const reply = await createForumReply(post.id, text, { imageUrl })
       setReplies((prev) => [...(prev ?? []), reply])
       setReplyDraft('')
+      clearReplyImage()
       onReplyCount(post.id, 1)
       // Etiketlenenlere bildirim (best-effort, akışı etkilemez).
       void notifyMentions(extractMentions(text), { postId: post.id, replyId: reply.id, excerpt: text })
@@ -362,6 +485,38 @@ function PostRow({
     } finally {
       setSending(false)
     }
+  }
+
+  const onPickReplyImage = (file: File | undefined) => {
+    if (!file) return
+    try {
+      validateForumImageFile(file)
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Fotoğraf eklenemedi.', tone: 'error' })
+      return
+    }
+    if (replyPreview) {
+      try {
+        URL.revokeObjectURL(replyPreview)
+      } catch {
+        // yoksay
+      }
+    }
+    setReplyFile(file)
+    setReplyPreview(URL.createObjectURL(file))
+  }
+
+  const clearReplyImage = () => {
+    if (replyPreview) {
+      try {
+        URL.revokeObjectURL(replyPreview)
+      } catch {
+        // yoksay
+      }
+    }
+    setReplyFile(null)
+    setReplyPreview(null)
+    if (replyFileRef.current) replyFileRef.current.value = ''
   }
 
   const removeReply = async (reply: ForumReply) => {
@@ -402,22 +557,34 @@ function PostRow({
     <li className="border-b border-exchange-border px-3 py-3 last:border-0 sm:px-4">
       <div className="flex min-w-0 items-start gap-2.5">
         {post.avatarUrl ? (
-          <img
-            src={post.avatarUrl}
-            alt=""
-            className="h-9 w-9 shrink-0 rounded-full object-cover"
-          />
+          <button
+            type="button"
+            onClick={() => setLightbox({ src: post.avatarUrl!, alt: `${displayName} profil fotoğrafı` })}
+            aria-label={`${displayName} profil fotoğrafını büyüt`}
+            className="shrink-0 rounded-full transition-transform active:scale-95"
+          >
+            <img
+              src={post.avatarUrl}
+              alt=""
+              className="h-9 w-9 rounded-full object-cover"
+            />
+          </button>
         ) : (
           <DefaultAvatar size="md" />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
-            <span className="flex min-w-0 flex-1 items-center gap-1">
+            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5">
               <span className="truncate text-sm font-bold text-exchange-text">
                 {displayName}
               </span>
               {post.verifiedTier !== 'none' && (
                 <VerifiedBadge tone={post.verifiedTier === 'super' ? 'gold' : 'blue'} />
+              )}
+              {post.userTag && (
+                <span className="max-w-full truncate rounded-full bg-exchange-yellow/15 px-2 py-px text-[10px] font-bold text-exchange-yellow">
+                  {post.userTag}
+                </span>
               )}
             </span>
             <span className="shrink-0 whitespace-nowrap text-[11px] text-exchange-muted">
@@ -439,6 +606,21 @@ function PostRow({
           <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-exchange-text">
             {renderContentWithMentions(post.content)}
           </p>
+          {post.imageUrl && (
+            <button
+              type="button"
+              onClick={() => setLightbox({ src: post.imageUrl!, alt: `${displayName} gönderi fotoğrafı` })}
+              aria-label="Gönderi fotoğrafını büyüt"
+              className="mt-2 block w-full min-w-0 overflow-hidden rounded-xl border border-exchange-border/60 transition-transform active:scale-[0.99]"
+            >
+              <img
+                src={post.imageUrl}
+                alt=""
+                loading="lazy"
+                className="max-h-[26rem] w-full object-cover"
+              />
+            </button>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-1">
             <button
               type="button"
@@ -486,17 +668,24 @@ function PostRow({
                   {(replies ?? []).map((reply) => (
                     <div key={reply.id} className="flex min-w-0 items-start gap-2 py-2">
                       {reply.avatarUrl ? (
-                        <img
-                          src={reply.avatarUrl}
-                          alt=""
-                          className="h-7 w-7 shrink-0 rounded-full object-cover"
-                        />
+                        <button
+                          type="button"
+                          onClick={() => setLightbox({ src: reply.avatarUrl!, alt: `${forumDisplayName(reply.username, reply.userId)} profil fotoğrafı` })}
+                          aria-label="Profil fotoğrafını büyüt"
+                          className="shrink-0 rounded-full transition-transform active:scale-95"
+                        >
+                          <img
+                            src={reply.avatarUrl}
+                            alt=""
+                            className="h-7 w-7 rounded-full object-cover"
+                          />
+                        </button>
                       ) : (
                         <DefaultAvatar size="xs" />
                       )}
                       <div className="min-w-0 flex-1 rounded-xl bg-exchange-surface/60 px-2.5 py-1.5">
                         <div className="flex min-w-0 items-baseline gap-1.5">
-                          <span className="flex min-w-0 flex-1 items-center gap-1">
+                          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5">
                             <span className="truncate text-xs font-bold text-exchange-text">
                               {forumDisplayName(reply.username, reply.userId)}
                             </span>
@@ -505,6 +694,11 @@ function PostRow({
                                 small
                                 tone={reply.verifiedTier === 'super' ? 'gold' : 'blue'}
                               />
+                            )}
+                            {reply.userTag && (
+                              <span className="max-w-full truncate rounded-full bg-exchange-yellow/15 px-1.5 py-px text-[9px] font-bold text-exchange-yellow">
+                                {reply.userTag}
+                              </span>
                             )}
                           </span>
                           <span className="shrink-0 whitespace-nowrap text-[10px] text-exchange-muted">
@@ -524,10 +718,52 @@ function PostRow({
                         <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-exchange-text">
                           {renderContentWithMentions(reply.content)}
                         </p>
+                        {reply.imageUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setLightbox({ src: reply.imageUrl!, alt: 'Yanıt fotoğrafı' })}
+                            aria-label="Yanıt fotoğrafını büyüt"
+                            className="mt-1.5 block w-full min-w-0 overflow-hidden rounded-lg border border-exchange-border/50"
+                          >
+                            <img
+                              src={reply.imageUrl}
+                              alt=""
+                              loading="lazy"
+                              className="max-h-64 w-full object-cover"
+                            />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
                   <div className="flex min-w-0 items-center gap-2 py-1.5">
+                    <input
+                      ref={replyFileRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      aria-label="Yanıta fotoğraf ekle"
+                      className="hidden"
+                      onChange={(e) => onPickReplyImage(e.target.files?.[0])}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => replyFileRef.current?.click()}
+                      disabled={sending}
+                      aria-label="Yanıta fotoğraf ekle (en fazla 10MB)"
+                      title="Fotoğraf ekle (en fazla 10MB)"
+                      className={cn(
+                        'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50',
+                        replyFile
+                          ? 'bg-exchange-yellow/15 text-exchange-yellow'
+                          : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-yellow',
+                      )}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                        <circle cx="9" cy="9" r="2" />
+                        <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+                      </svg>
+                    </button>
                     <input
                       value={replyDraft}
                       onChange={(e) => setReplyDraft(e.target.value)}
@@ -548,13 +784,82 @@ function PostRow({
                       {sending ? '…' : 'Gönder'}
                     </Button>
                   </div>
+                  {replyPreview && (
+                    <div className="relative mb-1.5 ml-9 overflow-hidden rounded-lg border border-exchange-border/60">
+                      <img
+                        src={replyPreview}
+                        alt="Eklenecek fotoğraf önizlemesi"
+                        className="max-h-40 w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={clearReplyImage}
+                        aria-label="Fotoğrafı kaldır"
+                        className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/70 text-xs font-bold text-white hover:bg-black"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>
           )}
         </div>
       </div>
+      {lightbox && (
+        <ImageLightbox
+          src={lightbox.src}
+          alt={lightbox.alt}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </li>
+  )
+}
+
+/**
+ * Instagram tarzı büyütme: karartılmış zeminde ortalanmış fotoğraf.
+ * Mobilde taşmaz (kenar boşluklu, yükseklik sınırlı), zemine/✕/Escape
+ * ile kapanır, arka plan kaymaz.
+ */
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-4"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Kapat"
+        className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg font-bold text-white transition-colors hover:bg-white/20"
+      >
+        ✕
+      </button>
+      <img
+        src={src}
+        alt={alt}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[85dvh] max-w-full rounded-2xl border border-white/10 object-contain shadow-2xl"
+      />
+    </div>
   )
 }
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  runCharacterBot,
   triggerElonMusk,
   triggerFaikErdemBad,
   triggerFaikErdemGood,
@@ -44,7 +45,7 @@ describe('botSimulationService (yerel motor)', () => {
     expect(useTradeStore.getState().balance).toBe(0)
   })
 
-  it('Faik Erdem iyi: kurumsal haber + ENTES alımı', async () => {
+  it('Faik Erdem iyi: sahip ağzından kâr açıklaması + ENTES alımı', async () => {
     const before = await priceOf('ENTES')
     const res = await triggerFaikErdemGood()
 
@@ -53,20 +54,33 @@ describe('botSimulationService (yerel motor)', () => {
     const post = posts.find((p) => p.id === res.postId)!
     expect(post.content).toContain('Faik Erdem')
     expect(post.content).not.toContain('Erdem Holding')
+    // Sahip "yatırım yaptım" demez, kâr/ekosistem açıklar.
+    expect(post.content).not.toContain('yatırım yaptığını duyurdu')
     expect(post).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(await priceOf('ENTES')).toBeGreaterThan(before)
   })
 
-  it('Faik Erdem kötü: övgü + dump (fiyat düşer)', async () => {
+  it('Faik Erdem dengeleme: sahip uyarısı + satış (fiyat düşer)', async () => {
     const before = await priceOf('ENTES')
     const res = await triggerFaikErdemBad()
 
     expect(res.trade!.priceImpactPct).toBeLessThan(0)
     const posts = await listForumPosts()
     const badPost = posts.find((p) => p.id === res.postId)!
-    expect(badPost.content).toContain('harika gidiyor')
+    expect(badPost.content).toContain('Faik Erdem')
+    expect(badPost.content).not.toContain('herkes almalı')
     expect(badPost).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(await priceOf('ENTES')).toBeLessThan(before)
+  })
+
+  it('runCharacterBot: istenen sanal coin + yönde çalışır (emtia dahil)', async () => {
+    const before = await priceOf('V-XAG')
+    const res = await runCharacterBot('ilham', 'V-XAG', 'up')
+
+    expect(res.trade!.priceImpactPct).toBeGreaterThan(0)
+    expect(await priceOf('V-XAG')).toBeGreaterThan(before)
+    const down = await runCharacterBot('elon', 'RGC', 'down')
+    expect(down.trade!.priceImpactPct).toBeLessThan(0)
   })
 
   it('İlham Memiş: altın çağrısı + V-XAU alımı', async () => {

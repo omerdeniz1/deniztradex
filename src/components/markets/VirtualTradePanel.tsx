@@ -15,13 +15,24 @@ import { Button } from '@/components/ui/Button'
 /**
  * Sanal coin al/sat paneli (AMM): Al-Sat ekranında sanal sembol
  * seçiliyken standart panel yerine gösterilir.
+ * Gerçek coin paneliyle birebir aynı başlık/düzen davranışı:
+ * mobil Al/Sat butonundan gelen `initialSide` açılış yönünü belirler
+ * (Al'da Al, Sat'ta Sat açılır); içeriden yine切换 edilebilir.
  */
-export function VirtualTradePanel({ symbol }: { symbol: string }) {
+export function VirtualTradePanel({
+  symbol,
+  initialSide,
+  onSubmitted,
+}: {
+  symbol: string
+  initialSide?: 'buy' | 'sell'
+  onSubmitted?: () => void
+}) {
   const balance = useTradeStore((s) => s.balance)
   const pushToast = useToastStore((s) => s.push)
   const [coin, setCoin] = useState<VirtualCoin | null>(null)
   const [holding, setHolding] = useState(0)
-  const [side, setSide] = useState<VirtualTradeSide>('buy')
+  const [side, setSide] = useState<VirtualTradeSide>(initialSide ?? 'buy')
   const [amountStr, setAmountStr] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -37,8 +48,9 @@ export function VirtualTradePanel({ symbol }: { symbol: string }) {
 
   useEffect(() => {
     setAmountStr('')
+    setSide(initialSide ?? 'buy')
     void load()
-  }, [load])
+  }, [load, initialSide])
 
   const amount = parseFloat(amountStr)
 
@@ -61,6 +73,18 @@ export function VirtualTradePanel({ symbol }: { symbol: string }) {
     setBusy(true)
     try {
       const res = await executeVirtualTrade(symbol, side, amount)
+      // Ortalama maliyeti güncelle (cüzdan + panel aynı kaynaktan okur).
+      try {
+        useTradeStore.getState().recordVirtualTrade(
+          symbol,
+          side,
+          side === 'buy' ? res.tokenAmount : amount,
+          side === 'buy' ? amount : res.usdtAmount,
+          holding,
+        )
+      } catch {
+        // best effort — işlem zaten gerçekleşti
+      }
       setAmountStr('')
       await load()
       pushToast({
@@ -70,6 +94,7 @@ export function VirtualTradePanel({ symbol }: { symbol: string }) {
             : `${formatNumber(res.usdtAmount, 2)} USDT alındı.`,
         tone: 'success',
       })
+      onSubmitted?.()
     } catch (err) {
       pushToast({ message: err instanceof Error ? err.message : 'İşlem yapılamadı.', tone: 'error' })
     } finally {

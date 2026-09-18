@@ -51,7 +51,8 @@ describe('orderStore.placeOrder', () => {
       side: 'long',
       orderType: 'limit',
       quantity: 1,
-      entryPrice: 90,
+      // Alış limiti piyasanın üstünde → anında gerçekleşir → Post-Only reddeder.
+      entryPrice: 105,
       leverage: 10,
       marketPrice: 100,
       postOnly: true,
@@ -59,6 +60,25 @@ describe('orderStore.placeOrder', () => {
 
     expect(res).toEqual({ ok: false, error: 'Post-Only: emir anında gerçekleşir.' })
     expect(useOrderStore.getState().pendingOrders).toHaveLength(0)
+    expect(useTradeStore.getState().positions).toHaveLength(0)
+  })
+
+  it('parks a Post-Only limit that rests below the market', () => {
+    useTradeStore.setState({ balance: 1000 })
+    const res = useOrderStore.getState().placeOrder({
+      symbol: 'BTCUSDT',
+      mode: 'futures',
+      side: 'long',
+      orderType: 'limit',
+      quantity: 1,
+      entryPrice: 90,
+      leverage: 10,
+      marketPrice: 100,
+      postOnly: true,
+    })
+
+    expect(res).toEqual({ ok: true, pending: true })
+    expect(useOrderStore.getState().pendingOrders).toHaveLength(1)
     expect(useTradeStore.getState().positions).toHaveLength(0)
   })
 
@@ -102,7 +122,7 @@ describe('orderStore.placeOrder', () => {
     expect(useTradeStore.getState().positions).toHaveLength(1)
   })
 
-  it('keeps a limit order pending when the market price does not cross it', () => {
+  it('fills a buy limit immediately when the limit is at/above the market', () => {
     useTradeStore.setState({ balance: 1000 })
     const res = useOrderStore.getState().placeOrder({
       symbol: 'BTCUSDT',
@@ -115,12 +135,14 @@ describe('orderStore.placeOrder', () => {
       marketPrice: 100,
     })
 
-    expect(res).toEqual({ ok: true, pending: true })
-    expect(useOrderStore.getState().pendingOrders[0].orderType).toBe('limit')
-    expect(useTradeStore.getState().positions).toHaveLength(0)
+    expect(res.ok).toBe(true)
+    expect(useOrderStore.getState().pendingOrders).toHaveLength(0)
+    expect(useTradeStore.getState().positions).toHaveLength(1)
+    // Piyasa fiyattan ucuz → gerçekleşme piyasa fiyattan olur.
+    expect(useTradeStore.getState().positions[0].entryPrice).toBe(100)
   })
 
-  it('fills a buy limit immediately when the market is already at/below the price', () => {
+  it('parks a buy limit below the market instead of filling it', () => {
     useTradeStore.setState({ balance: 1000 })
     const res = useOrderStore.getState().placeOrder({
       symbol: 'BTCUSDT',
@@ -133,9 +155,44 @@ describe('orderStore.placeOrder', () => {
       marketPrice: 100,
     })
 
+    expect(res).toEqual({ ok: true, pending: true })
+    expect(useOrderStore.getState().pendingOrders[0].orderType).toBe('limit')
+    expect(useTradeStore.getState().positions).toHaveLength(0)
+  })
+
+  it('parks a sell limit above the market instead of filling it', () => {
+    useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 1, price: 100 })
+    const res = useOrderStore.getState().placeOrder({
+      symbol: 'BTCUSDT',
+      mode: 'spot',
+      side: 'sell',
+      orderType: 'limit',
+      quantity: 0.5,
+      entryPrice: 110,
+      leverage: 1,
+      marketPrice: 100,
+    })
+
+    expect(res).toEqual({ ok: true, pending: true })
+    expect(useOrderStore.getState().pendingOrders).toHaveLength(1)
+  })
+
+  it('fills a sell limit immediately when the limit is at/below the market', () => {
+    useTradeStore.setState({ balance: 1000 })
+    useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 1, price: 100 })
+    const res = useOrderStore.getState().placeOrder({
+      symbol: 'BTCUSDT',
+      mode: 'spot',
+      side: 'sell',
+      orderType: 'limit',
+      quantity: 0.5,
+      entryPrice: 90,
+      leverage: 1,
+      marketPrice: 100,
+    })
+
     expect(res.ok).toBe(true)
     expect(useOrderStore.getState().pendingOrders).toHaveLength(0)
-    expect(useTradeStore.getState().positions[0].entryPrice).toBe(90)
   })
 
   it('creates two linked OCO legs', () => {

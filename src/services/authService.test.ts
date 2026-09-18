@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { changePassword, login, register } from '@/services/authService'
+import { changePassword, changeUsername, login, register } from '@/services/authService'
 
 beforeEach(() => {
   localStorage.clear()
@@ -37,5 +37,31 @@ describe('changePassword (yerel backend)', () => {
 
   it('oturum yoksa reddeder', async () => {
     await expect(changePassword('mevcut1', 'yeni1234')).rejects.toThrow('Oturum bulunamadı')
+  })
+})
+
+describe('changeUsername (yerel backend)', () => {
+  it('kullanıcı adını + etiketi günceller, eski isim serbest kalır', async () => {
+    await register({ username: 'eskiad', email: 'ad@x.com', password: 'sifre123' })
+    const updated = await changeUsername('yeniad', 'Balina')
+    expect(updated).toMatchObject({ username: 'yeniad', userTag: 'Balina' })
+    // Eski isimle sıfırdan kayıt açılabilir.
+    await expect(
+      register({ username: 'eskiad', email: 'baska@x.com', password: 'sifre123' }),
+    ).resolves.toMatchObject({ username: 'eskiad' })
+  })
+
+  it('alınmış ismi ve rezerve adları reddeder', async () => {
+    await register({ username: 'birinci', email: 'bir@x.com', password: 'sifre123' })
+    await register({ username: 'ikinci', email: 'iki@x.com', password: 'sifre123' })
+    await expect(changeUsername('birinci')).rejects.toThrow('zaten kullanılıyor')
+    await expect(changeUsername('admin')).rejects.toThrow('kullanılamaz')
+    await expect(changeUsername('ab')).rejects.toThrow('en az 3 karakter')
+  })
+
+  it('boş etiket null sayılır', async () => {
+    await register({ username: 'etiketsiz', email: 'et@x.com', password: 'sifre123' })
+    const updated = await changeUsername('etiketsiz2', '   ')
+    expect(updated.userTag).toBeNull()
   })
 })

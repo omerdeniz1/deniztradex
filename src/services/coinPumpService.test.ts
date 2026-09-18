@@ -46,6 +46,16 @@ describe('computeNewsPumpAmount (hedef ~%1.8)', () => {
     expect(() => computeNewsPumpAmount(1000, 'up', 0)).toThrow()
     expect(() => computeNewsPumpAmount(1000, 'up', 25)).toThrow()
   })
+
+  it('özel etki yüzdesi hedefe oturur (örn. %5)', () => {
+    const R = 1_000_000
+    const amount = computeNewsPumpAmount(R, 'up', 5)
+    const q = quoteVirtualBuy({ symbol: 'T', reserveUsdt: R, reserveToken: 100_000_000 }, amount)
+    expect(q.priceImpactPct).toBeGreaterThan(4.7)
+    expect(q.priceImpactPct).toBeLessThan(5.3)
+    const base = computeNewsPumpAmount(R, 'up', NEWS_PUMP_TARGET_PCT)
+    expect(amount).toBeGreaterThan(base)
+  })
 })
 
 describe('pumpCoinWithNews (haber → forum → fiyat)', () => {
@@ -78,6 +88,13 @@ describe('pumpCoinWithNews (haber → forum → fiyat)', () => {
   it('boş haberi reddeder, havuza dokunmaz', async () => {
     await expect(pumpCoinWithNews('SVGC', 'up', '   ', 'metin')).rejects.toThrow()
     await expect(pumpCoinWithNews('SVGC', 'up', 'başlık', '')).rejects.toThrow()
+  })
+
+  it('özel etkiyle haberi foruma düşürüp fiyatı hedefe oynatır', async () => {
+    const res = await pumpCoinWithNews('SVGC', 'up', 'Özel etki', 'Hedef %5 denemesi.', 'normal', 5)
+    expect(res.targetPct).toBe(5)
+    expect(res.impactPct!).toBeGreaterThan(4.5)
+    expect(res.impactPct!).toBeLessThan(5.5)
   })
 })
 

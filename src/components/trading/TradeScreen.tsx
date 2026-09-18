@@ -82,6 +82,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   const balance = useTradeStore((s) => s.balance)
   const positions = useTradeStore((s) => s.positions)
   const spotBalances = useTradeStore((s) => s.spotBalances)
+  const spotAvgCosts = useTradeStore((s) => s.spotAvgCosts)
   const spotPositions = useTradeStore((s) => s.spotPositions)
   const liquidateIsolated = useTradeStore((s) => s.liquidateIsolated)
   const liquidateCrossAccount = useTradeStore((s) => s.liquidateCrossAccount)
@@ -140,6 +141,16 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   // formun tamamı bottom sheet içinde açılır (Binance mobil düzeni).
   // `null` = kapalı, aksi halde sheet'in açılış yönü.
   const [sheetSide, setSheetSide] = useState<PanelSide | null>(null)
+
+  // Açık sheet Escape ile de kapanır (zemine dokunma alternatifi).
+  useEffect(() => {
+    if (!sheetSide) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setSheetSide(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [sheetSide])
 
   // Sanal coinlerde (ENTES, V-XAU…) grafik + işlem sanal altyapıdan gelir;
   // gerçek coinlerde Binance akışı aynen korunur.
@@ -441,12 +452,24 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       Object.entries(spotBalances)
         .filter(([, qty]) => qty > 0)
         .map(([coin, qty]) => {
-          const price = livePrices[`${coin}USDT`] ?? 0
-          return { coin, qty, price, value: qty * price }
+          // Canlı soket birincil; gecikirse toplu ticker anlık görüntüsü
+          // yedeklenir (yoksa fiyat "—" ve değer 0 görünürdü).
+          const price = livePrices[`${coin}USDT`] ?? tickers[`${coin}USDT`]?.price ?? 0
+          const avg = spotAvgCosts[coin] ?? 0
+          return { coin, qty, price, value: qty * price, avg }
         })
         .sort((a, b) => b.value - a.value),
-    [spotBalances, livePrices],
+    [spotBalances, livePrices, spotAvgCosts, tickers],
   )
+
+  // Mobil sekmeler için ticker yedeği (sembol → fiyat).
+  const tickerPrices = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const [sym, t] of Object.entries(tickers)) {
+      if (t && t.price > 0) out[sym] = t.price
+    }
+    return out
+  }, [tickers])
 
   // Grafik lejantı: açık indikatörlerin son değerleri.
   const legendItems = useMemo(() => {
@@ -525,9 +548,11 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
           <CoinNewsPanel symbol={symbol} />
 
           {/* Zaman dilimi + indikatör araç çubuğu (masaüstü: haplar).
-              Mobilde haplar yerine tek dropdown kullanılır (aşağıda). */}
-          <div className="hidden items-center gap-1.5 border-b border-exchange-border px-2 py-1.5 sm:flex sm:px-3">
-            <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+              640–1024px (tablet) iki satıra iner: haplar tam boy üstte,
+              indikatörler altta — 1W hapı buton altında gizlenmez.
+              lg'de tek satır. */}
+          <div className="hidden flex-wrap items-center gap-1.5 gap-y-2 border-b border-exchange-border px-2 py-1.5 sm:flex sm:px-3">
+            <div className="no-scrollbar flex min-w-0 basis-full items-center gap-0.5 overflow-x-auto md:gap-1 lg:basis-0 lg:flex-1">
               {TIMEFRAMES.map((tf) => (
                 <button
                   key={tf.v}
@@ -535,7 +560,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                   onClick={() => setInterval(tf.v)}
                   aria-pressed={interval === tf.v}
                   className={cn(
-                    'min-h-[2rem] shrink-0 rounded-md px-2.5 text-xs font-bold transition-colors',
+                    'min-h-[2rem] shrink-0 rounded-md px-2 text-xs font-bold transition-colors md:px-2.5',
                     interval === tf.v
                       ? 'bg-exchange-yellow/15 text-exchange-yellow'
                       : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
@@ -606,7 +631,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
             </Button>
           </div>
 
-          <MobileTradeTabs mode={mode} livePrices={livePrices} />
+          <MobileTradeTabs mode={mode} livePrices={livePrices} tickerPrices={tickerPrices} />
 
           <div className="hidden border-t border-exchange-border md:block">
             <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2 sm:px-4">
@@ -664,11 +689,12 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                   </div>
                 ) : (
                 <div className="overflow-x-auto px-3 py-2 sm:px-4">
-                  <table className="w-full min-w-[26rem] text-xs">
+                  <table className="w-full min-w-[34rem] text-xs">
                     <thead>
                       <tr className="border-b border-exchange-border text-exchange-muted">
                         <th className="py-1.5 text-left font-medium">Varlık</th>
                         <th className="py-1.5 text-right font-medium">Miktar</th>
+                        <th className="py-1.5 text-right font-medium">Ort. Maliyet</th>
                         <th className="py-1.5 text-right font-medium">Fiyat (USDT)</th>
                         <th className="py-1.5 text-right font-medium">Değer (USDT)</th>
                       </tr>
@@ -685,6 +711,9 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                             </div>
                           </td>
                           <td className="py-1.5 text-right font-mono">{formatNumber(h.qty, 6)}</td>
+                          <td className="py-1.5 text-right font-mono text-exchange-muted">
+                            {h.avg > 0 ? formatPrice(h.avg) : '—'}
+                          </td>
                           <td className="py-1.5 text-right font-mono">
                             {h.price > 0 ? formatPrice(h.price) : '—'}
                           </td>
@@ -773,7 +802,12 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-exchange-border">
                 {isVirtual ? (
-                  <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} />
+                  <VirtualTradePanel
+                    key={`v-${symbol}-${sheetSide}`}
+                    symbol={symbol}
+                    initialSide={sheetSide === 'sell' || sheetSide === 'short' ? 'sell' : 'buy'}
+                    onSubmitted={() => setSheetSide(null)}
+                  />
                 ) : (
                   <TradingPanel
                     key={`${symbol}-${sheetSide}`}

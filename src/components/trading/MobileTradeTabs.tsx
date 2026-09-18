@@ -10,6 +10,8 @@ import { FuturesHistory, SpotHistory } from '@/components/trading/TradeHistory'
 interface Props {
   mode: TradingMode
   livePrices: Record<string, number>
+  /** Toplu ticker yedeği (soket gecikirse fiyat "—" kalmaz). */
+  tickerPrices?: Record<string, number>
 }
 
 type MobileTab = 'open' | 'history'
@@ -35,7 +37,7 @@ function sideLabel(side: string): { text: string; buy: boolean } {
  * ve tablolar kalkar; yerine sekmeli tek alan gelir. Masaüstü dokunulmaz
  * (bu bileşen yalnızca `md:hidden` ile gösterilir).
  */
-export function MobileTradeTabs({ mode, livePrices }: Props) {
+export function MobileTradeTabs({ mode, livePrices, tickerPrices }: Props) {
   const [tab, setTab] = useState<MobileTab>('open')
 
   const historyLabel = mode === 'spot' ? 'Alım-Satım Geçmişi' : 'İşlem Geçmişi'
@@ -75,7 +77,7 @@ export function MobileTradeTabs({ mode, livePrices }: Props) {
           mode === 'futures' ? (
             <FuturesOpen livePrices={livePrices} />
           ) : (
-            <SpotOpen livePrices={livePrices} />
+            <SpotOpen livePrices={livePrices} tickerPrices={tickerPrices} />
           )
         ) : mode === 'futures' ? (
           <FuturesHistoryWrap />
@@ -145,8 +147,9 @@ function FuturesOpen({ livePrices }: { livePrices: Record<string, number> }) {
   )
 }
 
-function SpotOpen({ livePrices }: { livePrices: Record<string, number> }) {
+function SpotOpen({ livePrices, tickerPrices }: { livePrices: Record<string, number>; tickerPrices?: Record<string, number> }) {
   const spotBalances = useTradeStore((s) => s.spotBalances)
+  const spotAvgCosts = useTradeStore((s) => s.spotAvgCosts)
   const spotPositions = useTradeStore((s) => s.spotPositions)
   const closeSpotPosition = useTradeStore((s) => s.closeSpotPosition)
 
@@ -155,11 +158,11 @@ function SpotOpen({ livePrices }: { livePrices: Record<string, number> }) {
       Object.entries(spotBalances)
         .filter(([, qty]) => qty > 0)
         .map(([coin, qty]) => {
-          const price = livePrices[`${coin}USDT`] ?? 0
-          return { coin, qty, price, value: qty * price }
+          const price = livePrices[`${coin}USDT`] ?? tickerPrices?.[`${coin}USDT`] ?? 0
+          return { coin, qty, price, value: qty * price, avg: spotAvgCosts[coin] ?? 0 }
         })
         .sort((a, b) => b.value - a.value),
-    [spotBalances, livePrices],
+    [spotBalances, livePrices, tickerPrices, spotAvgCosts],
   )
 
   if (spotPositions.length === 0 && holdings.length === 0) {
@@ -197,9 +200,11 @@ function SpotOpen({ livePrices }: { livePrices: Record<string, number> }) {
           <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-exchange-buy/10 text-[11px] font-bold text-exchange-buy">
             {h.coin.slice(0, 1)}
           </span>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-exchange-text">{h.coin}</span>
-          <span className="shrink-0 font-mono text-xs text-exchange-muted">
-            {formatNumber(h.qty, 6)}
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-exchange-text">
+            {h.coin}
+            <span className="block truncate font-mono text-[10px] font-normal text-exchange-muted">
+              Ort. {h.avg > 0 ? formatPrice(h.avg) : '—'} · {formatNumber(h.qty, 6)}
+            </span>
           </span>
           <span className="w-20 shrink-0 text-right font-mono text-xs font-semibold text-exchange-text">
             {formatNumber(h.value, 2)}

@@ -64,6 +64,33 @@ describe('forumService (offline backend)', () => {
     const list = await listForumPosts()
     expect(list.some((p) => p.id === post.id)).toBe(false)
   })
+
+  it('stores user tag and image url on posts and replies', async () => {
+    loginAs({ ...alice, userTag: 'Balina' })
+    const post = await createForumPost('Fotoğraflı gönderi', { imageUrl: 'https://img/x.jpg' })
+    expect(post).toMatchObject({ userTag: 'Balina', imageUrl: 'https://img/x.jpg' })
+    const reply = await createForumReply(post.id, 'güzel foto', { imageUrl: 'https://img/y.png' })
+    expect(reply).toMatchObject({ userTag: 'Balina', imageUrl: 'https://img/y.png' })
+    const list = await listForumPosts()
+    expect(list.find((p) => p.id === post.id)).toMatchObject({
+      userTag: 'Balina',
+      imageUrl: 'https://img/x.jpg',
+    })
+    const replies = await listForumReplies(post.id)
+    expect(replies[0]).toMatchObject({ userTag: 'Balina', imageUrl: 'https://img/y.png' })
+  })
+
+  it('legacy local rows without tag/image normalize to null', async () => {
+    loginAs(alice)
+    localStorage.setItem(
+      'deniztradx_forum_posts_v1',
+      JSON.stringify([
+        { id: 'legacy1', userId: 'u_alice', username: 'alice', content: 'eski', likedBy: [], replies: [], createdAt: 1 },
+      ]),
+    )
+    const list = await listForumPosts()
+    expect(list.find((p) => p.id === 'legacy1')).toMatchObject({ userTag: null, imageUrl: null })
+  })
 })
 
 describe('forum replies (offline backend)', () => {  it('rejects empty and overlong replies', async () => {

@@ -75,11 +75,11 @@ export async function triggerElonMusk(): Promise<BotActionResult> {
   }
 }
 
-/** Faik Erdem (iyi) → ENTES: kurumsal haber + 500.000 USDT alım. */
+/** Faik Erdem (iyi) → ENTES: SAHİP ağzından kâr açıklaması + 500.000 USDT alım. */
 export async function triggerFaikErdemGood(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'Faik Erdem',
-    'ÖNEMLİ: Faik Erdem, ENTES ekosistemine 500.000 USDT stratejik yatırım yaptığını duyurdu. Uzun vadeli güvenoyu. Kurumsal ilgi artıyor.',
+    pick(FAIK_UP_POSTS),
     randomIn(800, 1200),
   )
   const { amount, scaled } = await scaleBotAmount('ENTES', 500000)
@@ -92,11 +92,11 @@ export async function triggerFaikErdemGood(): Promise<BotActionResult> {
   }
 }
 
-/** Faik Erdem (ters köşe) → ENTES: övgü + 500.000 USDT'lik DUMP. */
+/** Faik Erdem (dengeleme) → ENTES: sahip ağzından temkinli açıklama + 500.000 USDT'lik SATIŞ. */
 export async function triggerFaikErdemBad(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'Faik Erdem',
-    'ENTES harika gidiyor, herkes almalı! 🚀🚀🚀',
+    pick(FAIK_DOWN_POSTS),
     randomIn(800, 1200),
   )
   const { amount, scaled } = await scaleBotAmount('ENTES', 500000)
@@ -105,7 +105,7 @@ export async function triggerFaikErdemBad(): Promise<BotActionResult> {
     bot: 'Faik Erdem',
     postId: post.id,
     trade,
-    summary: `ENTES ${formatNum(trade.tokenAmount)} SATIŞ (dump) · fiyat etkisi %${fmtPct(trade.priceImpactPct)}${scaled ? ' (havuz derinliğine göre ölçeklendi)' : ''}`,
+    summary: `ENTES ${formatNum(trade.tokenAmount)} SATIŞ (dengeleme) · fiyat etkisi %${fmtPct(trade.priceImpactPct)}${scaled ? ' (havuz derinliğine göre ölçeklendi)' : ''}`,
   }
 }
 
@@ -149,6 +149,149 @@ function formatNum(n: number): string {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })
+}
+
+function pick<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)]
+}
+
+// ---------------------------------------------------------------
+// Karakter gönderi havuzları — Faik Erdem ENTES'in SAHİBİDİR:
+// "yatırım yaptım" değil, kâr/bilanço/ekosistem açıklaması yapar.
+// ---------------------------------------------------------------
+
+const FAIK_UP_POSTS = [
+  'Faik Erdem duyurdu: ENTES 3. çeyrekte net kâr açıkladı. Ekosistem gelirleri bir önceki çeyreğe göre arttı, yeni yol haritası yakında paylaşılacak.',
+  'Faik Erdem paylaştı: ENTES ekosistem raporu yayında — aktif cüzdan sayısı ve işlem hacmi büyümeye devam ediyor. Ekip olarak geliştirmeye tam gaz devam ediyoruz.',
+  'Faik Erdem: ENTES hazinesi güçlendi, geri alım programı planlandığı gibi sürüyor. Uzun vadeli yatırımcımıza teşekkürler.',
+] as const
+
+const FAIK_DOWN_POSTS = [
+  'Faik Erdem uyarıyor: ENTES tarafında kısa vadeli kâr realizasyonu görebiliriz. Ekip olarak piyasa yapıcı dengeleme adımları atıyoruz, panik yok.',
+  'Faik Erdem duyurdu: hazine optimizasyonu kapsamında sınırlı, planlı satış yapılacaktır. Bu bir dengeleme hamlesidir, ENTES ekosistem hedefleri değişmedi.',
+] as const
+
+const ELON_UP_POSTS = [
+  'SVG aya çıkıyor! 🚀',
+  'SVGCOIN grafiği alev alıyor, kemerleri bağlayın! 🚀',
+] as const
+
+const ELON_DOWN_POSTS = [
+  'SVG biraz ısındı, kâr almayı unutmayın. Düzeltme sağlıklıdır.',
+  'Piyasada dalgalanma var, SVG tarafında temkinli olun.',
+] as const
+
+const ILHAM_UP_POSTS = [
+  'Dikkat: Kripto çöküyor, altına geçin. V-XAU güvenli limandır. Yıllardır söylüyorum, yine haklı çıkacağım.',
+  'Belirsizlik dönemlerinde fiziki karşılıklı sanal altın güçlü durur. V-XAU tarafı izlenmeli.',
+] as const
+
+const ILHAM_DOWN_POSTS = [
+  'Altın bir miktar geri çekilebilir, kademeli alım fırsatı doğar. V-XAU izlenmeli.',
+  'Kısa vadede kâr realizasyonu normaldir, güvenli liman hikâyesi değişmedi.',
+] as const
+
+const KAPLAN_POSTS = [
+  'Ben demiştim, yine kazandırdım 😎',
+  'Grafiğe bakın, formasyon tıkır tıkır işliyor. Kaplan yanılmaz 😎',
+] as const
+
+export type BotDirection = 'up' | 'down'
+
+export interface CharacterBotConfig {
+  id: string
+  name: string
+  /** Varsayılan hedef (panelde değiştirilebilir). */
+  defaultCoin: string
+  /** Hamle büyüklüğü (USDT). 0 = işlemsiz (yalnızca mesaj). */
+  tradeUsdt: number
+  description: string
+}
+
+export const CHARACTER_BOTS: CharacterBotConfig[] = [
+  {
+    id: 'elon',
+    name: 'Elon Musk',
+    defaultCoin: 'SVGC',
+    tradeUsdt: 50000,
+    description: 'Hype / temkin mesajı + ölçeklenen havuz hamlesi.',
+  },
+  {
+    id: 'faik',
+    name: 'Faik Erdem (ENTES sahibi)',
+    defaultCoin: 'ENTES',
+    tradeUsdt: 500000,
+    description: 'Sahip ağzından kâr/ekosistem açıklaması + ölçeklenen hamle.',
+  },
+  {
+    id: 'ilham',
+    name: 'İlham Memiş',
+    defaultCoin: 'V-XAU',
+    tradeUsdt: 200000,
+    description: 'Güvenli liman çağrısı + ölçeklenen sanal emtia hamlesi.',
+  },
+  {
+    id: 'kaplan',
+    name: 'Kripto Kaplanı',
+    defaultCoin: 'ENTES',
+    tradeUsdt: 0,
+    description: 'Piyasaya sıfır etki — yalnızca forum mesajı.',
+  },
+]
+
+/**
+ * Karakter botunu İSTENEN coin + yönde çalıştır: önce personaya uygun
+ * forum gönderisi, sonra (Kaplan hariç) havuzda USDT hamlesi.
+ * Tüm sanal coinler + emtialar hedef seçilebilir; tutar havuz
+ * derinliğine göre ölçeklenir, kullanıcı bakiyelerine dokunulmaz.
+ */
+export async function runCharacterBot(
+  botId: string,
+  rawSymbol: string,
+  direction: BotDirection,
+): Promise<BotActionResult> {
+  const symbol = rawSymbol.trim().toUpperCase()
+  if (!symbol) throw new Error('Geçersiz sembol.')
+  const up = direction === 'up'
+  const side = up ? 'buy' : 'sell'
+
+  const message =
+    botId === 'elon'
+      ? pick(up ? ELON_UP_POSTS : ELON_DOWN_POSTS)
+      : botId === 'faik'
+        ? pick(up ? FAIK_UP_POSTS : FAIK_DOWN_POSTS)
+        : botId === 'ilham'
+          ? pick(up ? ILHAM_UP_POSTS : ILHAM_DOWN_POSTS)
+          : botId === 'kaplan'
+            ? `${pick(KAPLAN_POSTS)} (${symbol})`
+            : null
+  if (message === null) throw new Error('Bilinmeyen bot.')
+
+  const botName =
+    botId === 'faik' ? 'Faik Erdem' : CHARACTER_BOTS.find((b) => b.id === botId)?.name ?? botId
+  const likes =
+    botId === 'elon'
+      ? randomIn(1500, 2000)
+      : botId === 'faik'
+        ? randomIn(800, 1200)
+        : botId === 'ilham'
+          ? randomIn(1000, 1500)
+          : randomIn(300, 600)
+  const post = await createBotForumPost(botName, message, likes)
+
+  const cfg = CHARACTER_BOTS.find((b) => b.id === botId)
+  if (!cfg || cfg.tradeUsdt <= 0) {
+    return { bot: botName, postId: post.id, trade: null, summary: 'Piyasaya etki yok — yalnızca mesaj yayınlandı.' }
+  }
+  const { amount, scaled } = await scaleBotAmount(symbol, cfg.tradeUsdt)
+  const trade = await executeBotPoolTrade(symbol, side, amount)
+  const dirWord = up ? 'alım' : 'SATIŞ (dengeleme)'
+  return {
+    bot: botName,
+    postId: post.id,
+    trade,
+    summary: `${symbol} ${up ? '+' : ''}${formatNum(trade.tokenAmount)} ${dirWord} · fiyat etkisi %${fmtPct(trade.priceImpactPct)}${scaled ? ' (havuz derinliğine göre ölçeklendi)' : ''}`,
+  }
 }
 
 export const BOT_DEFINITIONS = [

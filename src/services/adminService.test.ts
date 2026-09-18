@@ -87,9 +87,9 @@ describe('adminService (offline — Supabase yok)', () => {
 })
 
 describe('admin RBAC helpers', () => {
-  it('exposes the five documented permissions', () => {
+  it('exposes the six documented permissions', () => {
     expect([...ALL_ADMIN_PERMISSION_KEYS].sort()).toEqual(
-      ['ban_users', 'change_password', 'edit_balance', 'manage_admins', 'restrict_money'].sort(),
+      ['ban_users', 'change_password', 'delete_users', 'edit_balance', 'manage_admins', 'restrict_money'].sort(),
     )
   })
 

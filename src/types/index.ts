@@ -13,6 +13,8 @@ export interface User {
   readonly createdAt: number
   /** Profil fotoğrafı (Supabase Storage herkese-açık URL'i). Yoksa null. */
   readonly avatarUrl?: string | null
+  /** Forumda isim altında görünen özel etiket (örn. "Balina", "Analist"). */
+  readonly userTag?: string | null
 }
 
 export interface Kline {

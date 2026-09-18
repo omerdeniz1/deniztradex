@@ -6,6 +6,8 @@ import {
   getProfileBalanceWithRetry,
   pushBalanceToServer,
   validateAvatarFile,
+  validateForumImageFile,
+  validateUserTag,
 } from '@/services/supabaseWallet'
 
 const mocks = vi.hoisted(() => {
@@ -96,6 +98,24 @@ describe('validateAvatarFile', () => {
     const ok = new File(['x'], 'a.png', { type: 'image/png' })
     Object.defineProperty(ok, 'size', { value: 9 * 1024 * 1024 })
     expect(validateAvatarFile(ok)).toBe('png')
+  })
+})
+
+describe('validateForumImageFile', () => {
+  it('accepts image types and rejects oversize/non-image', () => {
+    expect(validateForumImageFile(new File(['x'], 'a.jpg', { type: 'image/jpeg' }))).toBe('jpg')
+    expect(() => validateForumImageFile(new File(['x'], 'a.txt', { type: 'text/plain' }))).toThrow()
+    const big = new File(['x'], 'a.png', { type: 'image/png' })
+    Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 })
+    expect(() => validateForumImageFile(big)).toThrow('10MB')
+  })
+})
+
+describe('validateUserTag', () => {
+  it('trims, caps length and rejects markup characters', () => {
+    expect(validateUserTag('  Balina  ')).toBe('Balina')
+    expect(validateUserTag('   ')).toBeNull()
+    expect(() => validateUserTag('a<b')).toThrow()
   })
 })
 

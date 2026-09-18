@@ -35,6 +35,10 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
   // Admin bağlantısı yalnızca yöneticilere gösterilir (görünürlük
   // kolaylığıdır; gerçek koruma /admin içindeki guard + RLS'dedir).
   const [isAdmin, setIsAdmin] = useState(false)
+  // Tablet (md–lg) hamburger menüsü: 768px'de 7 link + sağ küme aynı
+  // satıra sığmıyor, kayan linkler sağ kümenin altında kalıyordu.
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuScopeRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let live = true
     setIsAdmin(false)
@@ -49,6 +53,25 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
     }
   }, [username])
 
+  useEffect(() => {
+    if (!menuOpen) return
+    function onPointerDown(e: MouseEvent) {
+      if (menuScopeRef.current && !menuScopeRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [menuOpen])
+
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      'shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
+      isActive
+        ? 'bg-exchange-yellow/12 text-exchange-yellow'
+        : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
+    )
+
   return (
     <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-exchange-border bg-exchange-surface px-3 pt-safe sm:gap-3 sm:px-4 md:h-14">
       <Link
@@ -60,44 +83,89 @@ export function Navbar({ balance, username, avatarUrl }: Props) {
         <Logo className="[&>span]:text-xl [&>span]:sm:text-2xl" />
       </Link>
 
-      {/* Tablet genişliğinde (md altı-üstü) sığmazsa içten kayar; sağ küme asla örtülmez */}
-      <nav className="no-scrollbar hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex">
+      {/* Masaüstü (lg+) satır linkler — tablet ve mobilde menü/BottomNav kullanılır */}
+      <nav aria-label="Ana gezinme" className="hidden min-w-0 flex-1 items-center gap-1 lg:flex">
         {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-          className={({ isActive }) =>
-            cn(
-              'shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
-              isActive
-                ? 'bg-exchange-yellow/12 text-exchange-yellow'
-                : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
-            )
-          }
-        >
-          {item.label}
-        </NavLink>
+          <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass}>
+            {item.label}
+          </NavLink>
         ))}
         {isAdmin && (
-          <NavLink
-            to="/admin"
-            end={false}
-            className={({ isActive }) =>
-              cn(
-                'shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-semibold transition-colors',
-                isActive
-                  ? 'bg-exchange-yellow/12 text-exchange-yellow'
-                  : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-text',
-              )
-            }
-          >
+          <NavLink to="/admin" end={false} className={navLinkClass}>
             Admin
           </NavLink>
         )}
       </nav>
 
+      {/* Tablet hamburger (yalnızca md–lg arası; mobilde BottomNav, masaüstünde satır var) */}
+      <div ref={menuScopeRef} className="relative hidden min-w-0 flex-1 md:block lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label="Gezinme menüsü"
+          className={cn(
+            'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-bold transition-colors',
+            menuOpen
+              ? 'border-exchange-yellow/60 bg-exchange-yellow/10 text-exchange-yellow'
+              : 'border-exchange-border text-exchange-text hover:border-exchange-muted',
+          )}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+          Menü
+        </button>
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.nav
+              aria-label="Tablet gezinme"
+              initial={{ opacity: 0, y: 6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.98 }}
+              transition={{ duration: 0.12 }}
+              className="absolute left-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+            >
+              {NAV_ITEMS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setMenuOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'block truncate px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-exchange-surface',
+                      isActive ? 'text-exchange-yellow' : 'text-exchange-text',
+                    )
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+              {isAdmin && (
+                <NavLink
+                  to="/admin"
+                  end={false}
+                  onClick={() => setMenuOpen(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      'block truncate border-t border-exchange-border px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-exchange-surface',
+                      isActive ? 'text-exchange-yellow' : 'text-exchange-text',
+                    )
+                  }
+                >
+                  Admin
+                </NavLink>
+              )}
+            </motion.nav>
+          )}
+        </AnimatePresence>
+      </div>
+
       <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-3">
+        {/* Bakiye: mobilde gizli (BottomNav alanı dar), tablet ve
+            üstünde görünür — linkler hamburgerde olduğu için yer bol. */}
         <div className="hidden text-right sm:block">
           <div className="text-[10px] uppercase text-exchange-muted">Bakiye</div>
           <div className="whitespace-nowrap font-mono text-sm font-bold">
@@ -502,7 +570,7 @@ function UserMenu({ username, isAdmin, avatarUrl }: { username: string; isAdmin:
         ) : (
           <DefaultAvatar size="xs" />
         )}
-        <span className="hidden text-sm font-semibold text-exchange-text sm:block">{username}</span>
+        <span className="hidden max-w-28 truncate text-sm font-semibold text-exchange-text sm:block lg:max-w-none">{username}</span>
         <svg
           width="10"
           height="10"

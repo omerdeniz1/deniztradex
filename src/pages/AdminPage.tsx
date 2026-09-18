@@ -6,6 +6,7 @@ import {
   ADMIN_PERMISSIONS,
   deleteCoinNews,
   deleteForumPostsBulk,
+  deleteUser,
   getMyAdminAccess,
   getPlatformStats,
   hasAdminPermission,
@@ -57,7 +58,7 @@ import {
   type EventInput,
   type EventItem,
 } from '@/services/eventService'
-import { BOT_DEFINITIONS } from '@/services/botSimulationService'
+import { CHARACTER_BOTS, runCharacterBot } from '@/services/botSimulationService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
@@ -108,6 +109,7 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     | { mode: 'balance'; user: AdminUser }
     | { mode: 'freeze'; user: AdminUser }
     | { mode: 'ban'; user: AdminUser }
+    | { mode: 'delete'; user: AdminUser }
     | { mode: 'password'; user: AdminUser }
     | { mode: 'restrict'; user: AdminUser }
     | { mode: 'privs'; user: AdminUser | null }
@@ -254,11 +256,38 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     }
   }
 
+  const removeUser = async (user: AdminUser) => {
+    setBusyId(user.id)
+    try {
+      const name = await deleteUser(user.id)
+      setUsers((list) => list.filter((u) => u.id !== user.id))
+      setStats((s) =>
+        s
+          ? {
+              ...s,
+              totalUsers: Math.max(0, s.totalUsers - 1),
+              totalBalance: s.totalBalance - user.balance,
+              frozenCount: s.frozenCount - (user.isFrozen ? 1 : 0),
+              bannedCount: s.bannedCount - (user.isBanned ? 1 : 0),
+            }
+          : s,
+      )
+      setModal(null)
+      pushToast({
+        message: `${name || user.username} komple silindi — kullanıcı adı yeniden kayda açık.`,
+        tone: 'success',
+      })
+    } catch (err) {
+      fail(err, 'Kullanıcı silinemedi.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const saveRestrictions = async (
     user: AdminUser,
     input: { depositBlocked: boolean; withdrawBlocked: boolean },
-  ) => {
-    setBusyId(user.id)
+  ) => {    setBusyId(user.id)
     try {
       await setMoneyRestrictions(user.id, input)
       setUsers((list) =>
@@ -273,7 +302,8 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
     }
   }
 
-  const resetPassword = async (user: AdminUser) => {    setBusyId(user.id)
+  const resetPassword = async (user: AdminUser) => {
+    setBusyId(user.id)
     try {
       await sendPasswordReset(user.email)
       setModal(null)
@@ -582,6 +612,21 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                             onClick={() => setModal({ mode: 'restrict', user: u })}
                           />
                         )}
+                        {can('delete_users') && canTouch(u) && !u.isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => setModal({ mode: 'delete', user: u })}
+                            disabled={busyId === u.id || isSelf}
+                            title={
+                              isSelf
+                                ? 'Kendi hesabında işlem yapamazsın'
+                                : `${u.username} hesabını komple sil (geri alınamaz)`
+                            }
+                            className="col-span-2 w-full rounded-lg border border-exchange-sell/60 bg-exchange-sell/10 px-2.5 py-2 text-xs font-bold text-exchange-sell transition-colors hover:bg-exchange-sell/20 active:scale-[0.98] disabled:opacity-40"
+                          >
+                            {busyId === u.id ? '…' : 'Hesabı Sil'}
+                          </button>
+                        )}
                       </div>
                     </li>
                   )
@@ -711,6 +756,21 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
                                 disabled={busyId === u.id}
                                 onClick={() => setModal({ mode: 'restrict', user: u })}
                               />
+                            )}
+                            {can('delete_users') && canTouch(u) && !u.isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setModal({ mode: 'delete', user: u })}
+                                disabled={busyId === u.id || isSelf}
+                                title={
+                                  isSelf
+                                    ? 'Kendi hesabında işlem yapamazsın'
+                                    : `${u.username} hesabını komple sil (geri alınamaz)`
+                                }
+                                className="whitespace-nowrap rounded-lg border border-exchange-sell/60 bg-exchange-sell/10 px-2.5 py-1.5 text-xs font-bold text-exchange-sell transition-colors hover:bg-exchange-sell/20 disabled:opacity-40"
+                              >
+                                {busyId === u.id ? '…' : 'Sil'}
+                              </button>
                             )}
                           </div>
                         </td>
@@ -930,6 +990,22 @@ function AdminDashboard({ access }: { access: AdminAccess }) {
           onClose={() => setModal(null)}
           onConfirm={() => void resetPassword(modal.user)}
         />
+      )}
+      {modal?.mode === 'delete' && (
+        <ConfirmModal
+          title="Hesabı komple sil"
+          busy={busyId === modal.user.id}
+          onClose={() => setModal(null)}
+          onConfirm={() => void removeUser(modal.user)}
+          confirmLabel="Evet, Komple Sil"
+          variant="sell"
+        >
+          <span className="font-bold">{modal.user.username}</span> (
+          {modal.user.email || 'e-posta yok'}) hesabı <span className="font-bold text-exchange-sell">her yerden silinecek</span>:
+          bakiye, işlem geçmişi, forum yazıları ve yanıtları, sanal varlıklar, bildirimler.
+          Bu işlem <span className="font-bold">geri alınamaz</span> ve kullanıcı adı
+          yeniden kayda açılır.
+        </ConfirmModal>
       )}
       {modal?.mode === 'restrict' && (
         <RestrictModal
@@ -1204,18 +1280,45 @@ function AnnouncementManager() {
 
 function BotTestPanel() {
   const pushToast = useToastStore((s) => s.push)
-  const [busyId, setBusyId] = useState<string | null>(null)
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [coins, setCoins] = useState<string[]>([])
+  const [targets, setTargets] = useState<Record<string, string>>({})
 
-  const run = async (id: string, name: string, fn: () => Promise<{ summary: string }>) => {
-    if (busyId) return
-    setBusyId(id)
+  // Hedef listesi: tüm sanal coinler + emtialar (kripto/emtia ayrımıyla).
+  useEffect(() => {
+    let live = true
+    void listVirtualCoins()
+      .then((list) => {
+        if (!live) return
+        const syms = list.map((c) => c.symbol.toUpperCase())
+        setCoins(syms)
+        setTargets((prev) => {
+          const next = { ...prev }
+          for (const b of CHARACTER_BOTS) {
+            if (!next[b.id]) next[b.id] = b.defaultCoin
+          }
+          return next
+        })
+      })
+      .catch(() => {
+        if (live) setCoins([])
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const run = async (botId: string, botName: string, symbol: string, direction: 'up' | 'down') => {
+    const key = `${botId}:${symbol}:${direction}`
+    if (busyKey) return
+    setBusyKey(key)
     try {
-      const res = await fn()
-      pushToast({ message: `${name}: ${res.summary}`, tone: 'success' })
+      const res = await runCharacterBot(botId, symbol, direction)
+      pushToast({ message: `${botName}: ${res.summary}`, tone: 'success' })
     } catch (err) {
-      pushToast({ message: err instanceof Error ? err.message : `${name} çalıştırılamadı.`, tone: 'error' })
+      pushToast({ message: err instanceof Error ? err.message : `${botName} çalıştırılamadı.`, tone: 'error' })
     } finally {
-      setBusyId(null)
+      setBusyKey(null)
     }
   }
 
@@ -1224,33 +1327,70 @@ function BotTestPanel() {
       <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
         <h2 className="text-sm font-bold text-exchange-text">Bot Test Paneli</h2>
         <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
-          Botlar foruma mesaj düşüp havuzda balina hamlesi yapar; fiyat, grafik ve
+          Karakter botu + hedef coin/emtia seç → Yükselt veya Düşür. Bot foruma
+          personaya uygun mesaj düşüp havuzda hamle yapar; fiyat, grafik ve
           piyasa listesi gerçek takastaki gibi güncellenir. Bakiyelere dokunulmaz.
         </p>
       </div>
       <ul>
-        {BOT_DEFINITIONS.map((b) => (
+        {CHARACTER_BOTS.map((b) => (
           <li
             key={b.id}
-            className="flex flex-wrap items-center gap-2 border-b border-exchange-border/50 px-3 py-3 last:border-0 sm:px-4"
+            className="border-b border-exchange-border/50 px-3 py-3 last:border-0 sm:px-4"
           >
-            <div className="min-w-0 flex-1 basis-40">
+            <div className="min-w-0">
               <div className="truncate text-sm font-bold text-exchange-text">{b.name}</div>
-              <div className="mt-0.5 font-mono text-[11px] font-bold text-exchange-yellow">
-                {b.target}
-              </div>
               <div className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
                 {b.description}
               </div>
             </div>
-            <Button
-              size="sm"
-              onClick={() => void run(b.id, b.name, b.run)}
-              disabled={busyId !== null}
-              className="shrink-0"
-            >
-              {busyId === b.id ? 'Çalışıyor…' : 'Çalıştır'}
-            </Button>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <select
+                value={targets[b.id] ?? b.defaultCoin}
+                onChange={(e) => setTargets((prev) => ({ ...prev, [b.id]: e.target.value }))}
+                aria-label={`${b.name} hedef coin`}
+                disabled={busyKey !== null}
+                className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-exchange-border bg-exchange-bg px-2 font-mono text-xs font-bold text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 sm:max-w-44"
+              >
+                {coins.length === 0 && (
+                  <option value={b.defaultCoin}>{b.defaultCoin}</option>
+                )}
+                {coins.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="buy"
+                onClick={() => void run(b.id, b.name, targets[b.id] ?? b.defaultCoin, 'up')}
+                disabled={busyKey !== null}
+                className="shrink-0 whitespace-nowrap"
+              >
+                {busyKey === `${b.id}:${targets[b.id] ?? b.defaultCoin}:up` ? '…' : 'Yükselt'}
+              </Button>
+              <Button
+                size="sm"
+                variant="sell"
+                onClick={() => void run(b.id, b.name, targets[b.id] ?? b.defaultCoin, 'down')}
+                disabled={busyKey !== null || b.tradeUsdt <= 0}
+                title={b.tradeUsdt <= 0 ? 'Bu bot piyasaya etki etmez (yalnızca mesaj)' : undefined}
+                className="shrink-0 whitespace-nowrap"
+              >
+                {busyKey === `${b.id}:${targets[b.id] ?? b.defaultCoin}:down` ? '…' : 'Düşür'}
+              </Button>
+              {b.tradeUsdt <= 0 && (
+                <Button
+                  size="sm"
+                  onClick={() => void run(b.id, b.name, targets[b.id] ?? b.defaultCoin, 'up')}
+                  disabled={busyKey !== null}
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  {busyKey ? '…' : 'Mesaj Gönder'}
+                </Button>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -1331,9 +1471,16 @@ function CoinManager() {
 
   /**
    * Haberle Yükselt / Düşür: önce haber girilir → panele + foruma yayınlanır →
-   * fiyat ~%1.8 oynar (yalnızca sanal havuzda; gerçek sembolde fiyat adımı yok).
+   * fiyat hedef etki kadar oynar (varsayılan %1.8, admin belirler;
+   * yalnızca sanal havuzda; gerçek sembolde fiyat adımı yok).
    */
-  const runPump = async (symbol: string, direction: PumpDirection, title: string, body: string) => {
+  const runPump = async (
+    symbol: string,
+    direction: PumpDirection,
+    title: string,
+    body: string,
+    effectPct: number,
+  ) => {
     if (busySymbol) return
     setBusySymbol(symbol)
     try {
@@ -1343,6 +1490,7 @@ function CoinManager() {
         title,
         body,
         effectiveStatus(symbol, coins.find((c) => c.symbol === symbol.toUpperCase())?.status ?? 'normal'),
+        effectPct,
       )
       applyStatusResult(res.symbol, effectiveStatus(symbol))
       pushToast({ message: res.summary, tone: 'success' })
@@ -1430,8 +1578,9 @@ function CoinManager() {
       <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
         <h2 className="text-sm font-bold text-exchange-text">Coin Yönetimi</h2>
         <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
-          Haberi gir → forumda yayınlansın → fiyat ~%1.8 oynasın. Fiyat adımı yalnızca
-          sanal havuzlarda işler; gerçek piyasa coinlerinde haber + forum yayınlanır.
+          Satıra dokun → menü açılır → Haberi gir + etkiyi seç → forumda
+          yayınlansın → fiyat oynasın. Fiyat adımı yalnızca sanal havuzlarda
+          işler; gerçek piyasa coinlerinde haber + forum yayınlanır.
         </p>
         <div className="mt-2 flex min-w-0 items-center gap-2">
           <input
@@ -1454,96 +1603,109 @@ function CoinManager() {
         <div className="px-3 py-8 text-center text-sm text-exchange-muted">Henüz coin tanımlı değil.</div>
       ) : (
         <ul>
-          {rows.map((coin) => (
-            <li key={coin.symbol} className="border-b border-exchange-border/50 px-3 py-3 last:border-0 sm:px-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-exchange-text">{coin.symbol}</span>
-                    <span className="text-xs text-exchange-muted">{coin.name}</span>
-                    {coin.kind && (
-                      <span className="rounded-full bg-exchange-border/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-exchange-muted">
-                        {coin.kind === 'crypto' ? 'Kripto' : 'Emtia'}
+          {rows.map((coin) => {
+            const open = expandedCoin === coin.symbol
+            return (
+              <li key={coin.symbol} className="border-b border-exchange-border/50 last:border-0">
+                {/* Açılır satır başlığı: mobilde tek satır, ekran verimli kullanılır */}
+                <button
+                  type="button"
+                  onClick={() => handleExpand(coin.symbol)}
+                  aria-expanded={open}
+                  className="flex w-full items-center gap-2 px-3 py-3 text-left transition-colors active:scale-[0.99] sm:px-4"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="font-bold text-exchange-text">{coin.symbol}</span>
+                      <span className="truncate text-xs text-exchange-muted">{coin.name}</span>
+                      {coin.kind && (
+                        <span className="shrink-0 rounded-full bg-exchange-border/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-exchange-muted">
+                          {coin.kind === 'crypto' ? 'Kripto' : 'Emtia'}
+                        </span>
+                      )}
+                    </span>
+                    {coin.detail && (
+                      <span className="mt-0.5 block truncate font-mono text-[11px] text-exchange-muted">
+                        {coin.detail}
                       </span>
                     )}
-                  </div>
-                  {coin.detail && (
-                    <div className="mt-1 text-[11px] text-exchange-muted font-mono">
-                      {coin.detail}
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-wrap shrink-0 gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="buy"
-                    onClick={() =>
-                      setPumpModal({ symbol: coin.symbol, direction: 'up', virtual: coin.virtual })
-                    }
-                    disabled={busySymbol !== null}
-                    className="whitespace-nowrap"
+                  </span>
+                  <span
+                    aria-hidden
+                    className={cn('shrink-0 text-[11px] text-exchange-muted transition-transform', open && 'rotate-180')}
                   >
-                    {busySymbol === coin.symbol ? '…' : 'Haberle Yükselt'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="sell"
-                    onClick={() =>
-                      setPumpModal({ symbol: coin.symbol, direction: 'down', virtual: coin.virtual })
-                    }
-                    disabled={busySymbol !== null}
-                    className="whitespace-nowrap"
-                  >
-                    {busySymbol === coin.symbol ? '…' : 'Haberle Düşür'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleExpand(coin.symbol)}
-                    disabled={busySymbol !== null}
-                    className="whitespace-nowrap"
-                  >
-                    {expandedCoin === coin.symbol ? 'Gizle' : 'Haberler'}
-                  </Button>
-                </div>
-              </div>
-              {expandedCoin === coin.symbol && (
-                <div className="mt-3 ml-3 border-l-2 border-exchange-border/30 pl-3 space-y-2">
-                  {newsLoading.has(coin.symbol) ? (
-                    <div className="text-xs text-exchange-muted">Haberler yükleniyor…</div>
-                  ) : coinNews[coin.symbol]?.length === 0 ? (
-                    <div className="text-xs font-bold text-exchange-muted">Bu coin için henüz haber yok.</div>
-                  ) : (
-                    coinNews[coin.symbol]!.map((news) => (
-                      <div
-                        key={news.id}
-                        className="bg-exchange-bg/50 rounded-xl p-2.5 border border-exchange-border/30"
+                    ▼
+                  </span>
+                </button>
+                {open && (
+                  <div className="space-y-2.5 border-t border-exchange-border/40 bg-exchange-bg/40 px-3 py-3 sm:px-4">
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="buy"
+                        onClick={() =>
+                          setPumpModal({ symbol: coin.symbol, direction: 'up', virtual: coin.virtual })
+                        }
+                        disabled={busySymbol !== null}
+                        className="min-w-0 flex-1 whitespace-nowrap sm:flex-none"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-bold text-exchange-text">{news.title}</div>
-                            <div className="mt-1 text-xs leading-relaxed text-exchange-muted">{news.body}</div>
-                            <div className="mt-1 font-mono text-[10px] text-exchange-muted">
-                              {new Date(news.createdAt).toLocaleString('tr-TR')}
-                            </div>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="sell"
-                            onClick={() => void handleDeleteNews(news.id, coin.symbol)}
-                            disabled={busySymbol !== null}
-                            className="whitespace-nowrap shrink-0"
-                          >
-                            Sil
-                          </Button>
-                        </div>
+                        {busySymbol === coin.symbol ? '…' : 'Haberle Yükselt'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="sell"
+                        onClick={() =>
+                          setPumpModal({ symbol: coin.symbol, direction: 'down', virtual: coin.virtual })
+                        }
+                        disabled={busySymbol !== null}
+                        className="min-w-0 flex-1 whitespace-nowrap sm:flex-none"
+                      >
+                        {busySymbol === coin.symbol ? '…' : 'Haberle Düşür'}
+                      </Button>
+                    </div>
+                    <div>
+                      <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-exchange-muted">
+                        Haberler
                       </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </li>
-          ))}
+                      {newsLoading.has(coin.symbol) ? (
+                        <div className="text-xs text-exchange-muted">Haberler yükleniyor…</div>
+                      ) : coinNews[coin.symbol]?.length === 0 ? (
+                        <div className="text-xs font-bold text-exchange-muted">Bu coin için henüz haber yok.</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {coinNews[coin.symbol]!.map((news) => (
+                            <div
+                              key={news.id}
+                              className="rounded-xl border border-exchange-border/30 bg-exchange-bg/50 p-2.5"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-bold text-exchange-text">{news.title}</div>
+                                  <div className="mt-1 break-words text-xs leading-relaxed text-exchange-muted">{news.body}</div>
+                                  <div className="mt-1 font-mono text-[10px] text-exchange-muted">
+                                    {new Date(news.createdAt).toLocaleString('tr-TR')}
+                                  </div>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="sell"
+                                  onClick={() => void handleDeleteNews(news.id, coin.symbol)}
+                                  disabled={busySymbol !== null}
+                                  className="shrink-0 whitespace-nowrap"
+                                >
+                                  Sil
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
       {pumpModal && (
@@ -1553,7 +1715,7 @@ function CoinManager() {
           virtual={pumpModal.virtual}
           busy={busySymbol === pumpModal.symbol}
           onClose={() => setPumpModal(null)}
-          onConfirm={(title, body) => void runPump(pumpModal.symbol, pumpModal.direction, title, body)}
+          onConfirm={(title, body, effectPct) => void runPump(pumpModal.symbol, pumpModal.direction, title, body, effectPct)}
         />
       )}
     </div>
@@ -1573,17 +1735,43 @@ function NewsPumpModal({
   virtual: boolean
   busy: boolean
   onClose: () => void
-  onConfirm: (title: string, body: string) => void
+  onConfirm: (title: string, body: string, effectPct: number) => void
 }) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [effectStr, setEffectStr] = useState(String(NEWS_PUMP_TARGET_PCT))
   const up = direction === 'up'
+  const parsed = Number(String(effectStr).replace(',', '.'))
+  const effectPct = Number.isFinite(parsed) && parsed > 0 && parsed < 20 ? parsed : NEWS_PUMP_TARGET_PCT
+  const effectValid = Number.isFinite(parsed) && parsed > 0 && parsed < 20
   return (
     <ModalShell title={`${up ? 'Haberle Yükselt' : 'Haberle Düşür'} — ${symbol}`} onClose={onClose}>
       <p className="text-xs leading-relaxed text-exchange-muted">
-        Önce haber girilir → forumda yayınlanır → fiyat ~%{NEWS_PUMP_TARGET_PCT} {up ? 'yükselir' : 'düşer'}.
+        Önce haber girilir → forumda yayınlanır → fiyat %{effectValid ? String(effectStr).replace('.', ',') : '…'} {up ? 'yükselir' : 'düşer'}.
         {!virtual && ' Bu sembol gerçek piyasa coini — fiyat adımı atlanır, yalnızca haber + forum yayınlanır.'}
       </p>
+      {virtual && (
+        <div className="mt-3 min-w-0">
+          <label htmlFor="pump-effect" className="block text-xs font-semibold text-exchange-muted">
+            Etki (%) — 0,1 ile 20 arası, ondalık virgül/nokta olur
+          </label>
+          <input
+            id="pump-effect"
+            value={effectStr}
+            onChange={(e) => setEffectStr(e.target.value)}
+            inputMode="decimal"
+            placeholder="1.8"
+            disabled={busy}
+            aria-invalid={!effectValid}
+            className="mt-1.5 h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
+          />
+          {!effectValid && (
+            <p className="mt-1 text-[11px] font-semibold text-exchange-sell">
+              0,1 – 20 arasında bir yüzde gir (örn. 1.8).
+            </p>
+          )}
+        </div>
+      )}
       <label htmlFor="pump-news-title" className="mt-3 block text-xs font-semibold text-exchange-muted">
         Haber başlığı ({title.trim().length}/{NEWS_TITLE_MAX})
       </label>
@@ -1616,8 +1804,8 @@ function NewsPumpModal({
         <Button
           size="sm"
           variant={up ? 'buy' : 'sell'}
-          onClick={() => onConfirm(title, body)}
-          disabled={busy || !title.trim() || !body.trim()}
+          onClick={() => onConfirm(title, body, effectPct)}
+          disabled={busy || !title.trim() || !body.trim() || !effectValid}
         >
           {busy ? 'Yayınlanıyor…' : up ? 'Yükselt + Yayınla' : 'Düşür + Yayınla'}
         </Button>

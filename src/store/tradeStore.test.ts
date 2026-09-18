@@ -272,6 +272,36 @@ describe('spotBuy / spotSell', () => {
   })
 })
 
+describe('ortalama maliyet (spot + sanal)', () => {
+  it('ek alımlarda ağırlıklı ortalamayı günceller', () => {
+    useTradeStore.getState().deposit(10000)
+    useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 1, price: 100 })
+    useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 1, price: 200 })
+    expect(useTradeStore.getState().spotAvgCosts.BTC).toBeCloseTo(150)
+  })
+
+  it('satışta ortalamayı korur, tamamı satılınca kaydı siler', () => {
+    useTradeStore.getState().deposit(10000)
+    useTradeStore.getState().spotBuy({ symbol: 'ETHUSDT', quantity: 10, price: 50 })
+    useTradeStore.getState().spotSell({ symbol: 'ETHUSDT', quantity: 4, price: 60 })
+    expect(useTradeStore.getState().spotAvgCosts.ETH).toBeCloseTo(50)
+    useTradeStore.getState().spotSell({ symbol: 'ETHUSDT', quantity: 6, price: 60 })
+    expect(useTradeStore.getState().spotAvgCosts.ETH).toBeUndefined()
+  })
+
+  it('sanal alımlarda ortalamayı ağırlıklı günceller', () => {
+    const s = useTradeStore.getState()
+    s.recordVirtualTrade('ENTES', 'buy', 100, 1000, 0)
+    expect(useTradeStore.getState().virtualAvgCosts.ENTES).toBeCloseTo(10)
+    useTradeStore.getState().recordVirtualTrade('ENTES', 'buy', 100, 2000, 100)
+    // (100*10 + 100*20) / 200 = 15
+    expect(useTradeStore.getState().virtualAvgCosts.ENTES).toBeCloseTo(15)
+    // Satış ortalamayı değiştirmez.
+    useTradeStore.getState().recordVirtualTrade('ENTES', 'sell', 50, 750, 200)
+    expect(useTradeStore.getState().virtualAvgCosts.ENTES).toBeCloseTo(15)
+  })
+})
+
 describe('redeemPromo', () => {
   it('adds bonus USDT for a valid unused code (case-insensitive)', () => {
     const result = useTradeStore.getState().redeemPromo('DNZTRD100')

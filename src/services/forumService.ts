@@ -154,6 +154,10 @@ export interface ForumPost {
   verifiedTier: VerifiedTier
   /** Profil fotoğrafı URL'i (yoksa null → baş harf gösterilir). */
   avatarUrl: string | null
+  /** İsim altında görünen özel etiket (yoksa null → rozet gösterilmez). */
+  userTag: string | null
+  /** Gönderi fotoğrafı URL'i (yoksa null → metin akışı). */
+  imageUrl: string | null
   createdAt: number
 }
 
@@ -167,6 +171,10 @@ export interface ForumReply {
   verifiedTier: VerifiedTier
   /** Profil fotoğrafı URL'i (yoksa null → baş harf gösterilir). */
   avatarUrl: string | null
+  /** İsim altında görünen özel etiket (yoksa null). */
+  userTag: string | null
+  /** Yanıt fotoğrafı URL'i (yoksa null). */
+  imageUrl: string | null
   createdAt: number
 }
 
@@ -175,6 +183,8 @@ interface LocalStoredReply {
   userId: string
   username: string
   content: string
+  userTag: string | null
+  imageUrl: string | null
   createdAt: number
 }
 
@@ -185,6 +195,8 @@ interface LocalStoredPost {
   content: string
   likedBy: string[]
   replies: LocalStoredReply[]
+  userTag: string | null
+  imageUrl: string | null
   createdAt: number
 }
 
@@ -278,6 +290,8 @@ function readLocalPosts(): LocalStoredPost[] {
 function normalizeLocalPost(row: Partial<LocalStoredPost> & { id?: unknown }): LocalStoredPost {
   const r = row as Record<string, unknown>
   const str = (v: unknown, fb: string): string => (typeof v === 'string' && v ? v : fb)
+  const strOrNull = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() ? v : null
   const strArray = (v: unknown): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
   return {
@@ -292,9 +306,13 @@ function normalizeLocalPost(row: Partial<LocalStoredPost> & { id?: unknown }): L
           userId: str(x?.userId, ''),
           username: str(x?.username, 'anon'),
           content: str(x?.content, ''),
+          userTag: strOrNull(x?.userTag),
+          imageUrl: strOrNull(x?.imageUrl),
           createdAt: typeof x?.createdAt === 'number' ? x.createdAt : Date.now(),
         }))
       : [],
+    userTag: strOrNull(r.userTag),
+    imageUrl: strOrNull(r.imageUrl),
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : Date.now(),
   }
 }
@@ -317,6 +335,8 @@ function ensureLocalSeed(): LocalStoredPost[] {
       content: 'Topluluğa hoş geldin! 🎉 Piyasa görüşlerini buradan paylaşabilirsin.',
       likedBy: [],
       replies: [],
+      userTag: 'Resmi Hesap',
+      imageUrl: null,
       createdAt: Date.now(),
     },
   ]
@@ -344,6 +364,8 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
     verifiedTier: localVerifiedTier(username, row.username),
     // Profil fotoğrafı yok → default insan silüeti gösterilir.
     avatarUrl: null,
+    userTag: row.userTag,
+    imageUrl: row.imageUrl,
     createdAt: row.createdAt,
   }
 }
@@ -358,8 +380,16 @@ function toForumReply(postId: string, row: LocalStoredReply): ForumReply {
     content: row.content,
     verifiedTier: localVerifiedTier(username, row.username),
     avatarUrl: null,
+    userTag: row.userTag,
+    imageUrl: row.imageUrl,
     createdAt: row.createdAt,
   }
+}
+
+/** Uzak satırdan güvenli metin/URL okuma (kolon yoksa null — eski DB uyumluluğu). */
+function optText(row: Record<string, unknown>, key: string): string | null {
+  const v = row[key]
+  return typeof v === 'string' && v.trim() ? v : null
 }
 
 // ---------------------------------------------------------------
@@ -390,9 +420,12 @@ async function listRemote(): Promise<ForumPost[]> {
   if (!supabase) throw new Error('no-backend')
   try {
     const myId = getSessionUser()?.id ?? null
+    // `select('*')` bilerek: user_tag/image_url migration'ı uygulanmamış
+    // eski DB'lerde açık kolon listesi sorguyu patlatırdı; yıldızla
+    // gelen satır toleranslı eşlenir, akış kırılmaz.
     const { data, error } = await supabase
         .from('forum_posts')
-        .select('id,user_id,username,content,like_count,reply_count,verified_tier,avatar_url,created_at')
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(FORUM_FEED_LIMIT)
     if (error) throw error
@@ -409,34 +442,30 @@ async function listRemote(): Promise<ForumPost[]> {
         liked = new Set((likes as { post_id: string }[]).map((l) => l.post_id))
       }
     }
-    return (data as {
-      id: string
-      user_id: string
-      username: string
-      content: string
-      like_count: number
-      reply_count: number
-      verified_tier: unknown
-      avatar_url: unknown
-      created_at: string
-    }[]).map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      username: forumDisplayName(r.username, r.user_id),
-      content: r.content,
-      likeCount: r.like_count ?? 0,
-      likedByMe: liked.has(r.id),
-      replyCount: r.reply_count ?? 0,
+    return (data as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id ?? ''),
+      userId: String(r.user_id ?? ''),
+      username: forumDisplayName(String(r.username ?? ''), String(r.user_id ?? '')),
+      content: String(r.content ?? ''),
+      likeCount: typeof r.like_count === 'number' ? r.like_count : 0,
+      likedByMe: liked.has(String(r.id ?? '')),
+      replyCount: typeof r.reply_count === 'number' ? r.reply_count : 0,
       verifiedTier: parseVerifiedTier(r.verified_tier),
-      avatarUrl: typeof r.avatar_url === 'string' && r.avatar_url ? r.avatar_url : null,
-      createdAt: Date.parse(r.created_at) || Date.now(),
+      avatarUrl: optText(r, 'avatar_url'),
+      userTag: optText(r, 'user_tag'),
+      imageUrl: optText(r, 'image_url'),
+      createdAt: Date.parse(String(r.created_at ?? '')) || Date.now(),
     }))
   } catch (err) {
     throw classifyForumRemoteError(err, 'Akış yüklenemedi')
   }
 }
 
-function createLocal(user: { id: string; username: string }, content: string): Promise<ForumPost> {
+function createLocal(
+  user: { id: string; username: string; userTag?: string | null },
+  content: string,
+  imageUrl?: string | null,
+): Promise<ForumPost> {
   const post: LocalStoredPost = {
     id: makeId('post'),
     userId: user.id,
@@ -444,65 +473,94 @@ function createLocal(user: { id: string; username: string }, content: string): P
     content,
     likedBy: [],
     replies: [],
+    userTag: user.userTag?.trim() ? user.userTag.trim().slice(0, 24) : null,
+    imageUrl: imageUrl?.trim() ? imageUrl : null,
     createdAt: Date.now(),
   }
   writeLocalPosts([post, ...readLocalPosts()])
   return Promise.resolve(toForumPost(post, user.id))
 }
 
-export async function createForumPost(rawContent: string): Promise<ForumPost> {
+export async function createForumPost(
+  rawContent: string,
+  opts?: { imageUrl?: string | null },
+): Promise<ForumPost> {
   const content = validateContent(rawContent)
   const user = requireSessionUser()
+  const imageUrl = opts?.imageUrl?.trim() ? opts.imageUrl.trim() : null
 
   if (isRemoteMode()) {
     // Uzak yazım başarısızsa yerele yazıp "paylaşıldı" demek, gönderinin
     // yalnızca bu cihazda görünüp diğerinde görünmemesine (ve sonra
     // "silinmiş" sanılmasına) yol açardı. Hata aynen iletilir.
-    return createRemote(user, content)
+    return createRemote(user, content, imageUrl)
   }
-  return createLocal(user, content)
+  return createLocal(user, content, imageUrl)
 }
 
 async function createRemote(
-  user: { id: string; username: string; email?: string },
+  user: { id: string; username: string; email?: string; userTag?: string | null },
   content: string,
+  imageUrl: string | null,
 ): Promise<ForumPost> {
   if (!supabase) throw new Error('no-backend')
   const username = resolveWriteUsername(user)
+  const userTag = user.userTag?.trim() ? user.userTag.trim().slice(0, 24) : null
+  const mapRow = (row: Record<string, unknown>): ForumPost => ({
+    id: String(row.id ?? ''),
+    userId: String(row.user_id ?? ''),
+    username: forumDisplayName(String(row.username ?? ''), String(row.user_id ?? '')),
+    content: String(row.content ?? ''),
+    likeCount: typeof row.like_count === 'number' ? row.like_count : 0,
+    likedByMe: false,
+    replyCount: typeof row.reply_count === 'number' ? row.reply_count : 0,
+    verifiedTier: parseVerifiedTier(row.verified_tier),
+    avatarUrl: optText(row, 'avatar_url'),
+    userTag: optText(row, 'user_tag') ?? userTag,
+    imageUrl: optText(row, 'image_url') ?? imageUrl,
+    createdAt: Date.parse(String(row.created_at ?? '')) || Date.now(),
+  })
   try {
     const { data, error } = await supabase
         .from('forum_posts')
-        .insert({ user_id: user.id, username, content })
-        .select('id,user_id,username,content,like_count,reply_count,verified_tier,avatar_url,created_at')
+        .insert({ user_id: user.id, username, content, user_tag: userTag, image_url: imageUrl })
+        .select('*')
         .single()
       if (error) throw error
       if (!data) throw new Error('unexpected-create-shape')
-      const row = data as {
-        id: string
-        user_id: string
-        username: string
-        content: string
-        like_count: number
-        reply_count: number
-        verified_tier: unknown
-      avatar_url: unknown
-        created_at: string
-      }
-      return {
-        id: row.id,
-        userId: row.user_id,
-        username: forumDisplayName(row.username, row.user_id),
-        content: row.content,
-        likeCount: row.like_count ?? 0,
-        likedByMe: false,
-        replyCount: row.reply_count ?? 0,
-        verifiedTier: parseVerifiedTier(row.verified_tier),
-        avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : null,
-        createdAt: Date.parse(row.created_at) || Date.now(),
-      }
+      return mapRow(data as Record<string, unknown>)
   } catch (err) {
+    // Eski DB (kolonlar yok): yalın gövdeyle tekrar dene, akış kırılmaz.
+    if (isMissingColumnError(err)) {
+      try {
+        const { data, error } = await supabase
+          .from('forum_posts')
+          .insert({ user_id: user.id, username, content })
+          .select('*')
+          .single()
+        if (error) throw error
+        if (!data) throw new Error('unexpected-create-shape')
+        return mapRow(data as Record<string, unknown>)
+      } catch (retryErr) {
+        throw classifyForumRemoteError(retryErr, 'Gönderi paylaşılamadı')
+      }
+    }
     throw classifyForumRemoteError(err, 'Gönderi paylaşılamadı')
   }
+}
+
+/** PostgREST "kolon yok" hatası mı? (migration uygulanmamış eski DB) */
+function isMissingColumnError(err: unknown): boolean {
+  const raw = (err ?? {}) as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown }
+  const code = String(raw.code ?? '').toUpperCase()
+  const text = `${String(raw.message ?? '')} ${String(raw.details ?? '')} ${String(raw.hint ?? '')}`.toLowerCase()
+  return (
+    code === 'PGRST204' ||
+    code === '42703' ||
+    text.includes('user_tag') ||
+    text.includes('image_url') ||
+    (text.includes('column') && text.includes('does not exist'))
+  )
 }
 
 /**
@@ -533,32 +591,24 @@ export async function createBotForumPost(
       if (typeof newId !== 'string' || !newId) throw new Error('unexpected-create-shape')
       const { data, error } = await supabase
         .from('forum_posts')
-        .select('id,user_id,username,content,like_count,reply_count,verified_tier,avatar_url,created_at')
+        .select('*')
         .eq('id', newId)
         .maybeSingle()
       if (error || !data) throw error ?? new Error('unexpected-create-shape')
-      const row = data as {
-        id: string
-        user_id: string
-        username: string
-        content: string
-        like_count: number
-        reply_count: number
-        verified_tier: unknown
-        avatar_url: unknown
-        created_at: string
-      }
+      const row = data as Record<string, unknown>
       return {
-        id: row.id,
-        userId: row.user_id,
-        username: forumDisplayName(row.username, row.user_id),
-        content: row.content,
-        likeCount: row.like_count ?? 0,
+        id: String(row.id ?? ''),
+        userId: String(row.user_id ?? ''),
+        username: forumDisplayName(String(row.username ?? ''), String(row.user_id ?? '')),
+        content: String(row.content ?? ''),
+        likeCount: typeof row.like_count === 'number' ? row.like_count : 0,
         likedByMe: false,
-        replyCount: row.reply_count ?? 0,
+        replyCount: typeof row.reply_count === 'number' ? row.reply_count : 0,
         verifiedTier: parseVerifiedTier(row.verified_tier),
-        avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : null,
-        createdAt: Date.parse(row.created_at) || Date.now(),
+        avatarUrl: optText(row, 'avatar_url'),
+        userTag: optText(row, 'user_tag'),
+        imageUrl: optText(row, 'image_url'),
+        createdAt: Date.parse(String(row.created_at ?? '')) || Date.now(),
       }
     } catch (err) {
       throw classifyForumRemoteError(err, 'Bot mesajı gönderilemedi')
@@ -572,6 +622,8 @@ export async function createBotForumPost(
     content,
     likedBy: Array.from({ length: likes }, (_, i) => `botfan_${i}`),
     replies: [],
+    userTag: null,
+    imageUrl: null,
     createdAt: Date.now(),
   }
   writeLocalPosts([post, ...readLocalPosts()])
@@ -672,30 +724,23 @@ export async function listForumReplies(postId: string): Promise<ForumReply[]> {
     try {
       const { data, error } = await supabase
         .from('forum_replies')
-        .select('id,post_id,user_id,username,content,verified_tier,avatar_url,created_at')
+        .select('*')
         .eq('post_id', postId)
         .order('created_at', { ascending: true })
         .limit(100)
       if (error) throw error
       if (!Array.isArray(data)) throw new Error('unexpected-replies-shape')
-      return (data as {
-        id: string
-        post_id: string
-        user_id: string
-        username: string
-        content: string
-        verified_tier: unknown
-      avatar_url: unknown
-        created_at: string
-      }[]).map((r) => ({
-        id: r.id,
-        postId: r.post_id,
-        userId: r.user_id,
-        username: forumDisplayName(r.username, r.user_id),
-        content: r.content,
+      return (data as Record<string, unknown>[]).map((r) => ({
+        id: String(r.id ?? ''),
+        postId: String(r.post_id ?? postId),
+        userId: String(r.user_id ?? ''),
+        username: forumDisplayName(String(r.username ?? ''), String(r.user_id ?? '')),
+        content: String(r.content ?? ''),
         verifiedTier: parseVerifiedTier(r.verified_tier),
-      avatarUrl: typeof r.avatar_url === 'string' && r.avatar_url ? r.avatar_url : null,
-        createdAt: Date.parse(r.created_at) || Date.now(),
+        avatarUrl: optText(r, 'avatar_url'),
+        userTag: optText(r, 'user_tag'),
+        imageUrl: optText(r, 'image_url'),
+        createdAt: Date.parse(String(r.created_at ?? '')) || Date.now(),
       }))
     } catch (err) {
       throw classifyForumRemoteError(err, 'Yanıtlar yüklenemedi')
@@ -708,42 +753,55 @@ export async function listForumReplies(postId: string): Promise<ForumReply[]> {
     .map((r) => toForumReply(postId, r))
 }
 
-export async function createForumReply(postId: string, rawContent: string): Promise<ForumReply> {
+export async function createForumReply(
+  postId: string,
+  rawContent: string,
+  opts?: { imageUrl?: string | null },
+): Promise<ForumReply> {
   const content = validateReply(rawContent)
   const user = requireSessionUser()
+  const imageUrl = opts?.imageUrl?.trim() ? opts.imageUrl.trim() : null
 
   if (isRemoteMode()) {
     if (!supabase) throw new Error('no-backend')
     const username = resolveWriteUsername(user)
+    const userTag = user.userTag?.trim() ? user.userTag.trim().slice(0, 24) : null
+    const mapRow = (row: Record<string, unknown>): ForumReply => ({
+      id: String(row.id ?? ''),
+      postId: String(row.post_id ?? postId),
+      userId: String(row.user_id ?? ''),
+      username: forumDisplayName(String(row.username ?? ''), String(row.user_id ?? '')),
+      content: String(row.content ?? ''),
+      verifiedTier: parseVerifiedTier(row.verified_tier),
+      avatarUrl: optText(row, 'avatar_url'),
+      userTag: optText(row, 'user_tag') ?? userTag,
+      imageUrl: optText(row, 'image_url') ?? imageUrl,
+      createdAt: Date.parse(String(row.created_at ?? '')) || Date.now(),
+    })
     try {
       const { data, error } = await supabase
         .from('forum_replies')
-        .insert({ post_id: postId, user_id: user.id, username, content })
-        .select('id,post_id,user_id,username,content,verified_tier,avatar_url,created_at')
+        .insert({ post_id: postId, user_id: user.id, username, content, user_tag: userTag, image_url: imageUrl })
+        .select('*')
         .single()
       if (error) throw error
       if (!data) throw new Error('unexpected-reply-shape')
-      const row = data as {
-        id: string
-        post_id: string
-        user_id: string
-        username: string
-        content: string
-        verified_tier: unknown
-      avatar_url: unknown
-        created_at: string
-      }
-      return {
-        id: row.id,
-        postId: row.post_id,
-        userId: row.user_id,
-        username: forumDisplayName(row.username, row.user_id),
-        content: row.content,
-        verifiedTier: parseVerifiedTier(row.verified_tier),
-        avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url ? row.avatar_url : null,
-        createdAt: Date.parse(row.created_at) || Date.now(),
-      }
+      return mapRow(data as Record<string, unknown>)
     } catch (err) {
+      if (isMissingColumnError(err)) {
+        try {
+          const { data, error } = await supabase
+            .from('forum_replies')
+            .insert({ post_id: postId, user_id: user.id, username, content })
+            .select('*')
+            .single()
+          if (error) throw error
+          if (!data) throw new Error('unexpected-reply-shape')
+          return mapRow(data as Record<string, unknown>)
+        } catch (retryErr) {
+          throw classifyForumRemoteError(retryErr, 'Yanıt gönderilemedi')
+        }
+      }
       throw classifyForumRemoteError(err, 'Yanıt gönderilemedi')
     }
   }
@@ -756,6 +814,8 @@ export async function createForumReply(postId: string, rawContent: string): Prom
     userId: user.id,
     username: user.username,
     content,
+    userTag: user.userTag?.trim() ? user.userTag.trim().slice(0, 24) : null,
+    imageUrl,
     createdAt: Date.now(),
   }
   post.replies = [...post.replies, reply]

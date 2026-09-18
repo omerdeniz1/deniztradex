@@ -6,6 +6,8 @@ export interface Profile {
   email: string
   full_name: string | null
   avatar_url: string | null
+  /** Forumda isim altında görünen özel etiket (max 24 karakter). */
+  user_tag: string | null
   balance: number
   /** Yönetici tarafından dondurulan hesaplar giriş yapamaz. */
   is_frozen: boolean
@@ -46,6 +48,7 @@ interface DbProfile {
   email: string
   full_name: string | null
   avatar_url: string | null
+  user_tag: unknown
   balance: number | string | null
   is_frozen: unknown
   is_banned: unknown
@@ -77,6 +80,7 @@ function parseProfile(row: DbProfile): Profile | null {
     email: row.email,
     full_name: row.full_name,
     avatar_url: row.avatar_url,
+    user_tag: typeof row.user_tag === 'string' && row.user_tag.trim() ? row.user_tag.trim().slice(0, 24) : null,
     balance,
     // Eski DB'lerde kolon henüz yoksa `undefined` gelir — eksik kolon
     // "dondurulmuş"/"yasaklı" sayılmaz, hesap açık kabul edilir.
@@ -171,6 +175,7 @@ export function buildFallbackProfile(authUser: AuthUserLike): Profile {
     email,
     full_name: null,
     avatar_url: null,
+    user_tag: null,
     balance: DEFAULT_PROFILE_BALANCE,
     is_frozen: false,
     is_banned: false,
@@ -569,8 +574,7 @@ export async function uploadAvatarFile(userId: string, file: File): Promise<stri
   return publicUrl
 }
 
-export async function removeAvatarFile(userId: string): Promise<void> {
-  if (!supabase || !userId) {
+export async function removeAvatarFile(userId: string): Promise<void> {  if (!supabase || !userId) {
     throw new Error('Fotoğraf silmek için giriş yapmalısın.')
   }
   try {
@@ -584,6 +588,108 @@ export async function removeAvatarFile(userId: string): Promise<void> {
   }
   const { error } = await supabase.from('profiles').update({ avatar_url: null }).eq('id', userId)
   if (error) throw new Error('Fotoğraf silinemedi. Lütfen tekrar dene.')
+}
+
+// ---------------------------------------------------------------
+// Kullanıcı adı + forum etiketi (Ayarlar → Kullanıcı Adı Değiştir).
+// `user_tag` kolonu yoksa (eski DB) etiket sessizce atlanır — isim
+// değişikliği yine işler. Migration: 20260918*_profile_tag.
+// ---------------------------------------------------------------
+
+export const USER_TAG_MAX = 24
+
+export function validateUserTag(raw: string): string | null {
+  const t = raw.trim().slice(0, USER_TAG_MAX)
+  if (!t) return null
+  if (/[<>@]/.test(t)) throw new Error('Etikette < > @ karakterleri kullanılamaz.')
+  return t
+}
+
+export async function updateProfileUsernameAndTag(
+  userId: string,
+  username: string,
+  tag: string | null,
+): Promise<void> {
+  if (!supabase || !userId) {
+    throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+  }
+  const payload: Record<string, unknown> = { username }
+  if (tag !== undefined) payload.user_tag = tag
+  const { error } = await supabase.from('profiles').update(payload).eq('id', userId)
+  if (error) {
+    const msg = String((error as { message?: unknown }).message ?? '')
+    if (msg.includes('duplicate') || msg.includes('unique') || (error as { code?: string }).code === '23505') {
+      throw new Error('Bu kullanıcı adı zaten kullanılıyor.')
+    }
+    // `user_tag` kolonu yoksa ismi yine kurtar (eski DB uyumluluğu).
+    if (tag !== null && /user_tag|column|schema cache|PGRST/i.test(msg)) {
+      const retry = await supabase.from('profiles').update({ username }).eq('id', userId)
+      if (retry.error) throw new Error('Kullanıcı adı güncellenemedi. Lütfen tekrar dene.')
+      return
+    }
+    throw new Error('Kullanıcı adı güncellenemedi. Lütfen tekrar dene.')
+  }
+}
+
+// ---------------------------------------------------------------
+// Forum fotoğrafı: `storage.forum-images` kovası, herkese-açık okuma.
+// Dosya `<userId>/forum_<zaman>.<uzantı>` yoluna yazılır; en fazla
+// 10MB (istemci kapısı — mobil kotayı korur). Supabase yoksa (yerel
+// mod) veri-URL'si döndürülür (oturum içi önizleme/kayıt).
+// ---------------------------------------------------------------
+
+export const FORUM_IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+const FORUM_IMAGE_EXT_BY_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
+export function validateForumImageFile(file: File): string {
+  const mime = (file.type || '').toLowerCase()
+  const ext = FORUM_IMAGE_EXT_BY_MIME[mime]
+  if (!ext) {
+    throw new Error('Yalnızca JPG, PNG, WEBP veya GIF fotoğrafı ekleyebilirsin.')
+  }
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    throw new Error('Dosya okunamadı. Başka bir fotoğraf dene.')
+  }
+  if (file.size > FORUM_IMAGE_MAX_BYTES) {
+    throw new Error('Fotoğraf en fazla 10MB olabilir.')
+  }
+  return ext
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Dosya okunamadı. Başka bir fotoğraf dene.'))
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(new Error('Dosya okunamadı. Başka bir fotoğraf dene.'))
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function uploadForumImageFile(userId: string, file: File): Promise<string> {
+  const ext = validateForumImageFile(file)
+  if (!supabase || !userId) {
+    // Yerel mod: veri-URL (oturum içi; kota aşımında kayıt yine denenir,
+    // yazılamazsa akış metinle devam eder).
+    return readFileAsDataUrl(file)
+  }
+  const path = `${userId}/forum_${Date.now()}.${ext}`
+  const { error: uploadError } = await supabase.storage
+    .from('forum-images')
+    .upload(path, file, { contentType: file.type, upsert: false })
+  if (uploadError) throw new Error('Fotoğraf yüklenemedi. Lütfen tekrar dene.')
+  const { data } = supabase.storage.from('forum-images').getPublicUrl(path)
+  const publicUrl = data?.publicUrl ?? ''
+  if (!publicUrl) throw new Error('Fotoğraf adresi alınamadı. Lütfen tekrar dene.')
+  return publicUrl
 }
 
 // ---------------------------------------------------------------

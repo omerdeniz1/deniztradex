@@ -393,6 +393,7 @@ export async function login(identifier: string, password: string): Promise<User>
       email: profile.email || authUser.email || email,
       createdAt: toCreatedAt(profile.created_at ?? authUser.created_at),
       avatarUrl: profile.avatar_url ?? null,
+      userTag: profile.user_tag ?? null,
     }
     // Eksik/gecikmiş profil satırını kalıcı olarak onar ve bu cihazın
     // haritasını tazele — bir sonraki çıkış->giriş döngüsü DB'ye
@@ -478,6 +479,108 @@ export async function changePassword(
   const updated = [...users]
   updated[idx] = { ...updated[idx], passwordHash: await hashPassword(newPassword) }
   writeUsers(updated)
+}
+
+/**
+ * Oturum sahibinin kullanıcı adını + forum etiketini değiştirir
+ * (Ayarlar → Kullanıcı Adı Değiştir; şifre menüsüyle aynı açılır yapı).
+ *
+ * - İsim: en az 3, max 20 karakter; rezerve adlar yasak; başkası
+ *   kullanıyorsa reddedilir. Eski isim anında serbest kalır (satır
+ *   güncellenir, başkası sıfırdan alabilir).
+ * - Etiket: opsiyonel, max 24 karakter; forumda isim altında görünür.
+ */
+export async function changeUsername(
+  newUsername: string,
+  newTag?: string,
+): Promise<User> {
+  const username = newUsername.trim()
+  if (username.length < 3) {
+    throw new Error('Kullanıcı adı en az 3 karakter olmalı.')
+  }
+  if (username.length > 20) {
+    throw new Error('Kullanıcı adı en fazla 20 karakter olabilir.')
+  }
+  if (!/^[A-Za-z0-9_çÇğĞıİöÖşŞüÜ]+$/.test(username)) {
+    throw new Error('Kullanıcı adı yalnızca harf, rakam ve _ içerebilir.')
+  }
+  if (RESERVED_USERNAMES.includes(username.toLowerCase())) {
+    throw new Error('Bu kullanıcı adı kullanılamaz.')
+  }
+  let tag: string | null = null
+  if (newTag !== undefined) {
+    const t = newTag.trim()
+    if (t) {
+      if (t.length > 24) throw new Error('Etiket en fazla 24 karakter olabilir.')
+      if (/[<>@]/.test(t)) throw new Error('Etikette < > @ karakterleri kullanılamaz.')
+      tag = t
+    }
+  }
+
+  const session = getSessionUser()
+  if (!session) throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+
+  if (isSupabaseConfigured && supabase) {
+    const taken = await findProfileByUsername(username)
+    if (taken && taken.id !== session.id) {
+      throw new Error('Bu kullanıcı adı zaten kullanılıyor.')
+    }
+    const { updateProfileUsernameAndTag } = await import('@/services/supabaseWallet')
+    await updateProfileUsernameAndTag(session.id, username, tag)
+    try {
+      await supabase.auth.updateUser({ data: { username } })
+    } catch {
+      // best effort — profil satırı zaten güncel
+    }
+    const updated: User = { ...session, username, userTag: tag }
+    setSession(updated)
+    rememberUsername(username, session.email)
+    return updated
+  }
+
+  const users = readUsers()
+  const idx = users.findIndex((u) => u.id === session.id)
+  if (idx < 0) throw new Error('Kullanıcı bulunamadı.')
+  const clash = users.some(
+    (u) => u.id !== session.id && u.username.toLowerCase() === username.toLowerCase(),
+  )
+  if (clash) throw new Error('Bu kullanıcı adı zaten kullanılıyor.')
+  const updated = [...users]
+  updated[idx] = { ...updated[idx], username }
+  writeUsers(updated)
+  const publicUser: User = { ...toPublicUser(updated[idx]), userTag: tag }
+  try {
+    const map = readUsernameMap()
+    for (const k of Object.keys(map)) {
+      if (map[k] === session.email.toLowerCase()) delete map[k]
+    }
+    safeSet(USERNAME_MAP_KEY, JSON.stringify(map))
+  } catch {
+    // yoksay
+  }
+  rememberUsername(username, session.email)
+  setSession(publicUser)
+  try {
+    localStorage.setItem(
+      `deniztradx_usertag_${publicUser.id}`,
+      JSON.stringify(tag),
+    )
+  } catch {
+    // yoksay
+  }
+  return publicUser
+}
+
+/** Yerel mod etiket okuma (Supabase yokken Ayarlar→Forum önizlemesi için). */
+export function getLocalUserTag(userId: string): string | null {
+  try {
+    const raw = localStorage.getItem(`deniztradx_usertag_${userId}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    return typeof parsed === 'string' && parsed.trim() ? parsed.trim().slice(0, 24) : null
+  } catch {
+    return null
+  }
 }
 
 /**

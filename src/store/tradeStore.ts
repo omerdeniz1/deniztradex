@@ -140,6 +140,13 @@ interface TradeState {
   withdrawals: WithdrawalRecord[]
   promos: string[]
   spotBalances: Record<string, number>
+  /** Spot ortalama maliyet (coin → USDT bazında ağırlıklı ortalama alış fiyatı).
+   *  Ek alımlarda ortalama güncellenir; satışta ortalama korunur, miktar
+   *  sıfırlanınca kayıt silinir. */
+  spotAvgCosts: Record<string, number>
+  /** Sanal AMM ortalama maliyet (sembol → token başına USDT). Aynı ortalama
+   *  mantığı; sanal al/sat panelinden beslenir. */
+  virtualAvgCosts: Record<string, number>
   spotTrades: SpotTrade[]
   spotPositions: SpotPosition[]
 
@@ -176,6 +183,18 @@ interface TradeState {
   syncPromos: (codes: string[]) => void
   spotBuy: (input: { symbol: string; quantity: number; price: number }) => TradeActionResult
   spotSell: (input: { symbol: string; quantity: number; price: number }) => TradeActionResult
+  /**
+   * Sanal AMM işleminin ortalama maliyet kaydı: buy'da ağırlıklı ortalama
+   * güncellenir, sell'de ortalama korunur (miktar takibi cüzdan/havuzdadır).
+   * `tokenQty` alınan/satılan adet, `usdtValue` işlemin USDT karşılığıdır.
+   */
+  recordVirtualTrade: (
+    symbol: string,
+    side: 'buy' | 'sell',
+    tokenQty: number,
+    usdtValue: number,
+    prevHoldingQty?: number,
+  ) => void
   setBalance: (value: number) => void
   resetWallet: () => void
   /**
@@ -206,6 +225,8 @@ const initialState = {
   withdrawals: [],
   promos: [],
   spotBalances: {},
+  spotAvgCosts: {},
+  virtualAvgCosts: {},
   spotTrades: [],
   spotPositions: [],
 }
@@ -437,6 +458,11 @@ export const useTradeStore = create<TradeState>()(
             ...s.spotBalances,
             [coin]: roundQty(Math.max(0, held - qty)),
           },
+          spotAvgCosts: (() => {
+            const next = { ...s.spotAvgCosts }
+            if (roundQty(Math.max(0, held - qty)) <= 0) delete next[coin]
+            return next
+          })(),
           balance: roundTo(s.balance + proceeds),
           spotTrades: [trade, ...s.spotTrades].slice(0, 200),
         }))
@@ -615,7 +641,7 @@ export const useTradeStore = create<TradeState>()(
           return { ok: false, error: 'Amount must be greater than zero.' }
         }
         const cost = roundQty(quantity * price)
-        const { balance, spotBalances, spotTrades } = get()
+        const { balance, spotBalances, spotTrades, spotAvgCosts } = get()
         const coin = coinOf(symbol)
         if (cost > balance) {
           return { ok: false, error: 'Insufficient USDT balance.' }
@@ -628,12 +654,20 @@ export const useTradeStore = create<TradeState>()(
           price,
           at: Date.now(),
         }
+        const prevQty = spotBalances[coin] ?? 0
+        const prevAvg = spotAvgCosts[coin] ?? price
+        const nextQty = roundQty(prevQty + roundQty(quantity))
+        const nextAvg =
+          prevQty > 0
+            ? (prevQty * prevAvg + roundQty(quantity) * price) / (prevQty + roundQty(quantity))
+            : price
         set({
           balance: Math.max(0, roundTo(balance - cost)),
           spotBalances: {
             ...spotBalances,
-            [coin]: roundQty((spotBalances[coin] ?? 0) + roundQty(quantity)),
+            [coin]: nextQty,
           },
+          spotAvgCosts: { ...spotAvgCosts, [coin]: nextAvg },
           spotTrades: [trade, ...spotTrades].slice(0, 200),
         })
         void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
@@ -669,13 +703,20 @@ export const useTradeStore = create<TradeState>()(
           price,
           at: Date.now(),
         }
-        set({
-          balance: roundTo(balance + proceeds),
-          spotBalances: {
-            ...spotBalances,
-            [coin]: roundQty(held - quantity),
-          },
-          spotTrades: [trade, ...spotTrades].slice(0, 200),
+        const nextQty = roundQty(held - quantity)
+        set((s) => {
+          const nextAvg = { ...s.spotAvgCosts }
+          // Miktar sıfırlanınca maliyet kaydı da silinir (sıfırdan başlanır).
+          if (nextQty <= 0) delete nextAvg[coin]
+          return {
+            balance: roundTo(balance + proceeds),
+            spotBalances: {
+              ...spotBalances,
+              [coin]: nextQty,
+            },
+            spotAvgCosts: nextAvg,
+            spotTrades: [trade, ...spotTrades].slice(0, 200),
+          }
         })
         void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
         void recordTransaction({
@@ -693,6 +734,22 @@ export const useTradeStore = create<TradeState>()(
       setBalance: (value) => {
         if (!Number.isFinite(value) || value < 0) return
         set({ balance: roundTo(value) })
+      },
+
+      recordVirtualTrade: (symbol, side, tokenQty, usdtValue, prevHoldingQty = 0) => {
+        const key = symbol.trim().toUpperCase()
+        if (!key || !Number.isFinite(tokenQty) || tokenQty <= 0) return
+        if (side === 'sell') return
+        if (!Number.isFinite(usdtValue) || usdtValue <= 0) return
+        // Ek alımlarda ağırlıklı ortalama: (eskiAdet*eskiOrt + yeniAdet*yeniFiyat) / toplam.
+        const buyPrice = usdtValue / tokenQty
+        set((s) => {
+          const prevAvg = s.virtualAvgCosts[key] ?? buyPrice
+          const prevQty = Number.isFinite(prevHoldingQty) && prevHoldingQty > 0 ? prevHoldingQty : 0
+          const nextAvg =
+            prevQty > 0 ? (prevQty * prevAvg + tokenQty * buyPrice) / (prevQty + tokenQty) : buyPrice
+          return { virtualAvgCosts: { ...s.virtualAvgCosts, [key]: nextAvg } }
+        })
       },
 
       resetWallet: () => set({ ...initialState }),

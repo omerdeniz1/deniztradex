@@ -25,6 +25,7 @@ export const ADMIN_PERMISSIONS = [
   { key: 'change_password', label: 'Şifre Değiştirebilir' },
   { key: 'manage_admins', label: 'Admin Ekleyebilir' },
   { key: 'restrict_money', label: 'Para İşlemlerini Kısıtlayabilir' },
+  { key: 'delete_users', label: 'Kullanıcı Silebilir' },
 ] as const
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number]['key']
@@ -274,6 +275,33 @@ export async function setUserBanned(userId: string, banned: boolean): Promise<vo
     p_is_banned: banned,
   })
   if (error) throw toRpcError(error, 'Yasaklama işlemi yapılamadı. Lütfen tekrar dene.')
+}
+
+/**
+ * Kullanıcıyı KOMPLE siler (`delete_users` gerekir, RPC denetimli).
+ *
+ * `admin_delete_user` auth satırını siler; profiles, işlemler, forum
+ * yazıları/yanıtları, sanal bakiyeler ve senkron durumu `on delete
+ * cascade` ile her yerden gider. Kullanıcı adı unique kısıttan düşer —
+ * başkası aynı isimle sıfırdan kayıt olabilir. Geri alınamaz.
+ */
+export async function deleteUser(userId: string): Promise<string> {
+  if (!userId) throw new Error('Kullanıcı bulunamadı.')
+  const { client } = await requireAccess('delete_users')
+  const { data, error } = await client.rpc('admin_delete_user', {
+    p_user_id: userId,
+  })
+  if (error) {
+    // Migration uygulanmamış eski DB: fonksiyon yok (PGRST202).
+    if ((error as { code?: string }).code === 'PGRST202') {
+      throw new Error(
+        'Silme altyapısı veritabanında yok. Yönetici Supabase SQL Editor\'de 20260918090000_admin_delete_user migration\'ını uygulamalı.',
+      )
+    }
+    throw toRpcError(error, 'Kullanıcı silinemedi. Lütfen tekrar dene.')
+  }
+  const row = data as { username?: unknown } | null
+  return typeof row?.username === 'string' && row.username ? row.username : ''
 }
 
 /**
