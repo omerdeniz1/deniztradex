@@ -4,6 +4,7 @@ import {
   ensureProfileRow,
   findProfileByEmail,
   findProfileByUsername,
+  getProfile,
   getProfileWithFallback,
   resolveLoginEmail,
 } from '@/services/supabaseWallet'
@@ -532,7 +533,13 @@ export async function changeUsername(
     } catch {
       // best effort — profil satırı zaten güncel
     }
-    const updated: User = { ...session, username, userTag: tag }
+    // Doğrulama: yazı gerçekten işlendi mi? (RLS sessiz ret vb.
+    // durumlarda eski isimde kalınır; o zaman eski ad da boşa düşmez.)
+    const check = await getProfile(session.id)
+    if (!check || check.username !== username) {
+      throw new Error('Kullanıcı adı güncellenemedi. Lütfen tekrar dene.')
+    }
+    const updated: User = { ...session, username, userTag: check.user_tag ?? tag }
     setSession(updated)
     rememberUsername(username, session.email)
     return updated
@@ -548,6 +555,14 @@ export async function changeUsername(
   const updated = [...users]
   updated[idx] = { ...updated[idx], username }
   writeUsers(updated)
+  // Doğrulama: eski ad gerçekten boşa düştü mü?
+  const verify = readUsers()
+  if (verify.some((u) => u.id !== session.id && u.username.toLowerCase() === username.toLowerCase())) {
+    throw new Error('Kullanıcı adı güncellenemedi. Lütfen tekrar dene.')
+  }
+  if (verify.find((u) => u.id === session.id)?.username !== username) {
+    throw new Error('Kullanıcı adı güncellenemedi. Lütfen tekrar dene.')
+  }
   const publicUser: User = { ...toPublicUser(updated[idx]), userTag: tag }
   try {
     const map = readUsernameMap()
@@ -560,20 +575,60 @@ export async function changeUsername(
   }
   rememberUsername(username, session.email)
   setSession(publicUser)
-  try {
-    localStorage.setItem(
-      `deniztradx_usertag_${publicUser.id}`,
-      JSON.stringify(tag),
-    )
-  } catch {
-    // yoksay
-  }
+  persistLocalTag(publicUser.id, tag)
   return publicUser
 }
 
-/** Yerel mod etiket okuma (Supabase yokken Ayarlar→Forum önizlemesi için). */
-export function getLocalUserTag(userId: string): string | null {
+/**
+ * Forum etiketini TEK BAŞINA günceller (kullanıcı adı değişmeden).
+ * Ayarlar ekranındaki ayrı "Etiketi Kaydet" butonu burayı çağırır.
+ */
+export async function changeUserTag(newTag: string): Promise<User> {
+  const t = newTag.trim()
+  const tag: string | null = t ? t.slice(0, 24) : null
+  if (tag && /[<>@]/.test(tag)) {
+    throw new Error('Etikette < > @ karakterleri kullanılamaz.')
+  }
+  const session = getSessionUser()
+  if (!session) throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+
+  if (isSupabaseConfigured && supabase) {
+    const { updateProfileUsernameAndTag } = await import('@/services/supabaseWallet')
+    try {
+      await updateProfileUsernameAndTag(session.id, session.username, tag)
+    } catch (err) {
+      // Etiket kolonu yoksa (eski DB) cihaz-içi etikete düş — isim
+      // etkilenmez, forum bu cihazda etiketi gösterir.
+      if (err instanceof Error && /user_tag|kolon|column|schema cache|PGRST/i.test(err.message)) {
+        persistLocalTag(session.id, tag)
+        const fallback: User = { ...session, userTag: tag }
+        setSession(fallback)
+        return fallback
+      }
+      throw err
+    }
+    const check = await getProfile(session.id)
+    const updated: User = { ...session, userTag: check?.user_tag ?? tag }
+    setSession(updated)
+    return updated
+  }
+
+  persistLocalTag(session.id, tag)
+  const updated: User = { ...session, userTag: tag }
+  setSession(updated)
+  return updated
+}
+
+function persistLocalTag(userId: string, tag: string | null): void {
   try {
+    localStorage.setItem(`deniztradx_usertag_${userId}`, JSON.stringify(tag))
+  } catch {
+    // yoksay
+  }
+}
+
+/** Yerel mod etiket okuma (Supabase yokken Ayarlar→Forum önizlemesi için). */
+export function getLocalUserTag(userId: string): string | null {  try {
     const raw = localStorage.getItem(`deniztradx_usertag_${userId}`)
     if (!raw) return null
     const parsed = JSON.parse(raw) as unknown

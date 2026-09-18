@@ -27,6 +27,13 @@ interface Props {
   onSubmitted?: () => void
   /** Tetik Tipi satırını gizler (mobil sheet sade görünüm). Varsayılan açık. */
   showTriggerType?: boolean
+  /**
+   * Tek-yön kilidi (mobil Al/Sat menüsü): açıkken üstteki Al/Sat
+   * sekmeleri gizlenir, panel yalnızca `initialSide` yönünde işlem
+   * yapar — Al menüsünden sadece alım, Sat menüsünden sadece satım.
+   * Sanal panelde de aynı prop vardır (birebir aynı davranış).
+   */
+  lockedSide?: boolean
 }
 
 export type PanelSide = OrderStance
@@ -62,7 +69,7 @@ const ORDER_TYPE_LABEL: Record<OrderType, string> = {
   oco: 'OCO',
 }
 
-export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, onSubmitted, showTriggerType = true }: Props) {
+export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, onSubmitted, showTriggerType = true, lockedSide = false }: Props) {
   const spotBalances = useTradeStore((s) => s.spotBalances)
   const confirmOrders = useSettingsStore((s) => s.confirmOrders)
   const place = useOrderStore((s) => s.placeOrder)
@@ -304,6 +311,19 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
+      {lockedSide ? (
+        <div
+          aria-live="polite"
+          className={cn(
+            'flex h-11 shrink-0 items-center justify-center border-b border-exchange-border px-3 text-sm font-extrabold uppercase tracking-wide',
+            isBuy ? 'text-exchange-buy' : 'text-exchange-sell',
+          )}
+        >
+          {mode === 'spot'
+            ? isBuy ? 'Alış Emri' : 'Satış Emri'
+            : isBuy ? 'Long Emri' : 'Short Emri'}
+        </div>
+      ) : (
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-exchange-border px-1">
         <button
           type="button"
@@ -330,6 +350,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
           {mode === 'spot' ? 'Sat (Sell)' : 'Short'}
         </button>
       </div>
+      )}
 
       {mode === 'futures' && (
         <div className="border-b border-exchange-border px-2.5 py-2 md:px-4 md:py-3">

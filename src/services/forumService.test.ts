@@ -12,6 +12,7 @@ import {
   listForumReplies,
   parseVerifiedTier,
   toggleForumLike,
+  toggleForumReplyLike,
 } from '@/services/forumService'
 import type { User } from '@/types'
 
@@ -123,6 +124,27 @@ describe('forum replies (offline backend)', () => {  it('rejects empty and overl
     loginAs(alice)
     await deleteForumReply(post.id, reply.id)
     expect(await listForumReplies(post.id)).toHaveLength(0)
+  })
+
+  it('toggles reply likes per user without double counting', async () => {
+    loginAs(alice)
+    const post = await createForumPost('Beğenili yanıt ana gönderisi')
+    const reply = await createForumReply(post.id, 'beğen beni')
+    loginAs(bob)
+    await expect(toggleForumReplyLike(post.id, reply.id)).resolves.toMatchObject({
+      liked: true,
+      likeCount: 1,
+    })
+    await expect(toggleForumReplyLike(post.id, reply.id)).resolves.toMatchObject({
+      liked: false,
+      likeCount: 0,
+    })
+    const replies = await listForumReplies(post.id)
+    expect(replies[0]).toMatchObject({ likeCount: 0, likedByMe: false })
+    loginAs(alice)
+    await toggleForumReplyLike(post.id, reply.id)
+    const after = await listForumReplies(post.id)
+    expect(after[0]).toMatchObject({ likeCount: 1, likedByMe: true })
   })
 })
 

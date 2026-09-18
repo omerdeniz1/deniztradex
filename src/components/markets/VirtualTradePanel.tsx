@@ -23,10 +23,17 @@ export function VirtualTradePanel({
   symbol,
   initialSide,
   onSubmitted,
+  lockedSide = false,
 }: {
   symbol: string
   initialSide?: 'buy' | 'sell'
   onSubmitted?: () => void
+  /**
+   * Tek-yön kilidi (mobil Al/Sat menüsü): açıkken üstteki Al/Sat
+   * sekmeleri gizlenir, panel yalnızca `initialSide` yönünde işlem
+   * yapar — gerçek coin paneliyle birebir aynı davranış.
+   */
+  lockedSide?: boolean
 }) {
   const balance = useTradeStore((s) => s.balance)
   const pushToast = useToastStore((s) => s.push)
@@ -104,6 +111,17 @@ export function VirtualTradePanel({
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
+      {lockedSide ? (
+        <div
+          aria-live="polite"
+          className={cn(
+            'flex h-11 shrink-0 items-center justify-center border-b border-exchange-border px-3 text-sm font-extrabold uppercase tracking-wide',
+            side === 'buy' ? 'text-exchange-buy' : 'text-exchange-sell',
+          )}
+        >
+          {side === 'buy' ? 'Alış Emri' : 'Satış Emri'}
+        </div>
+      ) : (
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-exchange-border px-1">
         {(['buy', 'sell'] as const).map((s) => {
           const active = side === s
@@ -127,6 +145,7 @@ export function VirtualTradePanel({
           )
         })}
       </div>
+      )}
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2.5 py-3 md:space-y-4 md:px-4 md:py-4">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">

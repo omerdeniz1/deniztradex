@@ -807,6 +807,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                     symbol={symbol}
                     initialSide={sheetSide === 'sell' || sheetSide === 'short' ? 'sell' : 'buy'}
                     onSubmitted={() => setSheetSide(null)}
+                    lockedSide
                   />
                 ) : (
                   <TradingPanel
@@ -818,6 +819,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                     initialSide={sheetSide}
                     onSubmitted={() => setSheetSide(null)}
                     showTriggerType={false}
+                    lockedSide
                   />
                 )}
               </div>

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { changePassword, changeUsername, login, register } from '@/services/authService'
+import { changePassword, changeUsername, changeUserTag, login, register } from '@/services/authService'
 
 beforeEach(() => {
   localStorage.clear()
@@ -63,5 +63,18 @@ describe('changeUsername (yerel backend)', () => {
     await register({ username: 'etiketsiz', email: 'et@x.com', password: 'sifre123' })
     const updated = await changeUsername('etiketsiz2', '   ')
     expect(updated.userTag).toBeNull()
+  })
+
+  it('etiket tek başına değişir, kullanıcı adı aynı kalır', async () => {
+    await register({ username: 'tagci', email: 'tag@x.com', password: 'sifre123' })
+    const updated = await changeUserTag('Analist')
+    expect(updated).toMatchObject({ username: 'tagci', userTag: 'Analist' })
+    const cleared = await changeUserTag('   ')
+    expect(cleared).toMatchObject({ username: 'tagci', userTag: null })
+  })
+
+  it('etikette yasak karakter reddedilir', async () => {
+    await register({ username: 'tagci2', email: 'tag2@x.com', password: 'sifre123' })
+    await expect(changeUserTag('a<b')).rejects.toThrow()
   })
 })

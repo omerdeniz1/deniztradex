@@ -82,6 +82,24 @@ describe('TradingPanel sheet options', () => {
     // Sekme + submit butonu aynı etiketi taşır — ikisinin de Sat olması yönün seçildiğini kanıtlar.
     expect(screen.getAllByRole('button', { name: 'Sat (Sell)' })).toHaveLength(2)
   })
+
+  it('lockedSide hides the side tabs and locks the direction', () => {
+    render(
+      <TradingPanel ticker={btcTicker} mode="spot" balance={1000} marketPrice={100} initialSide="sell" lockedSide />,
+    )
+    // Sekmeler yok — yalnızca yön başlığı + tek submit butonu.
+    expect(screen.queryByRole('button', { name: 'Al (Buy)' })).toBeNull()
+    expect(screen.getByText('Satış Emri')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Sat (Sell)' })).toHaveLength(1)
+  })
+
+  it('lockedSide buy shows only the buy direction', () => {
+    render(
+      <TradingPanel ticker={btcTicker} mode="spot" balance={1000} marketPrice={100} initialSide="buy" lockedSide />,
+    )
+    expect(screen.queryByRole('button', { name: 'Sat (Sell)' })).toBeNull()
+    expect(screen.getByText('Alış Emri')).toBeInTheDocument()
+  })
 })
 
 describe('TradingPanel price sync', () => {

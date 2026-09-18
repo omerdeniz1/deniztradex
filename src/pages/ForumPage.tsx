@@ -16,6 +16,7 @@ import {
   listForumPosts,
   listForumReplies,
   toggleForumLike,
+  toggleForumReplyLike,
   type ForumPost,
   type ForumReply,
 } from '@/services/forumService'
@@ -430,6 +431,7 @@ function PostRow({
   const [loadingReplies, setLoadingReplies] = useState(false)
   const [replyDraft, setReplyDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [likingReply, setLikingReply] = useState<Record<string, boolean>>({})
   const [replyFile, setReplyFile] = useState<File | null>(null)
   const [replyPreview, setReplyPreview] = useState<string | null>(null)
   const replyFileRef = useRef<HTMLInputElement>(null)
@@ -528,6 +530,32 @@ function PostRow({
     } catch {
       setReplies(prev)
       pushToast({ message: 'Yanıt silinemedi.', tone: 'error' })
+    }
+  }
+
+  const toggleReplyLike = async (reply: ForumReply) => {
+    if (likingReply[reply.id]) return
+    setLikingReply((s) => ({ ...s, [reply.id]: true }))
+    const prev = replies
+    setReplies((list) =>
+      (list ?? []).map((r) =>
+        r.id === reply.id
+          ? { ...r, likedByMe: !r.likedByMe, likeCount: r.likeCount + (r.likedByMe ? -1 : 1) }
+          : r,
+      ),
+    )
+    try {
+      const res = await toggleForumReplyLike(post.id, reply.id)
+      setReplies((list) =>
+        (list ?? []).map((r) =>
+          r.id === reply.id ? { ...r, likedByMe: res.liked, likeCount: res.likeCount } : r,
+        ),
+      )
+    } catch {
+      setReplies(prev)
+      pushToast({ message: 'Beğeni işlenemedi.', tone: 'error' })
+    } finally {
+      setLikingReply((s) => ({ ...s, [reply.id]: false }))
     }
   }
 
@@ -718,6 +746,26 @@ function PostRow({
                         <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-exchange-text">
                           {renderContentWithMentions(reply.content)}
                         </p>
+                        <div className="mt-1 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void toggleReplyLike(reply)}
+                            disabled={!!likingReply[reply.id]}
+                            aria-label={reply.likedByMe ? 'Yanıt beğenisini geri al' : 'Yanıtı beğen'}
+                            aria-pressed={reply.likedByMe}
+                            className={cn(
+                              'flex min-h-[1.75rem] shrink-0 items-center gap-1 rounded-full px-2 text-[11px] font-bold transition-colors disabled:opacity-50',
+                              reply.likedByMe
+                                ? 'bg-exchange-sell/10 text-exchange-sell'
+                                : 'text-exchange-muted hover:bg-exchange-border/30 hover:text-exchange-sell',
+                            )}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill={reply.likedByMe ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+                            </svg>
+                            <span className="font-mono">{reply.likeCount > 0 ? reply.likeCount : ''}</span>
+                          </button>
+                        </div>
                         {reply.imageUrl && (
                           <button
                             type="button"

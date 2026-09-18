@@ -163,30 +163,45 @@ function AvatarSection() {
 function UsernameSection() {
   const user = useAuthStore((s) => s.user)
   const changeUsername = useAuthStore((s) => s.changeUsername)
+  const changeUserTag = useAuthStore((s) => s.changeUserTag)
   const pushToast = useToastStore((s) => s.push)
   const [name, setName] = useState(user?.username ?? '')
   const [tag, setTag] = useState(user?.userTag ?? '')
-  const [busy, setBusy] = useState(false)
+  const [busyName, setBusyName] = useState(false)
+  const [busyTag, setBusyTag] = useState(false)
   // Şifre menüsüyle aynı açılır yapı.
   const [open, setOpen] = useState(false)
 
   if (!user) return null
 
-  const onSave = async () => {
-    if (busy) return
+  const onSaveName = async () => {
+    if (busyName) return
     const nextName = name.trim()
     if (!nextName) {
       pushToast({ message: 'Kullanıcı adı boş olamaz.', tone: 'error' })
       return
     }
-    setBusy(true)
+    setBusyName(true)
     try {
-      await changeUsername(nextName, tag)
-      pushToast({ message: 'Kullanıcı adın güncellendi.', tone: 'success' })
+      await changeUsername(nextName)
+      pushToast({ message: 'Kullanıcı adın güncellendi. Eski adın yeniden kayda açıldı.', tone: 'success' })
     } catch (err) {
       pushToast({ message: err instanceof Error ? err.message : 'Güncellenemedi.', tone: 'error' })
     } finally {
-      setBusy(false)
+      setBusyName(false)
+    }
+  }
+
+  const onSaveTag = async () => {
+    if (busyTag) return
+    setBusyTag(true)
+    try {
+      await changeUserTag(tag)
+      pushToast({ message: tag.trim() ? 'Etiketin güncellendi.' : 'Etiketin kaldırıldı.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Güncellenemedi.', tone: 'error' })
+    } finally {
+      setBusyTag(false)
     }
   }
 
@@ -232,7 +247,7 @@ function UsernameSection() {
             className="overflow-hidden"
           >
             <div className="grid gap-3 px-5 pb-5 sm:px-6 sm:pb-6">
-              <div className="min-w-0">
+              <div className="min-w-0 rounded-xl border border-exchange-border/60 p-3">
                 <label htmlFor="username-next" className="mb-1 block text-xs font-semibold text-exchange-muted">
                   Yeni kullanıcı adı (en az 3 karakter)
                 </label>
@@ -242,38 +257,43 @@ function UsernameSection() {
                   onChange={(e) => setName(e.target.value)}
                   maxLength={20}
                   autoComplete="username"
-                  disabled={busy}
+                  disabled={busyName}
                   placeholder={user.username}
                   className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
                 />
+                <div className="mt-2">
+                  <Button size="sm" onClick={() => void onSaveName()} disabled={busyName}>
+                    {busyName ? 'Güncelleniyor…' : 'Kullanıcı Adını Güncelle'}
+                  </Button>
+                </div>
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 rounded-xl border border-exchange-border/60 p-3">
                 <label htmlFor="username-tag" className="mb-1 block text-xs font-semibold text-exchange-muted">
-                  Forum etiketi (isim altında görünür, opsiyonel — en fazla 24 karakter)
+                  Forum etiketi (isim altında görünür — ad değişmeden tek başına kaydedilir, en fazla 24 karakter)
                 </label>
                 <input
                   id="username-tag"
                   value={tag}
                   onChange={(e) => setTag(e.target.value)}
                   maxLength={24}
-                  disabled={busy}
+                  disabled={busyTag}
                   placeholder="örn. Balina, Analist, Fenomen"
                   className="h-11 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 placeholder:text-exchange-muted/70"
                 />
                 {tag.trim() && (
                   <p className="mt-1.5 text-xs text-exchange-muted">
                     Önizleme:{' '}
-                    <span className="font-bold text-exchange-text">{name.trim() || user.username}</span>{' '}
+                    <span className="font-bold text-exchange-text">{user.username}</span>{' '}
                     <span className="rounded-full bg-exchange-yellow/15 px-2 py-0.5 text-[10px] font-bold text-exchange-yellow">
                       {tag.trim().slice(0, 24)}
                     </span>
                   </p>
                 )}
-              </div>
-              <div>
-                <Button size="md" onClick={() => void onSave()} disabled={busy}>
-                  {busy ? 'Güncelleniyor…' : 'Kullanıcı Adını Güncelle'}
-                </Button>
+                <div className="mt-2">
+                  <Button size="sm" onClick={() => void onSaveTag()} disabled={busyTag}>
+                    {busyTag ? 'Kaydediliyor…' : 'Etiketi Kaydet'}
+                  </Button>
+                </div>
               </div>
             </div>
           </motion.div>

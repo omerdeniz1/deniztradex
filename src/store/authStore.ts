@@ -6,6 +6,7 @@ import {
   logout as serviceLogout,
   register as serviceRegister,
   changeUsername as serviceChangeUsername,
+  changeUserTag as serviceChangeUserTag,
   updateSessionAvatarUrl,
 } from '@/services/authService'
 import { getProfileBalanceWithRetry, fetchUsedPromos, claimPromoRemote } from '@/services/supabaseWallet'
@@ -28,6 +29,8 @@ interface AuthState {
   setAvatarUrl: (url: string | null) => void
   /** Kullanıcı adı + forum etiketi değiştirir (Ayarlar ekranı). */
   changeUsername: (username: string, tag?: string) => Promise<User>
+  /** Forum etiketini tek başına değiştirir (kullanıcı adı aynı kalır). */
+  changeUserTag: (tag: string) => Promise<User>
 }
 
 /**
@@ -141,6 +144,12 @@ export const useAuthStore = create<AuthState>()((set) => ({
     // Yerel modda etiket ayrı anahtarda durur — oturuma işle.
     const localTag = getLocalUserTag(updated.id)
     set({ user: localTag && !updated.userTag ? { ...updated, userTag: localTag } : updated })
+    return updated
+  },
+
+  changeUserTag: async (tag) => {
+    const updated = await serviceChangeUserTag(tag)
+    set({ user: updated })
     return updated
   },
 }))

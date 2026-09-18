@@ -167,6 +167,8 @@ export interface ForumReply {
   userId: string
   username: string
   content: string
+  likeCount: number
+  likedByMe: boolean
   /** Rozet seviyesi: super → sarı tik, admin → mavi tik, none → rozetsiz. */
   verifiedTier: VerifiedTier
   /** Profil fotoğrafı URL'i (yoksa null → baş harf gösterilir). */
@@ -183,6 +185,7 @@ interface LocalStoredReply {
   userId: string
   username: string
   content: string
+  likedBy: string[]
   userTag: string | null
   imageUrl: string | null
   createdAt: number
@@ -306,6 +309,7 @@ function normalizeLocalPost(row: Partial<LocalStoredPost> & { id?: unknown }): L
           userId: str(x?.userId, ''),
           username: str(x?.username, 'anon'),
           content: str(x?.content, ''),
+          likedBy: strArray(x?.likedBy),
           userTag: strOrNull(x?.userTag),
           imageUrl: strOrNull(x?.imageUrl),
           createdAt: typeof x?.createdAt === 'number' ? x.createdAt : Date.now(),
@@ -370,14 +374,17 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
   }
 }
 
-function toForumReply(postId: string, row: LocalStoredReply): ForumReply {
+function toForumReply(postId: string, row: LocalStoredReply, myId: string | null = null): ForumReply {
   const username = forumDisplayName(row.username, row.userId)
+  const me = myId ?? getSessionUser()?.id ?? null
   return {
     id: row.id,
     postId,
     userId: row.userId,
     username,
     content: row.content,
+    likeCount: row.likedBy.length,
+    likedByMe: me !== null && row.likedBy.includes(me),
     verifiedTier: localVerifiedTier(username, row.username),
     avatarUrl: null,
     userTag: row.userTag,
@@ -730,12 +737,31 @@ export async function listForumReplies(postId: string): Promise<ForumReply[]> {
         .limit(100)
       if (error) throw error
       if (!Array.isArray(data)) throw new Error('unexpected-replies-shape')
-      return (data as Record<string, unknown>[]).map((r) => ({
+      const rows = data as Record<string, unknown>[]
+      // Beğenilerim (uzak): bu yanıtlar içindeki kendi beğenilerim.
+      let liked = new Set<string>()
+      {
+        const myId = getSessionUser()?.id ?? null
+        if (myId && rows.length > 0) {
+          const ids = rows.map((r) => String(r.id ?? '')).filter(Boolean)
+          const { data: likes } = await supabase
+            .from('forum_reply_likes')
+            .select('reply_id')
+            .eq('user_id', myId)
+            .in('reply_id', ids)
+          if (Array.isArray(likes)) {
+            liked = new Set((likes as { reply_id: string }[]).map((l) => l.reply_id))
+          }
+        }
+      }
+      return rows.map((r) => ({
         id: String(r.id ?? ''),
         postId: String(r.post_id ?? postId),
         userId: String(r.user_id ?? ''),
         username: forumDisplayName(String(r.username ?? ''), String(r.user_id ?? '')),
         content: String(r.content ?? ''),
+        likeCount: typeof r.like_count === 'number' ? r.like_count : 0,
+        likedByMe: liked.has(String(r.id ?? '')),
         verifiedTier: parseVerifiedTier(r.verified_tier),
         avatarUrl: optText(r, 'avatar_url'),
         userTag: optText(r, 'user_tag'),
@@ -772,6 +798,8 @@ export async function createForumReply(
       userId: String(row.user_id ?? ''),
       username: forumDisplayName(String(row.username ?? ''), String(row.user_id ?? '')),
       content: String(row.content ?? ''),
+      likeCount: typeof row.like_count === 'number' ? row.like_count : 0,
+      likedByMe: false,
       verifiedTier: parseVerifiedTier(row.verified_tier),
       avatarUrl: optText(row, 'avatar_url'),
       userTag: optText(row, 'user_tag') ?? userTag,
@@ -814,6 +842,7 @@ export async function createForumReply(
     userId: user.id,
     username: user.username,
     content,
+    likedBy: [],
     userTag: user.userTag?.trim() ? user.userTag.trim().slice(0, 24) : null,
     imageUrl,
     createdAt: Date.now(),
@@ -823,8 +852,7 @@ export async function createForumReply(
   return toForumReply(postId, reply)
 }
 
-export async function deleteForumReply(postId: string, replyId: string): Promise<void> {
-  const user = requireSessionUser()
+export async function deleteForumReply(postId: string, replyId: string): Promise<void> {  const user = requireSessionUser()
 
   if (isRemoteMode()) {
     if (!supabase) throw new Error('no-backend')
@@ -853,4 +881,50 @@ export async function deleteForumReply(postId: string, replyId: string): Promise
   if (reply.userId !== user.id) throw new Error('Yalnızca kendi yanıtını silebilirsin.')
   post.replies = post.replies.filter((r) => r.id !== replyId)
   writeLocalPosts(posts)
+}
+
+/**
+ * Yanıt beğen/geri-al (gönderi beğenisiyle aynı desen).
+ * Uzak modda `toggle_forum_reply_like` RPC'si; migration uygulanmamış
+ * eski DB'de açık hata fırlatılır (sessiz yerel beğeni akışı
+ * bölerdi — cihazlar arası tutarlılık korunur).
+ */
+export async function toggleForumReplyLike(
+  postId: string,
+  replyId: string,
+): Promise<{ liked: boolean; likeCount: number }> {
+  const user = requireSessionUser()
+
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    try {
+      const { data, error } = await supabase.rpc('toggle_forum_reply_like', {
+        p_reply_id: replyId,
+      })
+      if (error) throw error
+      if (!data) throw new Error('unexpected-like-shape')
+      const res = data as { liked?: boolean; like_count?: number }
+      return { liked: res.liked === true, likeCount: res.like_count ?? 0 }
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'PGRST202') {
+        throw new Error(
+          "Yanıt beğenme altyapısı veritabanında yok. Yönetici Supabase SQL Editor'de 20260918110000_forum_reply_likes migration'ını uygulamalı.",
+        )
+      }
+      throw classifyForumRemoteError(err, 'Beğeni işlenemedi')
+    }
+  }
+
+  const posts = readLocalPosts()
+  const post = posts.find((p) => p.id === postId)
+  if (!post) throw new Error('Gönderi bulunamadı.')
+  const reply = post.replies.find((r) => r.id === replyId)
+  if (!reply) throw new Error('Yanıt bulunamadı.')
+  const idx = reply.likedBy.indexOf(user.id)
+  const liked = idx === -1
+  reply.likedBy = liked
+    ? [...reply.likedBy, user.id]
+    : reply.likedBy.filter((id) => id !== user.id)
+  writeLocalPosts(posts)
+  return { liked, likeCount: reply.likedBy.length }
 }
