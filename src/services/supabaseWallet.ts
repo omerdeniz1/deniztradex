@@ -8,6 +8,8 @@ export interface Profile {
   avatar_url: string | null
   /** Forumda isim altında görünen özel etiket (max 24 karakter). */
   user_tag: string | null
+  /** Hesaplar arası transferde kullanılan cüzdan numarası (WT-XXXXXXXX). */
+  wallet_no: string | null
   balance: number
   /** Yönetici tarafından dondurulan hesaplar giriş yapamaz. */
   is_frozen: boolean
@@ -49,6 +51,7 @@ interface DbProfile {
   full_name: string | null
   avatar_url: string | null
   user_tag: unknown
+  wallet_no: unknown
   balance: number | string | null
   is_frozen: unknown
   is_banned: unknown
@@ -81,6 +84,7 @@ function parseProfile(row: DbProfile): Profile | null {
     full_name: row.full_name,
     avatar_url: row.avatar_url,
     user_tag: typeof row.user_tag === 'string' && row.user_tag.trim() ? row.user_tag.trim().slice(0, 24) : null,
+    wallet_no: typeof row.wallet_no === 'string' && row.wallet_no.trim() ? row.wallet_no.trim().toUpperCase() : null,
     balance,
     // Eski DB'lerde kolon henüz yoksa `undefined` gelir — eksik kolon
     // "dondurulmuş"/"yasaklı" sayılmaz, hesap açık kabul edilir.
@@ -176,6 +180,7 @@ export function buildFallbackProfile(authUser: AuthUserLike): Profile {
     full_name: null,
     avatar_url: null,
     user_tag: null,
+    wallet_no: deriveWalletNo(authUser.id),
     balance: DEFAULT_PROFILE_BALANCE,
     is_frozen: false,
     is_banned: false,
@@ -710,7 +715,23 @@ export const NO_MONEY_RESTRICTIONS: MoneyRestrictions = {
 }
 
 export async function getMoneyRestrictions(userId: string): Promise<MoneyRestrictions> {
-  if (!supabase || !userId) return { ...NO_MONEY_RESTRICTIONS }
+  if (!supabase || !userId) {
+    // Yerel mod: kayıt anında yazılan cihaz-içi kısıtlar (yeni üyeler
+    // kısıtlı başlar; eski kayıtlarda anahtar yoksa kısıtsız).
+    try {
+      const raw = localStorage.getItem(`deniztradx_restrict_${userId}`)
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<MoneyRestrictions>
+        return {
+          depositBlocked: parsed.depositBlocked === true,
+          withdrawBlocked: parsed.withdrawBlocked === true,
+        }
+      }
+    } catch {
+      // yoksay — kısıtsız say
+    }
+    return { ...NO_MONEY_RESTRICTIONS }
+  }
   try {
     const { data, error } = await supabase
       .from('profiles')
@@ -737,5 +758,34 @@ export function assertDepositAllowed(r: MoneyRestrictions): void {
 export function assertWithdrawAllowed(r: MoneyRestrictions): void {
   if (r.withdrawBlocked) {
     throw new Error('Para çekme işlemin yönetici tarafından kısıtlanmış. Destek ile iletişime geç.')
+  }
+}
+
+/**
+ * Cüzdan numarası (WT-XXXXXXXX): hesaplar arası transferin adresi.
+ * Supabase varken tek kaynak `profiles.wallet_no`'dur; yerelde id'den
+ * türetilen kalıcı değer kullanılır (aynı cihazda kararlıdır).
+ */
+export function deriveWalletNo(userId: string): string {
+  let h1 = 0x811c9dc5
+  let h2 = 0x01000193
+  const s = `deniztradx::${userId}`
+  for (let i = 0; i < s.length; i++) {
+    h1 = Math.imul(h1 ^ s.charCodeAt(i), 16777619)
+    h2 = Math.imul(h2 + s.charCodeAt(i), 31)
+  }
+  const hex = (n: number): string => (n >>> 0).toString(16).padStart(8, '0')
+  return `WT-${(hex(h1) + hex(h2)).slice(0, 8).toUpperCase()}`
+}
+
+/** Yerel kısıt bayrağı yazar (yeni kayıt kısıtlı başlar). */
+export function setLocalMoneyRestrictions(
+  userId: string,
+  r: MoneyRestrictions,
+): void {
+  try {
+    localStorage.setItem(`deniztradx_restrict_${userId}`, JSON.stringify(r))
+  } catch {
+    // yoksay
   }
 }

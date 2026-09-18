@@ -59,8 +59,18 @@ const ITEMS = [
   },
 ] as const
 
-/** Menü sayfası (Forum + Sıralama + Etkinlik) alt bardaki Menü düğmesinden açılır. */
+/** Menü sayfası (Etkinlik + Transfer + Forum + Sıralama) alt bardaki Menü düğmesinden açılır. */
 const MENU_LINKS = [
+  {
+    to: '/transfer',
+    label: 'Transfer',
+    hint: 'Hesaplar arası gönderim',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M7 17V7m0 0L4 10m3-3 3 3M17 7v10m0 0 3-3m-3 3-3-3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
   {
     to: '/events',
     label: 'Etkinlik',
@@ -106,7 +116,8 @@ export function BottomNav() {
   const menuActive =
     location.pathname === '/forum' ||
     location.pathname === '/leaderboard' ||
-    location.pathname === '/events'
+    location.pathname === '/events' ||
+    location.pathname === '/transfer'
 
   // Rota değişince (örn. geri tuşu) açık menüyü kapat.
   useEffect(() => {

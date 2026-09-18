@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAllTickers } from '@/hooks/useAllTickers'
+import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { useTradeStore } from '@/store/tradeStore'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthUser } from '@/store/authStore'
@@ -18,23 +18,41 @@ export function HomePage() {
   const openDeposit = useUiStore((s) => s.openDeposit)
   const openWithdraw = useUiStore((s) => s.openWithdraw)
   const navigate = useNavigate()
-  const { tickers } = useAllTickers()
+  // Birleşik akış: gerçek + sanal tek map'te (sanalda hacim/değişim
+  // havuzdan ve mumlardan gelir).
+  const { tickers, virtualSymbols } = useUnifiedTickers()
 
-  const featured = useMemo(
-    () =>
-      FEATURED.map((b) => tickers[`${b}USDT`])
-        .filter((t): t is Ticker => Boolean(t))
-        .sort((a, b) => b.price * b.volume24h - a.price * a.volume24h),
-    [tickers],
-  )
+  /**
+   * Öne çıkanlar: sabit majörler + HACİM YAPAN sanal coinler; kote hacme
+   * göre ilk 6. Hacimsiz sanal (henüz işlem görmemiş) listeye girmez —
+   * vitrine ancak hak ederse çıkar.
+   */
+  const featured = useMemo(() => {
+    const base = FEATURED.map((b) => tickers[`${b}USDT`]).filter(
+      (t): t is Ticker => Boolean(t),
+    )
+    const virtuals = [...virtualSymbols]
+      .map((s) => tickers[s])
+      .filter((t): t is Ticker => Boolean(t) && t.volume24h > 0 && t.price > 0)
+    return [...base, ...virtuals]
+      .sort((a, b) => b.price * b.volume24h - a.price * a.volume24h)
+      .slice(0, 6)
+  }, [tickers, virtualSymbols])
 
+  /**
+   * Yükselenler/düşenler: 24s değişimi BİLİNEN tüm semboller (gerçek +
+   * değişim üreten sanal). Değişimsiz (%0) sanal liste doldurmaz.
+   */
   const movers = useMemo(() => {
     const list = Object.values(tickers).filter(
-      (t) => t.symbol.endsWith('USDT') && t.price > 0,
+      (t) =>
+        t.price > 0 &&
+        (t.symbol.endsWith('USDT') ||
+          (virtualSymbols.has(t.symbol.toUpperCase()) && t.changePercent24h !== 0)),
     )
     const sorted = [...list].sort((a, b) => b.changePercent24h - a.changePercent24h)
     return { gainers: sorted.slice(0, 5), losers: sorted.slice(-5).reverse() }
-  }, [tickers])
+  }, [tickers, virtualSymbols])
 
   const goMarket = (symbol: string) => navigate(`/spot?symbol=${symbol}`)
 
@@ -106,6 +124,9 @@ export function HomePage() {
 
 function CoinCard({ ticker, onClick }: { ticker: Ticker; onClick: () => void }) {
   const up = ticker.changePercent24h >= 0
+  const base = ticker.symbol.endsWith('USDT')
+    ? ticker.symbol.replace('USDT', '')
+    : ticker.symbol
   return (
     <button
       onClick={onClick}
@@ -113,7 +134,7 @@ function CoinCard({ ticker, onClick }: { ticker: Ticker; onClick: () => void }) 
     >
       <div className="flex items-center justify-between">
         <span className="text-sm font-bold text-exchange-text">
-          {ticker.symbol.replace('USDT', '')}
+          {base}
         </span>
         <span
           className={cn(
@@ -157,6 +178,7 @@ function MoverList({
       </h2>
       {list.map((t) => {
         const up = t.changePercent24h >= 0
+        const isSpotPair = t.symbol.endsWith('USDT')
         return (
           <button
             key={t.symbol}
@@ -164,8 +186,8 @@ function MoverList({
             className="flex w-full items-center justify-between border-b border-exchange-border/40 px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-exchange-surface"
           >
             <span className="text-sm font-semibold text-exchange-text">
-              {t.symbol.replace('USDT', '')}
-              <span className="ml-1.5 text-xs text-exchange-muted">USDT</span>
+              {isSpotPair ? t.symbol.replace('USDT', '') : t.symbol}
+              {isSpotPair && <span className="ml-1.5 text-xs text-exchange-muted">USDT</span>}
             </span>
             <span className="font-mono text-sm font-medium text-exchange-text">
               {formatPrice(t.price)}

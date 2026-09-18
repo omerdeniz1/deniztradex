@@ -24,8 +24,9 @@ beforeEach(() => {
 })
 
 describe('botlar: default silüet + mavi tik', () => {
-  it('4 bot tanınır (ilham/ihsan yazım toleranslı)', () => {
+  it('botlar tanınır (eski Faik Erdem adı rozet uyumluluğu korunur)', () => {
     expect(isBotUsername('Elon Musk')).toBe(true)
+    expect(isBotUsername('Entes Yöneticisi')).toBe(true)
     expect(isBotUsername('Faik Erdem')).toBe(true)
     expect(isBotUsername('İlham Memiş')).toBe(true)
     expect(isBotUsername('İhsan Memiş')).toBe(true)
@@ -34,7 +35,7 @@ describe('botlar: default silüet + mavi tik', () => {
   })
 
   it('bot mesajı mavi tik + avatar yok (default silüet) ile düşer', async () => {
-    for (const name of ['Elon Musk', 'Faik Erdem', 'İlham Memiş', 'Kripto Kaplanı']) {
+    for (const name of ['Elon Musk', 'Entes Yöneticisi', 'İlham Memiş', 'Kripto Kaplanı']) {
       const post = await createBotForumPost(name, 'test mesajı', 5)
       expect(post).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     }

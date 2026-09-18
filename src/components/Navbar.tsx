@@ -26,6 +26,7 @@ const NAV_ITEMS = [
   { to: '/markets', label: 'Piyasalar', end: false },
   { to: '/spot', label: 'Al-Sat', end: false },
   { to: '/futures', label: 'Vadeli', end: false },
+  { to: '/transfer', label: 'Transfer', end: false },
   { to: '/forum', label: 'Forum', end: false },
   { to: '/leaderboard', label: 'Sıralama', end: false },
   { to: '/events', label: 'Etkinlik', end: false },
@@ -599,6 +600,7 @@ function UserMenu({ username, isAdmin, avatarUrl }: { username: string; isAdmin:
               <div>DenizTradeX hesabı</div>
             </div>
             <MenuItem label="Cüzdan" onClick={() => go('/wallet')} icon="👛" />
+            <MenuItem label="Transfer" onClick={() => go('/transfer')} icon="⇄" />
             <MenuItem label="Ayarlar" onClick={() => go('/settings')} icon="⚙️" />
             {isAdmin && (
               <MenuItem label="Admin Panel" onClick={() => go('/admin')} icon="🛡️" />

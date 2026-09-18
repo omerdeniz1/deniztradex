@@ -244,13 +244,15 @@ export function isVerifiedUsername(username: string): boolean {
 }
 
 /**
- * Bot personaları (4 bot): Elon Musk, Faik Erdem, İlham/İhsan Memiş,
+ * Bot personaları (4 bot): Elon Musk, Entes Yöneticisi, İlham/İhsan Memiş,
  * Kripto Kaplanı. Forumda default insan silüeti + mavi tik (admin rozeti)
  * ile görünürler — uzak modda `post_bot_message` bunu basar, yerel
- * modda aşağıdaki kural taşır.
+ * modda aşağıdaki kural taşır. ('faik erdem' eski yazıların rozeti için
+ * korunur.)
  */
 export const BOT_USERNAMES = [
   'elon musk',
+  'entes yöneticisi',
   'faik erdem',
   'ilham memiş',
   'ihsan memiş',

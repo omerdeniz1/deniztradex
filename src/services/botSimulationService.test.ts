@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   runCharacterBot,
   triggerElonMusk,
-  triggerFaikErdemBad,
-  triggerFaikErdemGood,
+  triggerEntesYoneticisiBad,
+  triggerEntesYoneticisiGood,
   triggerIlhamMemis,
   triggerKriptoKaplani,
 } from '@/services/botSimulationService'
@@ -45,14 +45,14 @@ describe('botSimulationService (yerel motor)', () => {
     expect(useTradeStore.getState().balance).toBe(0)
   })
 
-  it('Faik Erdem iyi: sahip ağzından kâr açıklaması + ENTES alımı', async () => {
+  it('Entes Yöneticisi iyi: sahip ağzından kâr açıklaması + ENTES alımı', async () => {
     const before = await priceOf('ENTES')
-    const res = await triggerFaikErdemGood()
+    const res = await triggerEntesYoneticisiGood()
 
     expect(res.trade!.priceImpactPct).toBeGreaterThan(0)
     const posts = await listForumPosts()
     const post = posts.find((p) => p.id === res.postId)!
-    expect(post.content).toContain('Faik Erdem')
+    expect(post.content).toContain('Entes Yöneticisi')
     expect(post.content).not.toContain('Erdem Holding')
     // Sahip "yatırım yaptım" demez, kâr/ekosistem açıklar.
     expect(post.content).not.toContain('yatırım yaptığını duyurdu')
@@ -60,14 +60,14 @@ describe('botSimulationService (yerel motor)', () => {
     expect(await priceOf('ENTES')).toBeGreaterThan(before)
   })
 
-  it('Faik Erdem dengeleme: sahip uyarısı + satış (fiyat düşer)', async () => {
+  it('Entes Yöneticisi dengeleme: sahip uyarısı + satış (fiyat düşer)', async () => {
     const before = await priceOf('ENTES')
-    const res = await triggerFaikErdemBad()
+    const res = await triggerEntesYoneticisiBad()
 
     expect(res.trade!.priceImpactPct).toBeLessThan(0)
     const posts = await listForumPosts()
     const badPost = posts.find((p) => p.id === res.postId)!
-    expect(badPost.content).toContain('Faik Erdem')
+    expect(badPost.content).toContain('Entes Yöneticisi')
     expect(badPost.content).not.toContain('herkes almalı')
     expect(badPost).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(await priceOf('ENTES')).toBeLessThan(before)

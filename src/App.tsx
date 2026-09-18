@@ -20,6 +20,7 @@ import { LeaderboardPage } from '@/pages/LeaderboardPage'
 import { EventsPage } from '@/pages/EventsPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { WalletPage } from '@/pages/WalletPage'
+import { TransferPage } from '@/pages/TransferPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
 export default function App() {
@@ -70,6 +71,7 @@ function Shell() {
           <Route path="/spot" element={<TradeScreen mode="spot" />} />
           <Route path="/futures" element={<TradeScreen mode="futures" />} />
           <Route path="/wallet" element={<WalletPage />} />
+          <Route path="/transfer" element={<TransferPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           {/* Yetki kontrolü sayfanın içindeki Admin Guard'dadır:
               yöneticiler girer, diğerleri ana sayfaya yönlendirilir. */}

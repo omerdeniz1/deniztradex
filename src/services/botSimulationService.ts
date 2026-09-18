@@ -75,34 +75,34 @@ export async function triggerElonMusk(): Promise<BotActionResult> {
   }
 }
 
-/** Faik Erdem (iyi) → ENTES: SAHİP ağzından kâr açıklaması + 500.000 USDT alım. */
-export async function triggerFaikErdemGood(): Promise<BotActionResult> {
+/** Entes Yöneticisi (iyi) → ENTES: SAHİP ağzından kâr açıklaması + 500.000 USDT alım. */
+export async function triggerEntesYoneticisiGood(): Promise<BotActionResult> {
   const post = await createBotForumPost(
-    'Faik Erdem',
-    pick(FAIK_UP_POSTS),
+    'Entes Yöneticisi',
+    pick(ENTES_YONETICI_UP_POSTS),
     randomIn(800, 1200),
   )
   const { amount, scaled } = await scaleBotAmount('ENTES', 500000)
   const trade = await executeBotPoolTrade('ENTES', 'buy', amount)
   return {
-    bot: 'Faik Erdem',
+    bot: 'Entes Yöneticisi',
     postId: post.id,
     trade,
     summary: `ENTES +${formatNum(trade.tokenAmount)} alım · fiyat etkisi %${fmtPct(trade.priceImpactPct)}${scaled ? ' (havuz derinliğine göre ölçeklendi)' : ''}`,
   }
 }
 
-/** Faik Erdem (dengeleme) → ENTES: sahip ağzından temkinli açıklama + 500.000 USDT'lik SATIŞ. */
-export async function triggerFaikErdemBad(): Promise<BotActionResult> {
+/** Entes Yöneticisi (dengeleme) → ENTES: sahip ağzından temkinli açıklama + 500.000 USDT'lik SATIŞ. */
+export async function triggerEntesYoneticisiBad(): Promise<BotActionResult> {
   const post = await createBotForumPost(
-    'Faik Erdem',
-    pick(FAIK_DOWN_POSTS),
+    'Entes Yöneticisi',
+    pick(ENTES_YONETICI_DOWN_POSTS),
     randomIn(800, 1200),
   )
   const { amount, scaled } = await scaleBotAmount('ENTES', 500000)
   const trade = await executeBotPoolTrade('ENTES', 'sell', amount)
   return {
-    bot: 'Faik Erdem',
+    bot: 'Entes Yöneticisi',
     postId: post.id,
     trade,
     summary: `ENTES ${formatNum(trade.tokenAmount)} SATIŞ (dengeleme) · fiyat etkisi %${fmtPct(trade.priceImpactPct)}${scaled ? ' (havuz derinliğine göre ölçeklendi)' : ''}`,
@@ -156,19 +156,19 @@ function pick<T>(arr: readonly T[]): T {
 }
 
 // ---------------------------------------------------------------
-// Karakter gönderi havuzları — Faik Erdem ENTES'in SAHİBİDİR:
+// Karakter gönderi havuzları — Entes Yöneticisi ENTES'in SAHİBİDİR:
 // "yatırım yaptım" değil, kâr/bilanço/ekosistem açıklaması yapar.
 // ---------------------------------------------------------------
 
-const FAIK_UP_POSTS = [
-  'Faik Erdem duyurdu: ENTES 3. çeyrekte net kâr açıkladı. Ekosistem gelirleri bir önceki çeyreğe göre arttı, yeni yol haritası yakında paylaşılacak.',
-  'Faik Erdem paylaştı: ENTES ekosistem raporu yayında — aktif cüzdan sayısı ve işlem hacmi büyümeye devam ediyor. Ekip olarak geliştirmeye tam gaz devam ediyoruz.',
-  'Faik Erdem: ENTES hazinesi güçlendi, geri alım programı planlandığı gibi sürüyor. Uzun vadeli yatırımcımıza teşekkürler.',
+const ENTES_YONETICI_UP_POSTS = [
+  'Entes Yöneticisi duyurdu: ENTES 3. çeyrekte net kâr açıkladı. Ekosistem gelirleri bir önceki çeyreğe göre arttı, yeni yol haritası yakında paylaşılacak.',
+  'Entes Yöneticisi paylaştı: ENTES ekosistem raporu yayında — aktif cüzdan sayısı ve işlem hacmi büyümeye devam ediyor. Ekip olarak geliştirmeye tam gaz devam ediyoruz.',
+  'Entes Yöneticisi: ENTES hazinesi güçlendi, geri alım programı planlandığı gibi sürüyor. Uzun vadeli yatırımcımıza teşekkürler.',
 ] as const
 
-const FAIK_DOWN_POSTS = [
-  'Faik Erdem uyarıyor: ENTES tarafında kısa vadeli kâr realizasyonu görebiliriz. Ekip olarak piyasa yapıcı dengeleme adımları atıyoruz, panik yok.',
-  'Faik Erdem duyurdu: hazine optimizasyonu kapsamında sınırlı, planlı satış yapılacaktır. Bu bir dengeleme hamlesidir, ENTES ekosistem hedefleri değişmedi.',
+const ENTES_YONETICI_DOWN_POSTS = [
+  'Entes Yöneticisi uyarıyor: ENTES tarafında kısa vadeli kâr realizasyonu görebiliriz. Ekip olarak piyasa yapıcı dengeleme adımları atıyoruz, panik yok.',
+  'Entes Yöneticisi duyurdu: hazine optimizasyonu kapsamında sınırlı, planlı satış yapılacaktır. Bu bir dengeleme hamlesidir, ENTES ekosistem hedefleri değişmedi.',
 ] as const
 
 const ELON_UP_POSTS = [
@@ -217,8 +217,8 @@ export const CHARACTER_BOTS: CharacterBotConfig[] = [
     description: 'Hype / temkin mesajı + ölçeklenen havuz hamlesi.',
   },
   {
-    id: 'faik',
-    name: 'Faik Erdem (ENTES sahibi)',
+    id: 'entes',
+    name: 'Entes Yöneticisi',
     defaultCoin: 'ENTES',
     tradeUsdt: 500000,
     description: 'Sahip ağzından kâr/ekosistem açıklaması + ölçeklenen hamle.',
@@ -258,8 +258,8 @@ export async function runCharacterBot(
   const message =
     botId === 'elon'
       ? pick(up ? ELON_UP_POSTS : ELON_DOWN_POSTS)
-      : botId === 'faik'
-        ? pick(up ? FAIK_UP_POSTS : FAIK_DOWN_POSTS)
+      : botId === 'entes'
+        ? pick(up ? ENTES_YONETICI_UP_POSTS : ENTES_YONETICI_DOWN_POSTS)
         : botId === 'ilham'
           ? pick(up ? ILHAM_UP_POSTS : ILHAM_DOWN_POSTS)
           : botId === 'kaplan'
@@ -268,11 +268,11 @@ export async function runCharacterBot(
   if (message === null) throw new Error('Bilinmeyen bot.')
 
   const botName =
-    botId === 'faik' ? 'Faik Erdem' : CHARACTER_BOTS.find((b) => b.id === botId)?.name ?? botId
+    botId === 'entes' ? 'Entes Yöneticisi' : CHARACTER_BOTS.find((b) => b.id === botId)?.name ?? botId
   const likes =
     botId === 'elon'
       ? randomIn(1500, 2000)
-      : botId === 'faik'
+      : botId === 'entes'
         ? randomIn(800, 1200)
         : botId === 'ilham'
           ? randomIn(1000, 1500)
@@ -303,18 +303,18 @@ export const BOT_DEFINITIONS = [
     run: triggerElonMusk,
   },
   {
-    id: 'faik-good',
-    name: 'Faik Erdem (Yatırım)',
+    id: 'entes-good',
+    name: 'Entes Yöneticisi (Yatırım)',
     target: 'ENTES · 500.000 USDT ALIM (ölçekli)',
-    description: 'Kurumsal yatırım haberi + havuz derinliğine göre ölçeklenen alım.',
-    run: triggerFaikErdemGood,
+    description: 'Sahip ağzından kâr açıklaması + havuz derinliğine göre ölçeklenen alım.',
+    run: triggerEntesYoneticisiGood,
   },
   {
-    id: 'faik-bad',
-    name: 'Faik Erdem (Ters Köşe)',
+    id: 'entes-bad',
+    name: 'Entes Yöneticisi (Dengeleme)',
     target: 'ENTES · 500.000 USDT SATIŞ (ölçekli)',
-    description: 'Övgü mesajı + ölçeklenen dump. Fiyat düşer, mesaj yükselir.',
-    run: triggerFaikErdemBad,
+    description: 'Sahip uyarısı + ölçeklenen dengeleme satışı. Fiyat düşer.',
+    run: triggerEntesYoneticisiBad,
   },
   {
     id: 'ilham',

@@ -7,6 +7,7 @@ import {
   getProfile,
   getProfileWithFallback,
   resolveLoginEmail,
+  setLocalMoneyRestrictions,
 } from '@/services/supabaseWallet'
 
 /**
@@ -316,6 +317,10 @@ export async function register(input: {
   }
   writeUsers([...users, user])
 
+  // Yeni üyeler kısıtlı başlar (para yatırma/çekme kapalı; promosyon
+  // bonusları bundan etkilenmez). Yönetici kısıtı kaldırana dek sürer.
+  setLocalMoneyRestrictions(user.id, { depositBlocked: true, withdrawBlocked: true })
+
   const publicUser = toPublicUser(user)
   rememberUsername(username, email)
   setSession(publicUser)
@@ -526,8 +531,40 @@ export async function changeUsername(
     if (taken && taken.id !== session.id) {
       throw new Error('Bu kullanıcı adı zaten kullanılıyor.')
     }
-    const { updateProfileUsernameAndTag } = await import('@/services/supabaseWallet')
-    await updateProfileUsernameAndTag(session.id, username, tag)
+    // Birincil yol: atomik RPC (aynı satır güncellenir → eski ad anında
+    // boşa düşer, RLS sessiz reti yaşanmaz). Eski DB'de fonksiyon yoksa
+    // (PGRST202) doğrudan satır güncellemesine düşülür.
+    let viaRpc = false
+    try {
+      const { error: rpcError } = await supabase.rpc('change_own_username', {
+        p_username: username,
+      })
+      if (rpcError) throw rpcError
+      viaRpc = true
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'PGRST202') {
+        const { updateProfileUsernameAndTag } = await import('@/services/supabaseWallet')
+        await updateProfileUsernameAndTag(session.id, username, tag)
+      } else {
+        const msg = err instanceof Error ? err.message : ''
+        if (/zaten kullanılıyor/i.test(msg)) {
+          throw new Error('Bu kullanıcı adı zaten kullanılıyor.')
+        }
+        if (/3-20|geçersiz kullanıcı/i.test(msg)) {
+          throw new Error('Geçersiz kullanıcı adı (3-20 karakter olmalı).')
+        }
+        throw err instanceof Error ? err : new Error('Kullanıcı adı güncellenemedi.')
+      }
+    }
+    // Etiket RPC yolunda ayrıca işlenir (isim RPC'si etikete dokunmaz).
+    if (viaRpc && tag !== undefined) {
+      try {
+        const { updateProfileUsernameAndTag } = await import('@/services/supabaseWallet')
+        await updateProfileUsernameAndTag(session.id, username, tag)
+      } catch {
+        // best effort — isim zaten değişti
+      }
+    }
     try {
       await supabase.auth.updateUser({ data: { username } })
     } catch {
