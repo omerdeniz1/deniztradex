@@ -185,12 +185,62 @@ export interface VirtualChange {
 /**
  * Sanal coinlerin 24 saatlik fiyat değişimi (Piyasalar'daki % sütunu için).
  *
- * Referans: 24 saat öncesine ait en yakın mum kapanışı (`virtual_kline_data`);
- * mum yoksa (henüz 24 saati dolmamış coin) en eski kapanış kullanılır.
- * Kline altyapısı yoksa (çevrimdışı/yerel) boş döner — % sütunu 0 kalır.
+ * Birincil kaynak `virtual_24h_changes` RPC'sidir: her sembole ayrı
+ * bakılır (24s öncesi kapanış, yoksa en eski) — global `limit()` ile
+ * çekip eşleştiren eski yöntem genç coinleri (DNZ) ıskalayıp %'yi
+ * sürekli 0 gösteriyordu. RPC yoksa (eski DB) tablo sorgusuna,
+ * çevrimdışında yerel sentetik mumlara düşülür (yerel grafikle tutarlı).
  */
 export async function listVirtual24hChanges(): Promise<Record<string, VirtualChange>> {
-  if (!isSupabaseConfigured || !supabase) return {}
+  if (!isSupabaseConfigured || !supabase) return localVirtual24hChanges()
+  try {
+    const { data, error } = await supabase.rpc('virtual_24h_changes')
+    if (!error && data && typeof data === 'object') {
+      const out: Record<string, VirtualChange> = {}
+      for (const [sym, v] of Object.entries(data as Record<string, unknown>)) {
+        const row = v as { change?: unknown; change_pct?: unknown } | null
+        const change = toNumber(row?.change)
+        const changePct = toNumber(row?.change_pct)
+        if (typeof sym === 'string' && sym) out[sym.toUpperCase()] = { change, changePct }
+      }
+      return out
+    }
+  } catch {
+    // eski DB yedeğine düş
+  }
+  return legacyVirtual24hChanges()
+}
+
+/**
+ * Yerel 24s değişimi: çevrimdışı grafikle AYNI sentetik mumlardan
+ * (ilk → son kapanış). Havuz fiyatı hareket ettiyse % de oynar.
+ */
+async function localVirtual24hChanges(): Promise<Record<string, VirtualChange>> {
+  try {
+    const coins = await listVirtualCoins()
+    const out: Record<string, VirtualChange> = {}
+    for (const c of coins) {
+      if (!(c.price > 0)) continue
+      const klines = syntheticKlines(c.symbol, c.price, 1440)
+      if (klines.length < 2) continue
+      const first = klines[0]?.close ?? 0
+      const last = klines[klines.length - 1]?.close ?? 0
+      if (!(first > 0) || !(last > 0)) continue
+      const change = last - first
+      out[c.symbol.toUpperCase()] = { change, changePct: (change / first) * 100 }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Eski DB yedeği: tablo sorgulu hesaplama (RPC öncesi davranış).
+ * Global limit körlüğü içerir — yalnızca RPC'siz DB'ler için.
+ */
+async function legacyVirtual24hChanges(): Promise<Record<string, VirtualChange>> {
+  if (!supabase) return {}
   try {
     const [coins, refRows, earlyRows] = await Promise.all([
       listVirtualCoins(),
@@ -541,7 +591,9 @@ function syntheticKlines(symbol: string, price: number, limit: number): Kline[] 
   const rand = mulberry32(hashSeed(symbol))
   const out: Kline[] = []
   const nowMin = Math.floor(Date.now() / 60000) * 60000
-  let p = price <= 0 ? 1 : price / (1 + (rand() - 0.5) * 0.02 * limit)
+  // Başlangıç her zaman pozitif kalır (büyük limitlerde de).
+  const span = Math.min(0.9, 0.02 * Math.max(limit, 1))
+  let p = price <= 0 ? 1 : price / (1 + (rand() - 0.5) * span)
   for (let i = limit - 1; i >= 0; i--) {
     const t = nowMin - i * 60000
     const o = p

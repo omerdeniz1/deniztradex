@@ -3,6 +3,7 @@ import {
   bucketVirtualKlines,
   executeVirtualTrade,
   getVirtualHoldings,
+  listVirtual24hChanges,
   listVirtualCoins,
   listVirtualKlines,
   VIRTUAL_SEED,
@@ -143,5 +144,23 @@ describe('listVirtualKlines (yerel sentetik)', () => {
     const klines = await listVirtualKlines('ENTES', '5m', 20)
     expect(klines.length).toBeLessThanOrEqual(20)
     expect(klines.length).toBeGreaterThan(0)
+  })
+})
+
+describe('listVirtual24hChanges (yerel sentetik)', () => {
+  it('tum tohum coinler icin sonlu degisim uretir (DNZ dahil)', async () => {
+    const map = await listVirtual24hChanges()
+    for (const s of VIRTUAL_SEED) {
+      const key = s.symbol.toUpperCase()
+      expect(map[key]).toBeDefined()
+      expect(Number.isFinite(map[key].change)).toBe(true)
+      expect(Number.isFinite(map[key].changePct)).toBe(true)
+    }
+  })
+
+  it('deterministiktir: ayni havuzda ayni sonucu verir', async () => {
+    const a = await listVirtual24hChanges()
+    const b = await listVirtual24hChanges()
+    expect(a).toEqual(b)
   })
 })

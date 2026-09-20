@@ -99,7 +99,12 @@ describe('pumpCoinWithNews (haber → forum → fiyat)', () => {
 })
 
 describe('listVirtual24hChanges (çevrimdışı)', () => {
-  it('yerel modda boş döner', async () => {
-    await expect(listVirtual24hChanges()).resolves.toEqual({})
+  it('yerel modda sentetik mumlardan değişim üretir (sıfır körlüğü yok)', async () => {
+    const map = await listVirtual24hChanges()
+    expect(Object.keys(map).length).toBeGreaterThan(0)
+    for (const v of Object.values(map)) {
+      expect(Number.isFinite(v.change)).toBe(true)
+      expect(Number.isFinite(v.changePct)).toBe(true)
+    }
   })
 })
