@@ -20,6 +20,9 @@ logs
 
 # Playwright e2e artefacts (script korunur, ekran görüntüleri korunmaz)
 e2e/shots/
+test-results/
+playwright-report/
+playwright/.cache/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
