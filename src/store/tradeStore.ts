@@ -9,6 +9,8 @@ import {
 } from '@/engine/calculations'
 import { getSessionUserId, WALLET_STORAGE_KEY } from '@/services/authService'
 import { claimPromoRemote, pushBalanceToServer, recordTransaction } from '@/services/supabaseWallet'
+import { quoteSpotFee, SPOT_FEE_RATE, type FeeQuote } from '@/engine/fees'
+import { useDnzStore } from '@/store/dnzStore'
 import { roundTo } from '@/lib/utils'
 import type { MarginMode, OrderSide, Position, TradingMode } from '@/types'
 
@@ -118,6 +120,54 @@ function coinOf(symbol: string): string {
 /** Light rounding so tiny float artifacts don't accumulate in balances. */
 function roundQty(n: number): number {
   return Math.round(n * 1e8) / 1e8
+}
+
+/**
+ * Spot komisyon teklifi (%0.1, bkz. `engine/fees`): saf hesap, yan etki
+ * YOK. DNZ ile ödeme aktif ve bakiye yetiyorsa teklifte `useDnz` true
+ * döner; gerçek DNZ düşüşü `settleFeeDeduction` ile yapılır.
+ */
+function quoteFeeFor(notional: number): FeeQuote {
+  const dnz = useDnzStore.getState()
+  dnz.tick()
+  return quoteSpotFee(notional, {
+    payWithDnz: dnz.payWithDnz,
+    dnzBalance: dnz.balance,
+    dnzPrice: dnz.price,
+  })
+}
+
+/**
+ * Teklifteki DNZ kesintisini uygular. DNZ düşülemezse (teklif sonrası
+ * yarış — tek iş parçacığında pratikte olmaz) USDT komisyonlu teklife
+ * düşer. Dönen quote'un `usdtCharge` alanı USDT bakiyeden ayrıca
+ * düşülür (`useDnz` ise 0).
+ */
+function settleFeeDeduction(quote: FeeQuote, symbol: string, side: 'buy' | 'sell', notional: number): FeeQuote {
+  if (!quote.useDnz) return quote
+  const dnz = useDnzStore.getState()
+  if (dnz.deductFeeDnz(quote.feeDnz, { symbol, side, notional })) return quote
+  return quoteSpotFee(notional, { payWithDnz: false, dnzBalance: 0, dnzPrice: 0 })
+}
+
+/** Komisyonun USDT bacağını işlem defterine yazar (sıfırsa atlar). */
+function recordFeeTx(
+  symbol: string,
+  side: 'buy' | 'sell',
+  quantity: number,
+  price: number,
+  charge: number,
+): void {
+  if (!(charge > 0)) return
+  void recordTransaction({
+    userId: getSessionUserId() ?? '',
+    type: 'fee',
+    symbol,
+    side,
+    quantity: roundQty(quantity),
+    price,
+    amountUsdt: charge,
+  })
 }
 
 /** Promo codes that add a bonus once per account. */
@@ -496,6 +546,8 @@ export const useTradeStore = create<TradeState>()(
           price: marketPrice,
           at: Date.now(),
         }
+        // Oto-kapanış da normal satış komisyonuna tabidir (DNZ indirimi dahil).
+        const quote = settleFeeDeduction(quoteFeeFor(proceeds), pos.symbol, 'sell', proceeds)
         set((s) => ({
           spotPositions: s.spotPositions.filter((p) => p.id !== id),
           spotBalances: {
@@ -507,10 +559,11 @@ export const useTradeStore = create<TradeState>()(
             if (roundQty(Math.max(0, held - qty)) <= 0) delete next[coin]
             return next
           })(),
-          balance: roundTo(s.balance + proceeds),
+          balance: roundTo(s.balance + proceeds - quote.usdtCharge),
           spotTrades: [trade, ...s.spotTrades].slice(0, 200),
         }))
         void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
+        recordFeeTx(pos.symbol, 'sell', qty, marketPrice, quote.usdtCharge)
       },
 
       fillNow: (input) => {
@@ -525,12 +578,15 @@ export const useTradeStore = create<TradeState>()(
 
         if (mode === 'spot') {
           if (tif === 'FOK') {
-            if (buy ? quantity * entryPrice > get().balance : quantity > (get().spotBalances[coinOf(symbol)] ?? 0)) {
+            // Komisyon dahil tam tutar karşılanmalı (muhafazakâr USDT
+            // tahmini; DNZ indirimi varsa gerçekleşme daha ucuza gelir).
+            const total = quantity * entryPrice * (1 + SPOT_FEE_RATE)
+            if (buy ? total > get().balance : quantity > (get().spotBalances[coinOf(symbol)] ?? 0)) {
               return { ok: false, error: 'FOK: tam miktar karşılanamıyor.' }
             }
           } else if (tif === 'IOC') {
             let qty = quantity
-            if (buy) qty = Math.min(quantity, get().balance / entryPrice)
+            if (buy) qty = Math.min(quantity, get().balance / (entryPrice * (1 + SPOT_FEE_RATE)))
             else qty = Math.min(quantity, get().spotBalances[coinOf(symbol)] ?? 0)
             if (qty <= 0) return { ok: false, error: 'IOC: karşılanacak miktar yok.' }
             return buy
@@ -687,7 +743,14 @@ export const useTradeStore = create<TradeState>()(
         const cost = roundQty(quantity * price)
         const { balance, spotBalances, spotTrades, spotAvgCosts } = get()
         const coin = coinOf(symbol)
-        if (cost > balance) {
+        // Önce saf teklif + bakiye kontrolü (kesinti YOK): başarısız
+        // işlem ne DNZ ne USDT yakar. Sonra kesinti kesinleştirilir.
+        let quote = quoteFeeFor(cost)
+        if (cost + quote.usdtCharge > balance) {
+          return { ok: false, error: 'Insufficient USDT balance.' }
+        }
+        quote = settleFeeDeduction(quote, symbol, 'buy', cost)
+        if (cost + quote.usdtCharge > balance) {
           return { ok: false, error: 'Insufficient USDT balance.' }
         }
         const trade: SpotTrade = {
@@ -706,7 +769,7 @@ export const useTradeStore = create<TradeState>()(
             ? (prevQty * prevAvg + roundQty(quantity) * price) / (prevQty + roundQty(quantity))
             : price
         set({
-          balance: Math.max(0, roundTo(balance - cost)),
+          balance: Math.max(0, roundTo(balance - cost - quote.usdtCharge)),
           spotBalances: {
             ...spotBalances,
             [coin]: nextQty,
@@ -724,6 +787,7 @@ export const useTradeStore = create<TradeState>()(
           price,
           amountUsdt: cost,
         })
+        recordFeeTx(symbol, 'buy', quantity, price, quote.usdtCharge)
         return { ok: true }
       },
 
@@ -739,6 +803,7 @@ export const useTradeStore = create<TradeState>()(
         if (quantity > held) {
           return { ok: false, error: `Insufficient ${coin} balance.` }
         }
+        const quote = settleFeeDeduction(quoteFeeFor(proceeds), symbol, 'sell', proceeds)
         const trade: SpotTrade = {
           id: makeId('spt'),
           symbol,
@@ -753,7 +818,7 @@ export const useTradeStore = create<TradeState>()(
           // Miktar sıfırlanınca maliyet kaydı da silinir (sıfırdan başlanır).
           if (nextQty <= 0) delete nextAvg[coin]
           return {
-            balance: roundTo(balance + proceeds),
+            balance: roundTo(balance + proceeds - quote.usdtCharge),
             spotBalances: {
               ...spotBalances,
               [coin]: nextQty,
@@ -772,6 +837,7 @@ export const useTradeStore = create<TradeState>()(
           price,
           amountUsdt: proceeds,
         })
+        recordFeeTx(symbol, 'sell', quantity, price, quote.usdtCharge)
         return { ok: true }
       },
 

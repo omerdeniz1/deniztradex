@@ -12,6 +12,7 @@ import {
 import { getProfileBalanceWithRetry, fetchUsedPromos, claimPromoRemote } from '@/services/supabaseWallet'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore } from '@/store/dnzStore'
 import { useOrderStore } from '@/store/orderStore'
 import type { User } from '@/types'
 
@@ -131,6 +132,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     useSettingsStore.setState({ theme: 'dark', confirmOrders: false })
     // Clear in-memory wallet without persisting (wallet storage is session-scoped).
     useTradeStore.getState().resetWallet()
+    useDnzStore.getState().resetDnz()
     useOrderStore.getState().resetOrders()
   },
 

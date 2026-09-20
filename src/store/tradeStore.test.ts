@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore } from '@/store/dnzStore'
+import { dnzStepForTs } from '@/services/dnzService'
 import type { OrderInput } from '@/engine/calculations'
 
 function makeOrder(o: Partial<OrderInput> = {}): OrderInput {
@@ -17,6 +19,7 @@ function makeOrder(o: Partial<OrderInput> = {}): OrderInput {
 beforeEach(() => {
   localStorage.clear()
   useTradeStore.getState().resetWallet()
+  useDnzStore.getState().resetDnz()
 })
 
 describe('deposit', () => {
@@ -224,7 +227,8 @@ describe('spotBuy / spotSell', () => {
     const result = useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 5, price: 100 })
     expect(result.ok).toBe(true)
     const s = useTradeStore.getState()
-    expect(s.balance).toBeCloseTo(500)
+    // 500 USDT tutar + %0.1 komisyon (0.5 USDT).
+    expect(s.balance).toBeCloseTo(499.5)
     expect(s.spotBalances.BTC).toBeCloseTo(5)
     expect(s.spotTrades).toHaveLength(1)
     expect(s.spotTrades[0]).toMatchObject({ side: 'buy', symbol: 'BTCUSDT', quantity: 5, price: 100 })
@@ -239,13 +243,14 @@ describe('spotBuy / spotSell', () => {
   })
 
   it('sells coin: coin balance decreases, USDT balance increases', () => {
-    useTradeStore.getState().deposit(1000)
+    useTradeStore.getState().deposit(2000)
     useTradeStore.getState().spotBuy({ symbol: 'ETHUSDT', quantity: 20, price: 50 })
     const result = useTradeStore.getState().spotSell({ symbol: 'ETHUSDT', quantity: 10, price: 55 })
     expect(result.ok).toBe(true)
     const s = useTradeStore.getState()
     expect(s.spotBalances.ETH).toBeCloseTo(10)
-    expect(s.balance).toBeCloseTo(550)
+    // Alış: 1000 + 1 komisyon → 999. Satış: 550 − 0.55 komisyon → 1548.45.
+    expect(s.balance).toBeCloseTo(1548.45)
     expect(s.spotTrades[0]).toMatchObject({ side: 'sell', price: 55 })
   })
 
@@ -269,6 +274,50 @@ describe('spotBuy / spotSell', () => {
     useTradeStore.getState().resetWallet()
     expect(useTradeStore.getState().spotBalances.BTC ?? 0).toBe(0)
     expect(useTradeStore.getState().spotTrades).toHaveLength(0)
+  })
+})
+
+describe('spot komisyon + DNZ indirimi', () => {
+  /** Fiyatı sabitle: tick() no-op olur, hesaplar deterministik kalır. */
+  function fixDnzPrice(price: number) {
+    useDnzStore.setState({ price, priceStep: dnzStepForTs(Date.now()) })
+  }
+
+  it('DNZ ile ödemede %25 indirimli DNZ düşer, USDT komisyon alınmaz', () => {
+    useDnzStore.getState().buyDnz({ qty: 100, price: 0.5, usdtCost: 50 })
+    useDnzStore.getState().setPayWithDnz(true)
+    fixDnzPrice(0.5)
+    useTradeStore.getState().deposit(1000)
+    const result = useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 5, price: 100 })
+    expect(result.ok).toBe(true)
+    // 500 USDT tutar, komisyonun tamamı DNZ'den: 0.5 * 0.75 / 0.5 = 0.75 DNZ.
+    expect(useTradeStore.getState().balance).toBeCloseTo(500)
+    expect(useDnzStore.getState().balance).toBeCloseTo(99.25)
+    expect(useDnzStore.getState().ledger[0].type).toBe('fee_discount')
+  })
+
+  it('DNZ yetersizse komisyon USDT alınır, işlem durmaz', () => {
+    useDnzStore.getState().setPayWithDnz(true)
+    useTradeStore.getState().deposit(1000)
+    const result = useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 5, price: 100 })
+    expect(result.ok).toBe(true)
+    expect(useTradeStore.getState().balance).toBeCloseTo(499.5)
+    expect(useDnzStore.getState().balance).toBe(0)
+  })
+
+  it('satışta da DNZ indirimi geçerlidir', () => {
+    useDnzStore.getState().buyDnz({ qty: 100, price: 0.5, usdtCost: 50 })
+    useDnzStore.getState().setPayWithDnz(true)
+    fixDnzPrice(0.5)
+    useTradeStore.getState().deposit(2000)
+    useTradeStore.getState().spotBuy({ symbol: 'ETHUSDT', quantity: 20, price: 50 })
+    // Alış komisyonu: 1 * 0.75 / 0.5 = 1.5 DNZ → bakiye 98.5.
+    expect(useDnzStore.getState().balance).toBeCloseTo(98.5)
+    useTradeStore.getState().spotSell({ symbol: 'ETHUSDT', quantity: 10, price: 55 })
+    // Satış karşılığı tam alınır: 1000 + 550 = 1550 (alışta USDT komisyon yok).
+    expect(useTradeStore.getState().balance).toBeCloseTo(1550)
+    // Satış komisyonu: 0.55 * 0.75 / 0.5 = 0.825 DNZ.
+    expect(useDnzStore.getState().balance).toBeCloseTo(98.5 - 0.825)
   })
 })
 
@@ -454,7 +503,8 @@ describe('spot TP/SL (Oto-Kar Al / Oto-Zarar Durdur)', () => {
 
     expect(useTradeStore.getState().spotPositions).toHaveLength(0)
     expect(useTradeStore.getState().spotBalances.BTC ?? 0).toBe(0)
-    expect(useTradeStore.getState().balance).toBeCloseTo(1000 - 2 * 100 + 2 * 160)
+    // Alış 200 + 0.2 komisyon, satış 320 − 0.32 komisyon.
+    expect(useTradeStore.getState().balance).toBeCloseTo(1000 - 200.2 + 320 - 0.32)
   })
 
   it('lowest priority: TP/SL is independent of a plain spot buy', () => {

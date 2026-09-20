@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+﻿import { beforeEach, describe, expect, it } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TradingPanel } from '@/components/trading/TradingPanel'
@@ -165,7 +165,7 @@ describe('TradingPanel spot mode', () => {
 
     const state = useTradeStore.getState()
     expect(state.spotBalances.BTC).toBeCloseTo(5)
-    expect(state.balance).toBeCloseTo(500)
+    expect(state.balance).toBeCloseTo(499.5) // 500 tutar + 0.5 komisyon
     expect(state.positions).toHaveLength(0)
     expect(state.spotTrades).toHaveLength(1)
     expect(state.spotTrades[0].side).toBe('buy')
@@ -208,7 +208,7 @@ describe('TradingPanel spot mode', () => {
 
     const state = useTradeStore.getState()
     expect(state.spotBalances.BTC).toBeCloseTo(5)
-    expect(state.balance).toBeCloseTo(600)
+    expect(state.balance).toBeCloseTo(599.5) // 500 karşılık − 0.5 komisyon
     expect(state.spotTrades[0].side).toBe('sell')
   })
 
@@ -241,7 +241,7 @@ describe('TradingPanel spot mode', () => {
     await user.click(screen.getByRole('button', { name: 'Onayla ve Gönder' }))
 
     expect(useTradeStore.getState().spotBalances.BTC).toBeCloseTo(5)
-    expect(useTradeStore.getState().balance).toBeCloseTo(500)
+    expect(useTradeStore.getState().balance).toBeCloseTo(499.5) // 500 tutar + 0.5 komisyon
     await waitFor(() => {
       expect(screen.queryByText('Emri Onayla')).not.toBeInTheDocument()
     })

@@ -2,6 +2,8 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { getSessionUser, getSessionUserId } from '@/services/authService'
 import { deriveWalletNo, getProfile } from '@/services/supabaseWallet'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore, DNZ_STORAGE_KEY, type DnzLedgerEntry } from '@/store/dnzStore'
+import { transferDnzRemote } from '@/services/dnzService'
 import { getVirtualHoldings } from '@/services/virtualMarketService'
 
 /**
@@ -101,8 +103,9 @@ export async function lookupTransferTarget(query: string): Promise<TransferTarge
 }
 
 /**
- * Varlık gönderir. `asset`: 'USDT', spot coin ('BTC') veya sanal
- * sembol ('ENTES'). Tutar USDT'de para, coinlerde adettir.
+ * Varlık gönderir. `asset`: 'USDT', spot coin ('BTC'), sanal
+ * sembol ('ENTES') veya borsa tokenı ('DNZ'). Tutar USDT'de para,
+ * coinlerde adettir.
  */
 export async function transferAsset(
   toWallet: string,
@@ -118,6 +121,20 @@ export async function transferAsset(
   }
   const userId = getSessionUserId()
   if (!userId) throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+
+  // DNZ borsa tokenı: kendi defteri (`dnz_balances`/`dnz_ledger`) üzerinden taşınır.
+  if (coin === 'DNZ') {
+    if (isSupabaseConfigured && supabase) {
+      const res = await transferDnzRemote(target, amount)
+      try {
+        await useDnzStore.getState().refreshRemote()
+      } catch {
+        // yoksay — yerel bakiye RPC sonrası ayrıca eşitlenir
+      }
+      return res
+    }
+    return transferDnzLocal(userId, target, amount)
+  }
 
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase.rpc('transfer_assets', {
@@ -281,6 +298,83 @@ function isVirtualSymbolLocal(coin: string): boolean {
   return ['ENTES', 'V-XAU', 'V-XAG', 'RGC', 'MPRC', 'SVGC'].includes(coin)
 }
 
+// ---------------------------------------------------------------
+// Yerel DNZ aktarımı — aynı cihazın kullanıcı kayıtları arasında.
+// DNZ blob'u dnz store persist formatındadır ({state:{...}}).
+// ---------------------------------------------------------------
+
+interface LocalDnzState {
+  balance?: number
+  avgCost?: number
+  ledger?: DnzLedgerEntry[]
+}
+
+function readLocalDnzBlob(uid: string): { state: LocalDnzState } | null {
+  try {
+    const raw = localStorage.getItem(`${DNZ_STORAGE_KEY}_${uid}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { state?: LocalDnzState }
+    if (!parsed || typeof parsed.state !== 'object') return null
+    return { state: parsed.state }
+  } catch {
+    return null
+  }
+}
+
+function transferDnzLocal(
+  senderId: string,
+  target: string,
+  amount: number,
+): { asset: string; amount: number } {
+  const receiver = findLocalUserId(target)
+  if (!receiver) throw new Error('Alıcı bulunamadı.')
+  if (receiver.id === senderId) throw new Error('Kendine transfer yapamazsın.')
+
+  const dnz = useDnzStore.getState()
+  if (amount > dnz.balance) throw new Error('Yetersiz DNZ bakiyesi.')
+  dnz.applyTransferOut(amount, receiver.username)
+
+  const blob = readLocalDnzBlob(receiver.id)
+  const rQty = Math.round(((blob?.state.balance ?? 0) + amount) * 1e8) / 1e8
+  const entry: DnzLedgerEntry = {
+    id: `dnz_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    type: 'transfer_in',
+    amountDnz: amount,
+    priceUsdt: null,
+    amountUsdt: null,
+    balanceAfter: rQty,
+    at: Date.now(),
+  }
+  try {
+    localStorage.setItem(
+      `${DNZ_STORAGE_KEY}_${receiver.id}`,
+      JSON.stringify({
+        state: {
+          ...(blob?.state ?? {}),
+          balance: rQty,
+          ledger: [entry, ...((blob?.state.ledger ?? []) as DnzLedgerEntry[])].slice(0, 100),
+        },
+        version: 0,
+      }),
+    )
+  } catch {
+    throw new Error('Alıcı cüzdanı yazılamadı.')
+  }
+
+  const at = Date.now()
+  const id = `tr_${at.toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  logLocalTransfer(senderId, { id, direction: 'out', asset: 'DNZ', amount, counterparty: receiver.username, at })
+  logLocalTransfer(receiver.id, {
+    id,
+    direction: 'in',
+    asset: 'DNZ',
+    amount,
+    counterparty: getSessionUser()?.username ?? '',
+    at,
+  })
+  return { asset: 'DNZ', amount }
+}
+
 /** Son transferler (uzak defter veya yerel kayıt). */
 export async function listTransferHistory(limit = 20): Promise<TransferRecord[]> {
   const userId = getSessionUserId()
@@ -321,15 +415,17 @@ export async function listTransferHistory(limit = 20): Promise<TransferRecord[]>
   }
 }
 
-/** Gönderilebilir varlıklar: USDT + eldeki spot + eldeki sanal. */
-export async function listTransferableAssets(): Promise<{ asset: string; qty: number; kind: 'usdt' | 'spot' | 'virtual' }[]> {
+/** Gönderilebilir varlıklar: USDT + eldeki spot + eldeki sanal + DNZ. */
+export async function listTransferableAssets(): Promise<{ asset: string; qty: number; kind: 'usdt' | 'spot' | 'virtual' | 'dnz' }[]> {
   const s = useTradeStore.getState()
-  const out: { asset: string; qty: number; kind: 'usdt' | 'spot' | 'virtual' }[] = [
+  const out: { asset: string; qty: number; kind: 'usdt' | 'spot' | 'virtual' | 'dnz' }[] = [
     { asset: 'USDT', qty: s.balance, kind: 'usdt' },
   ]
   for (const [coin, qty] of Object.entries(s.spotBalances)) {
     if (qty > 0) out.push({ asset: coin, qty, kind: 'spot' })
   }
+  const dnzBalance = useDnzStore.getState().balance
+  if (dnzBalance > 0) out.push({ asset: 'DNZ', qty: dnzBalance, kind: 'dnz' })
   try {
     const held = await getVirtualHoldings()
     for (const [sym, qty] of Object.entries(held)) {

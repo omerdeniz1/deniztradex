@@ -2,13 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore } from '@/store/dnzStore'
+import { useToastStore } from '@/store/toastStore'
 import { useUiStore } from '@/store/uiStore'
 import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { getSessionUserId } from '@/services/authService'
-import { syncDepositToSupabase } from '@/services/supabaseWallet'
+import { pushBalanceToServer, recordTransaction, syncDepositToSupabase } from '@/services/supabaseWallet'
+import { DNZ_TOTAL_SUPPLY } from '@/services/dnzService'
 import { getVirtualHoldings } from '@/services/virtualMarketService'
 import { formatNumber, formatPrice } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { Toggle } from '@/components/ui/Toggle'
 
 export function WalletPage() {
   const balance = useTradeStore((s) => s.balance)
@@ -352,6 +356,8 @@ export function WalletPage() {
         )}
       </section>
 
+      <DnzSection />
+
       <section className="mx-4 mb-4 rounded-2xl border border-exchange-border bg-exchange-card p-5 sm:mx-6 sm:mb-6 sm:p-6">
         <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
           Promosyon Kodu Kullan
@@ -412,5 +418,231 @@ function PnlCell({ qty, avg, price }: { qty: number; avg: number; price: number 
       {formatNumber(pnl, 2)} ({up ? '+' : ''}
       {formatNumber(pct, 2)}%)
     </span>
+  )
+}
+
+const DNZ_TYPE_LABEL: Record<string, string> = {
+  buy: 'Alış',
+  sell: 'Satış',
+  fee: 'Komisyon',
+  fee_discount: 'Komisyon indirimi',
+  transfer_in: 'Transfer (gelen)',
+  transfer_out: 'Transfer (giden)',
+  airdrop: 'Airdrop',
+}
+
+/**
+ * DNZ borsa tokenı bölümü: simüle fiyat + bakiye + USDT takası +
+ * komisyon indirimi tercihi + son hareketler.
+ */
+function DnzSection() {
+  const dnzBalance = useDnzStore((s) => s.balance)
+  const dnzAvg = useDnzStore((s) => s.avgCost)
+  const dnzPrice = useDnzStore((s) => s.price)
+  const payWithDnz = useDnzStore((s) => s.payWithDnz)
+  const ledger = useDnzStore((s) => s.ledger)
+  const tick = useDnzStore((s) => s.tick)
+  const setPayWithDnz = useDnzStore((s) => s.setPayWithDnz)
+  const buyDnz = useDnzStore((s) => s.buyDnz)
+  const sellDnz = useDnzStore((s) => s.sellDnz)
+  const refreshRemote = useDnzStore((s) => s.refreshRemote)
+  const pushToast = useToastStore((s) => s.push)
+  const [buyUsdt, setBuyUsdt] = useState('')
+  const [sellQty, setSellQty] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    tick()
+    void refreshRemote()
+    const timer = window.setInterval(() => tick(), 30000)
+    const onFocus = () => {
+      tick()
+      void refreshRemote()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [tick, refreshRemote])
+
+  const buyPreview = parseFloat(buyUsdt.replace(',', '.'))
+  const buyQty = Number.isFinite(buyPreview) && buyPreview > 0 && dnzPrice > 0 ? buyPreview / dnzPrice : 0
+  const sellPreview = parseFloat(sellQty.replace(',', '.'))
+  const sellUsdt = Number.isFinite(sellPreview) && sellPreview > 0 ? sellPreview * dnzPrice : 0
+  const value = dnzBalance * dnzPrice
+
+  const onBuy = () => {
+    if (busy) return
+    setError(null)
+    if (!Number.isFinite(buyPreview) || buyPreview <= 0) {
+      setError('Geçerli bir USDT tutarı gir.')
+      return
+    }
+    const trade = useTradeStore.getState()
+    if (buyPreview > trade.balance) {
+      setError('Yetersiz USDT bakiyesi.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = buyDnz({ qty: buyQty, price: dnzPrice, usdtCost: buyPreview })
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      trade.setBalance(Math.max(0, Math.round((trade.balance - buyPreview) * 100) / 100))
+      const userId = getSessionUserId() ?? ''
+      void pushBalanceToServer(userId, useTradeStore.getState().balance)
+      void recordTransaction({
+        userId,
+        type: 'trade_buy',
+        symbol: 'DNZUSDT',
+        side: 'buy',
+        quantity: buyQty,
+        price: dnzPrice,
+        amountUsdt: buyPreview,
+      })
+      setBuyUsdt('')
+      pushToast({ message: `${formatNumber(buyQty, 4)} DNZ alındı.`, tone: 'success' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onSell = () => {
+    if (busy) return
+    setError(null)
+    if (!Number.isFinite(sellPreview) || sellPreview <= 0) {
+      setError('Geçerli bir DNZ miktarı gir.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = sellDnz({ qty: sellPreview, price: dnzPrice })
+      if (!res.ok) {
+        setError(res.error)
+        return
+      }
+      const trade = useTradeStore.getState()
+      trade.setBalance(Math.round((trade.balance + res.proceeds) * 100) / 100)
+      const userId = getSessionUserId() ?? ''
+      void pushBalanceToServer(userId, useTradeStore.getState().balance)
+      void recordTransaction({
+        userId,
+        type: 'trade_sell',
+        symbol: 'DNZUSDT',
+        side: 'sell',
+        quantity: sellPreview,
+        price: dnzPrice,
+        amountUsdt: res.proceeds,
+      })
+      setSellQty('')
+      pushToast({ message: `${formatNumber(res.proceeds, 2)} USDT alındı.`, tone: 'success' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="mx-4 mb-4 rounded-2xl border border-exchange-border bg-exchange-card sm:mx-6 sm:mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-exchange-border px-4 py-3 sm:px-5">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-exchange-muted">
+          DNZ Token <span className="ml-1 rounded-full bg-exchange-yellow/15 px-2 py-0.5 text-[10px] font-bold text-exchange-yellow">Borsa Tokenı</span>
+        </h2>
+        <span className="text-[11px] text-exchange-muted">Arz: {formatNumber(DNZ_TOTAL_SUPPLY, 0)} DNZ</span>
+      </div>
+      <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_1fr]">
+        <div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono text-2xl font-bold text-exchange-text">{formatNumber(dnzBalance, 4)}</span>
+            <span className="text-sm font-bold text-exchange-yellow">DNZ</span>
+          </div>
+          <div className="mt-1 text-xs text-exchange-muted">
+            ≈ {formatNumber(value, 2)} USDT · Fiyat (simüle): {formatPrice(dnzPrice)} USDT
+            {dnzAvg > 0 && <> · Ort. maliyet: {formatPrice(dnzAvg)} USDT</>}
+          </div>
+          <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-xs font-semibold text-exchange-muted">
+            <Toggle checked={payWithDnz} onChange={setPayWithDnz} label="Komisyonu DNZ ile öde" />
+            Komisyonu DNZ ile öde (%25 indirim)
+          </label>
+          <p className="mt-1 text-[11px] leading-relaxed text-exchange-muted">
+            Açıkken spot komisyonu (%0.1) indirimli olarak DNZ bakiyenden düşer. DNZ yetmezse komisyon USDT alınır.
+          </p>
+        </div>
+        <div className="grid gap-3">
+          <div className="rounded-xl border border-exchange-border/60 p-3">
+            <label htmlFor="dnz-buy" className="mb-1 block text-xs font-semibold text-exchange-muted">
+              DNZ Al {buyQty > 0 && <span className="text-exchange-text">≈ {formatNumber(buyQty, 4)} DNZ</span>}
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="dnz-buy"
+                value={buyUsdt}
+                onChange={(e) => {
+                  setBuyUsdt(e.target.value)
+                  setError(null)
+                }}
+                inputMode="decimal"
+                placeholder="USDT tutarı"
+                disabled={busy}
+                className="h-10 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+              />
+              <Button size="sm" onClick={onBuy} disabled={busy || !(buyPreview > 0)}>
+                {busy ? '…' : 'Al'}
+              </Button>
+            </div>
+          </div>
+          <div className="rounded-xl border border-exchange-border/60 p-3">
+            <label htmlFor="dnz-sell" className="mb-1 block text-xs font-semibold text-exchange-muted">
+              DNZ Sat {sellUsdt > 0 && <span className="text-exchange-text">≈ {formatNumber(sellUsdt, 2)} USDT</span>}
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="dnz-sell"
+                value={sellQty}
+                onChange={(e) => {
+                  setSellQty(e.target.value)
+                  setError(null)
+                }}
+                inputMode="decimal"
+                placeholder="DNZ miktarı"
+                disabled={busy}
+                className="h-10 w-full min-w-0 rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+              />
+              <Button size="sm" variant="outline" onClick={onSell} disabled={busy || !(sellPreview > 0)}>
+                {busy ? '…' : 'Sat'}
+              </Button>
+            </div>
+          </div>
+          {error && <p className="text-xs font-medium text-exchange-sell">{error}</p>}
+        </div>
+      </div>
+      {ledger.length > 0 && (
+        <div className="border-t border-exchange-border">
+          <h3 className="px-4 pt-3 text-xs font-bold uppercase tracking-wide text-exchange-muted sm:px-5">
+            Son DNZ Hareketleri
+          </h3>
+          <ul>
+            {ledger.slice(0, 8).map((e) => (
+              <li
+                key={e.id}
+                className="flex items-center justify-between gap-2 border-b border-exchange-border/40 px-4 py-2 text-xs last:border-0 sm:px-5"
+              >
+                <div className="min-w-0">
+                  <span className="font-semibold text-exchange-text">{DNZ_TYPE_LABEL[e.type] ?? e.type}</span>{' '}
+                  <span className="text-exchange-muted">{new Date(e.at).toLocaleString('tr-TR')}</span>
+                </div>
+                <span className="shrink-0 font-mono font-semibold text-exchange-text">
+                  {e.type === 'sell' || e.type === 'transfer_out' || e.type === 'fee' || e.type === 'fee_discount' ? '−' : '+'}
+                  {formatNumber(e.amountDnz, 4)} DNZ
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   )
 }

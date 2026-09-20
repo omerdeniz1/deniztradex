@@ -396,7 +396,7 @@ export async function recordDeposit(input: DepositInput): Promise<void> {
 
 export interface TransactionInput {
   userId: string
-  type: 'trade_buy' | 'trade_sell' | 'withdraw' | 'promo' | 'referral'
+  type: 'trade_buy' | 'trade_sell' | 'withdraw' | 'promo' | 'referral' | 'fee'
   symbol?: string
   side?: 'buy' | 'sell'
   quantity?: number

@@ -344,6 +344,8 @@ describe('tradeStore.fillNow', () => {
     })
     expect(fok).toEqual({ ok: false, error: 'FOK: tam miktar karşılanamıyor.' })
 
+    // Komisyon dahil (100 + 0.1) karşılanmalı — bakiyeyi tam sınıra çek.
+    useTradeStore.setState({ balance: 101 })
     const okFill = useTradeStore.getState().fillNow({
       symbol: 'BTCUSDT',
       mode: 'spot',
@@ -368,7 +370,8 @@ describe('tradeStore.fillNow', () => {
     })
 
     expect(res.ok).toBe(true)
-    expect(useTradeStore.getState().spotBalances.BTC).toBeCloseTo(1.5)
+    // Komisyon dahil karşılanabilir azami miktar: 150 / (100 * 1.001).
+    expect(useTradeStore.getState().spotBalances.BTC).toBeCloseTo(150 / 100.1)
   })
 
   it('reduceOnly closes an existing futures position', () => {

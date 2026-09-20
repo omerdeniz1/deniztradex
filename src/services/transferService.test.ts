@@ -2,15 +2,18 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { login, register } from '@/services/authService'
 import { deriveWalletNo, getMoneyRestrictions } from '@/services/supabaseWallet'
 import {
+  listTransferableAssets,
   listTransferHistory,
   lookupTransferTarget,
   transferAsset,
 } from '@/services/transferService'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore } from '@/store/dnzStore'
 
 beforeEach(() => {
   localStorage.clear()
   useTradeStore.getState().resetWallet()
+  useDnzStore.getState().resetDnz()
 })
 
 async function registerWithFunds(username: string, email: string, usdt: number) {
@@ -84,6 +87,32 @@ describe('transferService (yerel mod, aynı cihaz)', () => {
     await expect(transferAsset(deriveWalletNo(b.id), 'USDT', 999)).rejects.toThrow('Yetersiz')
     await expect(transferAsset(deriveWalletNo(b.id), 'USDT', 0)).rejects.toThrow()
     await expect(transferAsset('   ', 'USDT', 10)).rejects.toThrow()
+  })
+
+  it('DNZ gönderir: gönderen düşer, alıcı blob artar, listede görünür', async () => {
+    await register({ username: 'dnzA', email: 'da@x.com', password: 'sifre123' })
+    const b = await register({ username: 'dnzB', email: 'db@x.com', password: 'sifre123' })
+    await login('dnzA', 'sifre123')
+    useDnzStore.getState().buyDnz({ qty: 50, price: 0.5, usdtCost: 25 })
+    const res = await transferAsset(deriveWalletNo(b.id), 'DNZ', 20)
+    expect(res).toMatchObject({ asset: 'DNZ', amount: 20 })
+    expect(useDnzStore.getState().balance).toBeCloseTo(30)
+    const blob = JSON.parse(
+      localStorage.getItem(`deniztradx_dnz_${b.id}`) ?? '{}',
+    ) as { state?: { balance?: number } }
+    expect(blob.state?.balance).toBeCloseTo(20)
+    const assets = await listTransferableAssets()
+    expect(assets.find((a) => a.asset === 'DNZ')).toMatchObject({ qty: 30, kind: 'dnz' })
+    const hist = await listTransferHistory()
+    expect(hist[0]).toMatchObject({ direction: 'out', asset: 'DNZ', amount: 20 })
+  })
+
+  it('DNZ yetersiz bakiyede reddeder', async () => {
+    await register({ username: 'dnzC', email: 'dc@x.com', password: 'sifre123' })
+    const b = await register({ username: 'dnzD', email: 'dd@x.com', password: 'sifre123' })
+    await login('dnzC', 'sifre123')
+    useDnzStore.getState().buyDnz({ qty: 5, price: 0.5, usdtCost: 2.5 })
+    await expect(transferAsset(deriveWalletNo(b.id), 'DNZ', 99)).rejects.toThrow('Yetersiz')
   })
 
   it('yeni kayıt para işlemlerine kapalı başlar', async () => {
