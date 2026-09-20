@@ -15,6 +15,8 @@ import { getSessionUserId } from '@/services/authService'
 
 export const DNZ_SYMBOL = 'DNZ'
 export const DNZ_NAME = 'DNZ Token'
+/** Borsadaki işlem çifti sembolü (Piyasalar + işlem ekranı). */
+export const DNZ_PAIR = 'DNZUSDT'
 /** Toplam arz: 200.000.000 DNZ (sabit, basım yok). */
 export const DNZ_TOTAL_SUPPLY = 200_000_000
 /** Tohum fiyat (USDT). */

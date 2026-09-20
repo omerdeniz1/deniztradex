@@ -17,6 +17,7 @@ import {
 } from '@/engine/calculations'
 import { getMarkPrice, pushMarkPrice } from '@/engine/markPrice'
 import { executeVirtualTrade, getVirtualHoldings } from '@/services/virtualMarketService'
+import { DNZ_PAIR } from '@/services/dnzService'
 import { useRiskParams } from '@/hooks/useRiskParams'
 import { cn, formatCompact, formatNumber, formatPrice } from '@/lib/utils'
 import { boll, ema, lastDefined, sma } from '@/lib/indicators'
@@ -26,6 +27,7 @@ import type { TradingMode } from '@/types'
 import { TradingChart, type ChartIndicators } from '@/components/chart/TradingChart'
 import { TradingPanel, type PanelSide } from '@/components/trading/TradingPanel'
 import { VirtualTradePanel } from '@/components/markets/VirtualTradePanel'
+import { DnzTradePanel } from '@/components/markets/DnzTradePanel'
 import { MobileTradeTabs } from '@/components/trading/MobileTradeTabs'
 import { Button } from '@/components/ui/Button'
 import { PairSelector } from '@/components/trading/PairSelector'
@@ -93,7 +95,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   const pushToast = useToastStore((s) => s.push)
   const pendingOrders = useOrderStore((s) => s.pendingOrders)
 
-  const { tickers, virtualSymbols, status: marketStatus } = useUnifiedTickers()
+  const { tickers, virtualSymbols, dnzSymbols, status: marketStatus } = useUnifiedTickers()
 
   // Lightweight per-symbol streams: the active pair, every open position and
   // held spot coins each get their own dedicated `@ticker` socket feeding the
@@ -103,7 +105,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     () =>
       Array.from(
         new Set([
-          symbol.toUpperCase(),
+          // DNZ'nin Binance akışı yoktur (simüle fiyat) — soket açılmasın.
+          ...(symbol.toUpperCase() === DNZ_PAIR ? [] : [symbol.toUpperCase()]),
           ...positions.map((p) => p.symbol),
           ...spotPositions.map((p) => p.symbol),
           ...Object.entries(spotBalances)
@@ -157,12 +160,14 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
 
   // Sanal coinlerde (ENTES, V-XAU…) grafik + işlem sanal altyapıdan gelir;
   // gerçek coinlerde Binance akışı aynen korunur.
+  // DNZ borsa tokenında grafik + işlem DNZ altyapısından gelir (simüle fiyat).
   const isVirtual = virtualSymbols.has(symbol.toUpperCase())
+  const isDnz = dnzSymbols.has(symbol.toUpperCase())
 
   // Full 24h row (change %, volume) for the selected pair.
   const ticker = tickers[symbol] ?? null
   const livePrice = livePrices[symbol] ?? ticker?.price
-  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, interval, !isVirtual)
+  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, interval, !isVirtual && !isDnz)
   const {
     klines: virtualKlines,
     isLoading: virtualLoading,
@@ -179,8 +184,9 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   // Market-data fallback — when klines cannot be loaded (e.g. the pair was
   // delisted or is suspended on Binance) switch the user to the default pair.
   // Sanal coinlerde Binance hatası aranmaz (grafikleri kendi tablomuzdan gelir).
+  // DNZ'de Binance hiç denenmez (simüle fiyat), yönlendirme yapılmaz.
   useEffect(() => {
-    if (isVirtual || !error) return
+    if (isVirtual || isDnz || !error) return
     pushToast({
       message: `${symbol} için piyasa verisi alınamadı. Otomatik olarak BTCUSDT yükleniyor.`,
       tone: 'error',
@@ -189,16 +195,16 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       handleSymbolChange(DEFAULT_SYMBOL)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error, isVirtual])
+  }, [error, isVirtual, isDnz])
 
-  // Sanal coinlerde vadeli kontrat yoktur — vadeli rotası spot'a yönlenir.
+  // Sanal coinlerde ve DNZ'de vadeli kontrat yoktur — vadeli rotası spot'a yönlenir.
   const navigate = useNavigate()
   useEffect(() => {
-    if (isVirtual && mode === 'futures') {
+    if ((isVirtual || isDnz) && mode === 'futures') {
       navigate(`/spot?symbol=${symbol}`, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVirtual, mode])
+  }, [isVirtual, isDnz, mode])
 
   // Risk parametreleri (DB `risk_config` + güvenli varsayılan).
   const risk = useRiskParams()
@@ -703,7 +709,19 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 ))}
               </div>
             )}
-            {chartLoading ? (
+            {isDnz ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
+                <span className="rounded-full bg-exchange-yellow/15 px-2.5 py-0.5 text-[10px] font-bold text-exchange-yellow">
+                  Borsa Tokenı · Simüle Fiyat
+                </span>
+                <span className="font-mono text-3xl font-bold text-exchange-text sm:text-4xl">
+                  {livePrice ? formatPrice(livePrice) : '—'}
+                </span>
+                <span className="max-w-sm text-xs leading-relaxed text-exchange-muted">
+                  DNZ fiyatı borsa simülasyonundan gelir; grafiği yakında burada olacak. Alım-satım sağdaki panelden yapılır.
+                </span>
+              </div>
+            ) : chartLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-exchange-muted">
                 Loading chart data…
               </div>
@@ -840,9 +858,11 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         </section>
 
         {/* Right: trading panel (yalnızca masaüstü — mobilde bottom sheet kullanılır).
-            Sanal sembolde AMM paneli, gerçekte standart panel. */}
+            Sanal sembolde AMM paneli, DNZ'de DNZ paneli, gerçekte standart panel. */}
         <aside className="hidden max-w-full border-t border-exchange-border bg-exchange-surface md:block md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
-          {isVirtual ? (
+          {isDnz ? (
+            <DnzTradePanel key={`dnz-${symbol}`} />
+          ) : isVirtual ? (
             <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} marketPrice={livePrices[symbol]} />
           ) : (
             <TradingPanel
@@ -907,7 +927,14 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 </button>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-exchange-border">
-                {isVirtual ? (
+                {isDnz ? (
+                  <DnzTradePanel
+                    key={`dnz-${symbol}-${sheetSide}`}
+                    initialSide={sheetSide === 'sell' || sheetSide === 'short' ? 'sell' : 'buy'}
+                    onSubmitted={() => setSheetSide(null)}
+                    lockedSide
+                  />
+                ) : isVirtual ? (
                   <VirtualTradePanel
                     key={`v-${symbol}-${sheetSide}`}
                     symbol={symbol}

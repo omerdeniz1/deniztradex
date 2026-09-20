@@ -3,11 +3,12 @@ import { AnimatePresence, motion } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { useTradeStore } from '@/store/tradeStore'
 import { useDnzStore } from '@/store/dnzStore'
+import { useDnzTrade } from '@/hooks/useDnzTrade'
 import { useToastStore } from '@/store/toastStore'
 import { useUiStore } from '@/store/uiStore'
 import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { getSessionUserId } from '@/services/authService'
-import { pushBalanceToServer, recordTransaction, syncDepositToSupabase } from '@/services/supabaseWallet'
+import { syncDepositToSupabase } from '@/services/supabaseWallet'
 import { DNZ_TOTAL_SUPPLY } from '@/services/dnzService'
 import { getVirtualHoldings } from '@/services/virtualMarketService'
 import { formatNumber, formatPrice } from '@/lib/utils'
@@ -443,9 +444,8 @@ function DnzSection() {
   const ledger = useDnzStore((s) => s.ledger)
   const tick = useDnzStore((s) => s.tick)
   const setPayWithDnz = useDnzStore((s) => s.setPayWithDnz)
-  const buyDnz = useDnzStore((s) => s.buyDnz)
-  const sellDnz = useDnzStore((s) => s.sellDnz)
   const refreshRemote = useDnzStore((s) => s.refreshRemote)
+  const { buyForUsdt, sellQty: sellDnzQty } = useDnzTrade()
   const pushToast = useToastStore((s) => s.push)
   const [buyUsdt, setBuyUsdt] = useState('')
   const [sellQty, setSellQty] = useState('')
@@ -476,36 +476,15 @@ function DnzSection() {
   const onBuy = () => {
     if (busy) return
     setError(null)
-    if (!Number.isFinite(buyPreview) || buyPreview <= 0) {
-      setError('Geçerli bir USDT tutarı gir.')
-      return
-    }
-    const trade = useTradeStore.getState()
-    if (buyPreview > trade.balance) {
-      setError('Yetersiz USDT bakiyesi.')
-      return
-    }
     setBusy(true)
     try {
-      const res = buyDnz({ qty: buyQty, price: dnzPrice, usdtCost: buyPreview })
+      const res = buyForUsdt(buyPreview)
       if (!res.ok) {
-        setError(res.error)
+        setError(res.message)
         return
       }
-      trade.setBalance(Math.max(0, Math.round((trade.balance - buyPreview) * 100) / 100))
-      const userId = getSessionUserId() ?? ''
-      void pushBalanceToServer(userId, useTradeStore.getState().balance)
-      void recordTransaction({
-        userId,
-        type: 'trade_buy',
-        symbol: 'DNZUSDT',
-        side: 'buy',
-        quantity: buyQty,
-        price: dnzPrice,
-        amountUsdt: buyPreview,
-      })
       setBuyUsdt('')
-      pushToast({ message: `${formatNumber(buyQty, 4)} DNZ alındı.`, tone: 'success' })
+      pushToast({ message: res.message, tone: 'success' })
     } finally {
       setBusy(false)
     }
@@ -514,32 +493,15 @@ function DnzSection() {
   const onSell = () => {
     if (busy) return
     setError(null)
-    if (!Number.isFinite(sellPreview) || sellPreview <= 0) {
-      setError('Geçerli bir DNZ miktarı gir.')
-      return
-    }
     setBusy(true)
     try {
-      const res = sellDnz({ qty: sellPreview, price: dnzPrice })
+      const res = sellDnzQty(sellPreview)
       if (!res.ok) {
-        setError(res.error)
+        setError(res.message)
         return
       }
-      const trade = useTradeStore.getState()
-      trade.setBalance(Math.round((trade.balance + res.proceeds) * 100) / 100)
-      const userId = getSessionUserId() ?? ''
-      void pushBalanceToServer(userId, useTradeStore.getState().balance)
-      void recordTransaction({
-        userId,
-        type: 'trade_sell',
-        symbol: 'DNZUSDT',
-        side: 'sell',
-        quantity: sellPreview,
-        price: dnzPrice,
-        amountUsdt: res.proceeds,
-      })
       setSellQty('')
-      pushToast({ message: `${formatNumber(res.proceeds, 2)} USDT alındı.`, tone: 'success' })
+      pushToast({ message: res.message, tone: 'success' })
     } finally {
       setBusy(false)
     }

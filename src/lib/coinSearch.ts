@@ -20,6 +20,7 @@ const BASE_ALIASES: Record<string, string[]> = {
   ATOM: ['cosmos'],
   FIL: ['filecoin'],
   BNB: ['bnb'],
+  DNZ: ['dnz', 'deniz', 'deniz token', 'deniztradex', 'borsa token', 'borsa tokeni'],
   USDT: ['tether', 'usdt'],
   'V-XAU': ['sanal altın', 'sanal altin', 'gold', 'altin', 'altın', 'gram altin', 'gram altın', 'pax gold', 'tether gold'],
   'V-XAG': ['sanal gümüş', 'sanal gumus', 'silver', 'gumus', 'gümüş', 'gram gumus', 'gram gümüş'],
