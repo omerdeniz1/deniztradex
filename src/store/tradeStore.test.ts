@@ -468,6 +468,40 @@ describe('redeemPromo', () => {
   })
 })
 
+describe('DNZUSDT standart panel rotası (komisyonsuz)', () => {
+  it('spotBuy DNZUSDT: dnz defterine işler, spot bakiyeye değmez', () => {
+    useTradeStore.getState().deposit(1000)
+    const result = useTradeStore.getState().spotBuy({ symbol: 'DNZUSDT', quantity: 10, price: 0.5 })
+    expect(result.ok).toBe(true)
+    // Komisyon yok: 1000 − 5 = 995 tam.
+    expect(useTradeStore.getState().balance).toBeCloseTo(995)
+    expect(useDnzStore.getState().balance).toBeCloseTo(10)
+    expect(useTradeStore.getState().spotBalances.DNZ ?? 0).toBe(0)
+    expect(useTradeStore.getState().spotTrades[0]).toMatchObject({ side: 'buy', symbol: 'DNZUSDT' })
+  })
+
+  it('spotSell DNZUSDT: dnz bakiyeden düşer, karşılığı tam alır', () => {
+    useTradeStore.getState().deposit(1000)
+    useTradeStore.getState().spotBuy({ symbol: 'DNZUSDT', quantity: 10, price: 0.5 })
+    const result = useTradeStore.getState().spotSell({ symbol: 'DNZUSDT', quantity: 4, price: 1.0 })
+    expect(result.ok).toBe(true)
+    expect(useDnzStore.getState().balance).toBeCloseTo(6)
+    expect(useTradeStore.getState().balance).toBeCloseTo(995 + 4)
+  })
+
+  it('DNZ yetersizliğinde reddeder, bakiyeler korunur', () => {
+    useTradeStore.getState().deposit(1000)
+    expect(
+      useTradeStore.getState().spotSell({ symbol: 'DNZUSDT', quantity: 1, price: 1 }).ok,
+    ).toBe(false)
+    expect(
+      useTradeStore.getState().spotBuy({ symbol: 'DNZUSDT', quantity: 10000, price: 1 }).ok,
+    ).toBe(false)
+    expect(useTradeStore.getState().balance).toBeCloseTo(1000)
+    expect(useDnzStore.getState().balance).toBe(0)
+  })
+})
+
 describe('spot TP/SL (Oto-Kar Al / Oto-Zarar Durdur)', () => {
   const input = {
     symbol: 'BTCUSDT',

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useBinanceKlines } from '@/hooks/useBinanceKlines'
 import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { useVirtualKlines } from '@/hooks/useVirtualKlines'
+import { useDnzKlines } from '@/hooks/useDnzKlines'
 import { useLivePrices } from '@/hooks/useLivePrices'
 import { useTradeStore } from '@/store/tradeStore'
 import { useOrderStore } from '@/store/orderStore'
@@ -27,7 +28,6 @@ import type { TradingMode } from '@/types'
 import { TradingChart, type ChartIndicators } from '@/components/chart/TradingChart'
 import { TradingPanel, type PanelSide } from '@/components/trading/TradingPanel'
 import { VirtualTradePanel } from '@/components/markets/VirtualTradePanel'
-import { DnzTradePanel } from '@/components/markets/DnzTradePanel'
 import { MobileTradeTabs } from '@/components/trading/MobileTradeTabs'
 import { Button } from '@/components/ui/Button'
 import { PairSelector } from '@/components/trading/PairSelector'
@@ -173,9 +173,15 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     isLoading: virtualLoading,
     error: virtualError,
   } = useVirtualKlines(isVirtual ? symbol : '', interval)
-  const shownKlines = isVirtual ? virtualKlines : klines
-  const chartLoading = isVirtual ? virtualLoading : isLoading
-  const chartError = isVirtual ? virtualError : error
+  // DNZ mumları deterministik yürüyüşten gelir (sunucusuz, anlık).
+  const {
+    klines: dnzKlines,
+    isLoading: dnzLoading,
+    error: dnzError,
+  } = useDnzKlines(isDnz ? symbol : '', interval)
+  const shownKlines = isDnz ? dnzKlines : isVirtual ? virtualKlines : klines
+  const chartLoading = isDnz ? dnzLoading : isVirtual ? virtualLoading : isLoading
+  const chartError = isDnz ? dnzError : isVirtual ? virtualError : error
 
   const handleSymbolChange = (next: string) => {
     setSearchParams({ symbol: next }, { replace: true })
@@ -709,19 +715,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 ))}
               </div>
             )}
-            {isDnz ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
-                <span className="rounded-full bg-exchange-yellow/15 px-2.5 py-0.5 text-[10px] font-bold text-exchange-yellow">
-                  Borsa Tokenı · Simüle Fiyat
-                </span>
-                <span className="font-mono text-3xl font-bold text-exchange-text sm:text-4xl">
-                  {livePrice ? formatPrice(livePrice) : '—'}
-                </span>
-                <span className="max-w-sm text-xs leading-relaxed text-exchange-muted">
-                  DNZ fiyatı borsa simülasyonundan gelir; grafiği yakında burada olacak. Alım-satım sağdaki panelden yapılır.
-                </span>
-              </div>
-            ) : chartLoading ? (
+            {chartLoading ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-exchange-muted">
                 Loading chart data…
               </div>
@@ -858,11 +852,9 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         </section>
 
         {/* Right: trading panel (yalnızca masaüstü — mobilde bottom sheet kullanılır).
-            Sanal sembolde AMM paneli, DNZ'de DNZ paneli, gerçekte standart panel. */}
+            Sanal sembolde AMM paneli, DNZ dahil gerçekte standart panel. */}
         <aside className="hidden max-w-full border-t border-exchange-border bg-exchange-surface md:block md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
-          {isDnz ? (
-            <DnzTradePanel key={`dnz-${symbol}`} />
-          ) : isVirtual ? (
+          {isVirtual ? (
             <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} marketPrice={livePrices[symbol]} />
           ) : (
             <TradingPanel
@@ -927,14 +919,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 </button>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-exchange-border">
-                {isDnz ? (
-                  <DnzTradePanel
-                    key={`dnz-${symbol}-${sheetSide}`}
-                    initialSide={sheetSide === 'sell' || sheetSide === 'short' ? 'sell' : 'buy'}
-                    onSubmitted={() => setSheetSide(null)}
-                    lockedSide
-                  />
-                ) : isVirtual ? (
+                {isVirtual ? (
                   <VirtualTradePanel
                     key={`v-${symbol}-${sheetSide}`}
                     symbol={symbol}

@@ -2,6 +2,7 @@
  * Alım-satım komisyon motoru (saf matematik, yan etki yok).
  *
  * - Spot işlem komisyonu: `SPOT_FEE_RATE` (%0.1, işlem tutarı üzerinden).
+ *   DNZ/USDT çiftinde komisyon alınmaz (ücret tokenının kendisi).
  * - DNZ ile ödeme: `DNZ_FEE_DISCOUNT` (%25) indirimli tutar, güncel DNZ
  *   fiyatından DNZ cinsinden düşülür (BNB modeli).
  * - DNZ yetersizse / fiyat yoksa sessizce USDT komisyonuna düşülür —

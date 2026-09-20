@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   advanceDnzPrice,
+  dnzDayChange,
   DNZ_GENESIS_TS,
   DNZ_MAX_PRICE,
   DNZ_MAX_STEP_PCT,
@@ -9,6 +10,7 @@ import {
   DNZ_SEED_PRICE,
   dnzStepForTs,
   dnzStepHash,
+  getDnzKlines,
 } from '@/services/dnzService'
 
 describe('dnzStepHash', () => {
@@ -67,5 +69,53 @@ describe('advanceDnzPrice', () => {
     const r = advanceDnzPrice(0.5, 10, 5)
     expect(r.step).toBe(10)
     expect(r.price).toBeCloseTo(0.5)
+  })
+})
+
+describe('getDnzKlines', () => {
+  const NOW = Date.UTC(2026, 5, 15, 12, 0, 0)
+
+  it('aynı girdide aynı mumları üretir (deterministik)', () => {
+    const a = getDnzKlines('1h', NOW, 50)
+    const b = getDnzKlines('1h', NOW, 50)
+    expect(a).toEqual(b)
+    expect(a).toHaveLength(50)
+  })
+
+  it('mumlar sıralı, hizalı ve OHLC tutarlıdır', () => {
+    const klines = getDnzKlines('15m', NOW, 100)
+    const ms = 15 * 60 * 1000
+    klines.forEach((k, i) => {
+      expect(k.openTime % ms).toBe(0)
+      if (i > 0) expect(k.openTime).toBeGreaterThan(klines[i - 1]?.openTime ?? 0)
+      expect(k.high).toBeGreaterThanOrEqual(Math.max(k.open, k.close))
+      expect(k.low).toBeLessThanOrEqual(Math.min(k.open, k.close))
+      expect(k.volume).toBeGreaterThan(0)
+      // Tamamlanan mumlar tam kova boyundadır; oluşamamış son mum kısadır.
+      if (i < klines.length - 1) expect(k.closeTime).toBe(k.openTime + ms - 1)
+      else expect(k.closeTime).toBeLessThanOrEqual(k.openTime + ms - 1)
+    })
+  })
+
+  it('oluşan mumun kapanışı canlı fiyatla aynı kaynaktan gelir', () => {
+    const step = dnzStepForTs(NOW)
+    const tick = advanceDnzPrice(DNZ_SEED_PRICE, 0, step)
+    const klines = getDnzKlines('5m', NOW, 10)
+    const last = klines[klines.length - 1]
+    expect(last).toBeDefined()
+    expect(last?.close).toBe(tick.price)
+  })
+
+  it('geçersiz girdide boş döner', () => {
+    expect(getDnzKlines('1h', DNZ_GENESIS_TS - 1, 10)).toEqual([])
+    expect(getDnzKlines('1h', NOW, 0)).toEqual([])
+  })
+})
+
+describe('dnzDayChange', () => {
+  it('sonlu değişim yüzdeleri üretir', () => {
+    const { change, changePct } = dnzDayChange(Date.UTC(2026, 5, 15, 12, 0, 0))
+    expect(Number.isFinite(change)).toBe(true)
+    expect(Number.isFinite(changePct)).toBe(true)
   })
 })
