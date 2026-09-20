@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   assertDepositAllowed,
   assertWithdrawAllowed,
+  escapeIlikePattern,
+  findProfileByUsername,
   getMoneyRestrictions,
   getProfileBalanceWithRetry,
   pushBalanceToServer,
@@ -12,13 +14,16 @@ import {
 
 const mocks = vi.hoisted(() => {
   const maybeSingle = vi.fn()
+  const ilike = vi.fn(() => ({ maybeSingle }))
   return {
     from: vi.fn(() => ({
       select: vi.fn(() => ({
         eq: vi.fn(() => ({ maybeSingle })),
+        ilike,
       })),
     })),
     maybeSingle,
+    ilike,
   }
 })
 
@@ -39,6 +44,7 @@ const profileRow = {
 beforeEach(() => {
   mocks.from.mockClear()
   mocks.maybeSingle.mockReset()
+  mocks.ilike.mockClear()
 })
 
 describe('getProfileBalanceWithRetry', () => {
@@ -150,5 +156,31 @@ describe('pushBalanceToServer', () => {
     await expect(pushBalanceToServer('', 100)).resolves.toBeUndefined()
     await expect(pushBalanceToServer('user-1', 100)).resolves.toBeUndefined()
     await expect(pushBalanceToServer('user-1', -5)).resolves.toBeUndefined()
+  })
+})
+
+describe('escapeIlikePattern', () => {
+  it('escapes _ % and backslash so ilike matches exactly', () => {
+    // `_` kullanıcı adlarında serbest ama ilike'ta tek-karakter jokeridir;
+    // kaçışsız `eski_ad` deseni `eskiAad` satırıyla eşleşir ve boşta olan
+    // eski ad "zaten kullanılıyor" diye reddedilir.
+    expect(escapeIlikePattern('eski_ad')).toBe('eski\\_ad')
+    expect(escapeIlikePattern('100%')).toBe('100\\%')
+    expect(escapeIlikePattern('a\\b')).toBe('a\\\\b')
+    expect(escapeIlikePattern('deniz123')).toBe('deniz123')
+  })
+})
+
+describe('findProfileByUsername (ilike kaçışı)', () => {
+  it('joker karakterleri kaçışlayarak tam-eşleşme sorgular', async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: null, error: null })
+    await findProfileByUsername('eski_ad')
+    expect(mocks.ilike).toHaveBeenCalledWith('username', 'eski\\_ad')
+  })
+
+  it('jokersiz adları olduğu gibi sorgular', async () => {
+    mocks.maybeSingle.mockResolvedValue({ data: null, error: null })
+    await findProfileByUsername('deniz123')
+    expect(mocks.ilike).toHaveBeenCalledWith('username', 'deniz123')
   })
 })

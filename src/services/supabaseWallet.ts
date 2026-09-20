@@ -217,10 +217,14 @@ export async function findProfileByEmail(email: string): Promise<Profile | null>
   try {
     // `ilike` — e-posta eşleşmesi büyük-küçük harfe duyarsız olmalı
     // (bazı satırlar normalize edilmeden yazılmış olabilir).
+    // NOT: ilike deseni olduğu için `_`/`%` joker sayılır — e-postadaki
+    // `_` (çok yaygın) yanlış eşleşmeye yol açmasın diye kaçışlanır.
+    // Kaçışsız `a_b@x.com` deseni `aab@x.com` satırıyla da eşleşir ve
+    // kayıt/değişim akışı boşta olan adı "dolu" sanır.
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .ilike('email', needle)
+      .ilike('email', escapeIlikePattern(needle))
       .maybeSingle()
     if (error || !data) return null
     return parseProfile(data as DbProfile)
@@ -237,16 +241,31 @@ export async function findProfileByUsername(username: string): Promise<Profile |
     // `ilike` — kullanıcı adı eşleşmesi büyük-küçük harfe duyarsız.
     // iOS Safari ilk harfi otomatik büyütür ("Deniz" vs "deniz");
     // `eq` ile yapılan tam eşleşme bu yüzden "bulunamadı" döndürüyordu.
+    // NOT: kullanıcı adlarında `_` serbest; ilike'ta `_` tek-karakter
+    // jokeridir. Kaçışsız `eski_ad` deseni `eskiAad` satırıyla eşleşir,
+    // boşta olan eski ad "zaten kullanılıyor" diye reddedilir.
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .ilike('username', needle)
+      .ilike('username', escapeIlikePattern(needle))
       .maybeSingle()
     if (error || !data) return null
     return parseProfile(data as DbProfile)
   } catch {
     return null
   }
+}
+
+/**
+ * PostgREST `ilike` filtresi bir LIKE desenidir: `%` (çok karakter) ve
+ * `_` (tek karakter) joker sayılır. Tam-eşleşme niyetiyle sorgulanan
+ * kullanıcı adı/e-posta bu karakterleri içerebilir (`_` her ikisinde de
+ * geçerli) — desen kaçışsız gönderilirse komşu adlar yanlış eşleşir ve
+ * boşta olan isim "dolu" görünür (eski adı geri alamama hatasının kökü).
+ * Postgres LIKE'ta varsayılan kaçış karakteri `\` dir.
+ */
+export function escapeIlikePattern(raw: string): string {
+  return raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
 }
 
 /**

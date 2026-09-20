@@ -1859,6 +1859,48 @@ end;
 $$;
 
 
+-- >>> supabase/migrations/20260916090000_promo_ledger_allow.sql
+-- ============================================================
+-- DenizTradeX — Kısıtlı hesaba promosyon/referral serbestisi
+--
+-- Para kısıtı (`deposit_blocked`) YALNIZCA kartla yüklemeyi kapsar.
+-- `guard_deposit_ledger` backstop'u tüm `deposit_history` satırlarını
+-- reddediyordu; promosyon/referral bonusları da deftere düşmüyordu.
+-- Bundan böyle bekçi yalnızca `source = 'card'` satırları reddeder;
+-- `promo` / `referral` bonusları kısıtlı hesaba da işlenir.
+-- Para çekme bekçisi (`withdraw` tipi) aynen korunur.
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+create or replace function public.guard_deposit_ledger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Promosyon/referral bonusları kısıttan muaftır; yalnızca kart
+  -- yüklemeleri engellenir.
+  if coalesce(NEW.source, 'card') <> 'card' then
+    return NEW;
+  end if;
+  if exists (
+    select 1 from public.profiles as p
+    where p.id = NEW.user_id and p.deposit_blocked = true
+  ) then
+    raise exception 'para yatırma kısıtlı';
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists deposit_ledger_guard on public.deposit_history;
+create trigger deposit_ledger_guard
+  before insert on public.deposit_history
+  for each row execute function public.guard_deposit_ledger();
+
+
 -- >>> supabase/migrations/20260916110000_announcements.sql
 -- ============================================================
 -- DenizTradeX — Sistem duyuruları (süper admin yayınları)
@@ -3320,4 +3362,886 @@ $$;
 
 revoke all on function public.delete_event(uuid) from public;
 grant execute on function public.delete_event(uuid) to authenticated;
+
+
+-- >>> supabase/migrations/20260918090000_admin_delete_user.sql
+-- ============================================================
+-- DenizTradeX — Admin kullanıcı silme (komple + isim serbest)
+--
+-- `admin_delete_user(p_user_id)`: SECURITY DEFINER RPC.
+--  - Yetki: arayan süper admin (`is_admin`) veya `admin_permissions`
+--    içinde `delete_users` izni olan alt yönetici.
+--  - Koruma: kendi hesabını silemez; başka bir süper admini kimse
+--    silemez (kilitlenme koruması).
+--  - Silme: `auth.users` satırı silinir → profiles, transactions,
+--    deposit_history, forum_posts/replies/likes, virtual_holdings,
+--    trading_state, notifications satırları `on delete cascade` ile
+--    komple gider. Kullanıcı adı unique kısıttan düşer; başkası aynı
+--    isimle sıfırdan kayıt olabilir.
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+create or replace function public.admin_delete_user(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_caller uuid;
+  v_caller_is_admin boolean;
+  v_caller_perms jsonb;
+  v_target_username text;
+  v_target_is_admin boolean;
+begin
+  v_caller := auth.uid();
+  if v_caller is null then
+    raise exception 'giriş gerekli';
+  end if;
+  if p_user_id is null then
+    raise exception 'geçersiz kullanıcı';
+  end if;
+  if v_caller = p_user_id then
+    raise exception 'kendi hesabını silemezsin';
+  end if;
+
+  select is_admin, to_jsonb(coalesce(admin_permissions, '{}'))
+    into v_caller_is_admin, v_caller_perms
+    from public.profiles
+    where id = v_caller;
+  if v_caller_is_admin is null then
+    raise exception 'yetkisiz işlem: yönetici değilsin';
+  end if;
+  if v_caller_is_admin is not true
+     and not (v_caller_perms ? 'delete_users') then
+    raise exception 'yetkisiz işlem: kullanıcı silme yetkin yok';
+  end if;
+
+  select username, is_admin
+    into v_target_username, v_target_is_admin
+    from public.profiles
+    where id = p_user_id;
+  if not found then
+    raise exception 'kullanıcı bulunamadı';
+  end if;
+  if v_target_is_admin is true then
+    raise exception 'süper admin hesabı silinemez';
+  end if;
+
+  -- Forum + cüzdan + işlem + durum satırları cascade ile gider.
+  delete from auth.users where id = p_user_id;
+
+  return jsonb_build_object('ok', true, 'username', v_target_username);
+end;
+$$;
+
+revoke all on function public.admin_delete_user(uuid) from public;
+grant execute on function public.admin_delete_user(uuid) to authenticated;
+
+
+-- >>> supabase/migrations/20260918100000_forum_images_tags.sql
+-- ============================================================
+-- DenizTradeX — Forum fotoğrafı + isim altı etiketi
+--
+-- 1) `profiles.user_tag` (max 24): Ayarlar → Kullanıcı Adı Değiştir
+--    ekranından düzenlenir, forumda isim altında rozet gibi görünür.
+-- 2) `forum_posts.user_tag` / `forum_replies.user_tag`: yazı anında
+--    profilden damgalanır; kullanıcı adı değişince eski yazılar
+--    tetikleyiciyle tazelenir (avatar mekaniğiyle aynı).
+-- 3) `forum_posts.image_url` / `forum_replies.image_url`: gönderiye
+--    eklenen fotoğrafın herkese-açık adresi (max 10MB, istemcide
+--    denetlenir; twitter tarzı metin + fotoğraf).
+-- 4) `storage.forum-images` herkese-açık okunur kova: giriş yapmış
+--    kullanıcılar yalnızca kendi klasörlerine (`<uid>/...`)
+--    yazabilir/silebilir.
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) Profil etiketi
+-- ------------------------------------------------------------
+alter table public.profiles
+  add column if not exists user_tag text;
+
+-- ------------------------------------------------------------
+-- 2) Yazı damgaları: etiket + fotoğraf
+-- ------------------------------------------------------------
+alter table public.forum_posts
+  add column if not exists user_tag text;
+
+alter table public.forum_posts
+  add column if not exists image_url text;
+
+alter table public.forum_replies
+  add column if not exists user_tag text;
+
+alter table public.forum_replies
+  add column if not exists image_url text;
+
+-- Yazı tetikleyicisini etiketle genişlet (rozet + avatar aynen korunur).
+create or replace function public.sync_forum_verified()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_avatar text;
+  v_tag text;
+begin
+  select p.avatar_url, p.user_tag into v_avatar, v_tag
+  from public.profiles as p
+  where p.id = NEW.user_id;
+
+  NEW.verified_tier := public.forum_verified_tier(NEW.user_id, NEW.username);
+  NEW.is_verified := (NEW.verified_tier <> 'none');
+  NEW.avatar_url := v_avatar;
+  -- İstemci bilerek etiket gönderdiyse onu koru, yoksa profilden damgala.
+  if NEW.user_tag is null then
+    NEW.user_tag := v_tag;
+  end if;
+
+  return NEW;
+end;
+$$;
+
+drop trigger if exists forum_posts_verified_trigger on public.forum_posts;
+create trigger forum_posts_verified_trigger
+  before insert or update of username, user_id on public.forum_posts
+  for each row execute function public.sync_forum_verified();
+
+drop trigger if exists forum_replies_verified_trigger on public.forum_replies;
+create trigger forum_replies_verified_trigger
+  before insert or update of username, user_id on public.forum_replies
+  for each row execute function public.sync_forum_verified();
+
+-- Kullanıcı adı / etiket değişince eski yazılara yay.
+create or replace function public.sync_profile_forum_identity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if NEW.username is distinct from OLD.username
+     or NEW.user_tag is distinct from OLD.user_tag then
+    update public.forum_posts
+    set username = NEW.username,
+        user_tag = NEW.user_tag
+    where user_id = NEW.id;
+
+    update public.forum_replies
+    set username = NEW.username,
+        user_tag = NEW.user_tag
+    where user_id = NEW.id;
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists profiles_forum_identity_cascade on public.profiles;
+create trigger profiles_forum_identity_cascade
+  after update of username, user_tag on public.profiles
+  for each row execute function public.sync_profile_forum_identity();
+
+-- Mevcut yazılara geriye dönük etiket işle (idempotent).
+update public.forum_posts as p
+set user_tag = pr.user_tag
+from public.profiles as pr
+where pr.id = p.user_id
+  and p.user_tag is distinct from pr.user_tag;
+
+update public.forum_replies as r
+set user_tag = pr.user_tag
+from public.profiles as pr
+where pr.id = r.user_id
+  and r.user_tag is distinct from pr.user_tag;
+
+-- ------------------------------------------------------------
+-- 3) Forum fotoğraf kovası + politikaları
+-- ------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('forum-images', 'forum-images', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists forum_images_public_read on storage.objects;
+create policy forum_images_public_read
+  on storage.objects for select
+  using (bucket_id = 'forum-images');
+
+drop policy if exists forum_images_insert_own on storage.objects;
+create policy forum_images_insert_own
+  on storage.objects for insert
+  with check (
+    bucket_id = 'forum-images'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists forum_images_update_own on storage.objects;
+create policy forum_images_update_own
+  on storage.objects for update
+  using (
+    bucket_id = 'forum-images'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  )
+  with check (
+    bucket_id = 'forum-images'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists forum_images_delete_own on storage.objects;
+create policy forum_images_delete_own
+  on storage.objects for delete
+  using (
+    bucket_id = 'forum-images'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+
+-- >>> supabase/migrations/20260918110000_forum_reply_likes.sql
+-- ============================================================
+-- DenizTradeX — Yanıt beğenme (reply likes)
+--
+-- `forum_reply_likes`: (reply_id, user_id) beğenileri;
+-- `forum_replies.like_count` tetikleyici ile tutulur.
+-- `toggle_forum_reply_like`: atomik beğen/geri-al (tek roundtrip).
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+alter table public.forum_replies
+  add column if not exists like_count integer not null default 0;
+
+create table if not exists public.forum_reply_likes (
+  reply_id   uuid not null references public.forum_replies (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (reply_id, user_id)
+);
+
+create index if not exists forum_reply_likes_user_id_idx
+  on public.forum_reply_likes (user_id);
+
+alter table public.forum_reply_likes enable row level security;
+
+drop policy if exists forum_reply_likes_select_all on public.forum_reply_likes;
+create policy forum_reply_likes_select_all
+  on public.forum_reply_likes for select
+  using (true);
+
+drop policy if exists forum_reply_likes_insert_own on public.forum_reply_likes;
+create policy forum_reply_likes_insert_own
+  on public.forum_reply_likes for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists forum_reply_likes_delete_own on public.forum_reply_likes;
+create policy forum_reply_likes_delete_own
+  on public.forum_reply_likes for delete
+  using (auth.uid() = user_id);
+
+grant select, insert, delete on public.forum_reply_likes to authenticated;
+alter table public.forum_reply_likes enable row level security;
+
+-- ------------------------------------------------------------
+-- like_count bakım tetikleyicisi
+-- ------------------------------------------------------------
+create or replace function public.sync_forum_reply_like_count()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if TG_OP = 'DELETE' then
+    update public.forum_replies
+    set like_count = (select count(*) from public.forum_reply_likes where reply_id = OLD.reply_id)
+    where id = OLD.reply_id;
+    return OLD;
+  end if;
+  update public.forum_replies
+  set like_count = (select count(*) from public.forum_reply_likes where reply_id = NEW.reply_id)
+  where id = NEW.reply_id;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists forum_reply_likes_count_trigger on public.forum_reply_likes;
+create trigger forum_reply_likes_count_trigger
+  after insert or delete on public.forum_reply_likes
+  for each row execute function public.sync_forum_reply_like_count();
+
+-- ------------------------------------------------------------
+-- Atomik beğen/geri-al. Dönen JSON: {"liked": true|false, "like_count": n}
+-- ------------------------------------------------------------
+create or replace function public.toggle_forum_reply_like(p_reply_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid    uuid := auth.uid();
+  v_liked  boolean;
+  v_count  integer := 0;
+begin
+  if v_uid is null then
+    return jsonb_build_object('liked', false, 'like_count', 0);
+  end if;
+
+  perform 1 from public.forum_replies where id = p_reply_id for update;
+  if not found then
+    return jsonb_build_object('liked', false, 'like_count', 0);
+  end if;
+
+  if exists (
+    select 1 from public.forum_reply_likes where reply_id = p_reply_id and user_id = v_uid
+  ) then
+    delete from public.forum_reply_likes where reply_id = p_reply_id and user_id = v_uid;
+    v_liked := false;
+  else
+    insert into public.forum_reply_likes (reply_id, user_id) values (p_reply_id, v_uid);
+    v_liked := true;
+  end if;
+
+  select like_count into v_count from public.forum_replies where id = p_reply_id;
+  return jsonb_build_object('liked', v_liked, 'like_count', coalesce(v_count, 0));
+end;
+$$;
+
+revoke all on function public.toggle_forum_reply_like(uuid) from public;
+grant execute on function public.toggle_forum_reply_like(uuid) to authenticated;
+
+-- Varsa eski satırların sayaçlarını düzelt (idempotent).
+update public.forum_replies as r
+set like_count = coalesce(
+  (select count(*) from public.forum_reply_likes as l where l.reply_id = r.id),
+  0
+);
+
+
+-- >>> supabase/migrations/20260918120000_username_rpc.sql
+-- ============================================================
+-- DenizTradeX — Atomik kullanıcı-adı değişimi + bot rozet listesi
+--
+-- 1) `change_own_username(p_username)`: SECURITY DEFINER RPC.
+--    Oturum sahibi kendi adını tek işlemde değiştirir; RLS sessiz
+--    retleri bu yolda yaşanmaz (işlem ya olur ya açık hata verir).
+--    Aynı satır güncellendiği için eski ad unique kısıttan düşer ve
+--    başkası tarafından yeniden alınabilir.
+-- 2) Bot rozet listesine 'entes yöneticisi' eklenir (eski 'faik
+--    erdem' yazılarının rozeti korunur — listeden ÇIKARILMAZ).
+--
+-- NOT: bu dosyadaki `change_own_username` çakışma kontrolü
+-- (`username ilike v_new`) `_` joker hatası içerir; hemen ardından
+-- gelen 20260918150000_username_exact_match bölümü bunu
+-- `lower() = lower()` tam-eşleşmeyle düzeltir. Sırayı bozma.
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+create or replace function public.change_own_username(p_username text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_new text;
+begin
+  if v_uid is null then
+    raise exception 'giriş gerekli';
+  end if;
+
+  v_new := trim(both from coalesce(p_username, ''));
+  if char_length(v_new) < 3 or char_length(v_new) > 20 then
+    raise exception 'geçersiz kullanıcı adı (3-20 karakter olmalı)';
+  end if;
+
+  if exists (
+    select 1 from public.profiles
+    where id <> v_uid and username ilike v_new
+  ) then
+    raise exception 'Bu kullanıcı adı zaten kullanılıyor.';
+  end if;
+
+  update public.profiles
+  set username = v_new
+  where id = v_uid;
+
+  return jsonb_build_object('ok', true, 'username', v_new);
+end;
+$$;
+
+revoke all on function public.change_own_username(text) from public;
+grant execute on function public.change_own_username(text) to authenticated;
+
+-- ------------------------------------------------------------
+-- Bot rozeti: 'entes yöneticisi' eklendi (Faik Erdem adı
+-- kullanılmıyor; eski yazıların 'faik erdem' rozeti korunur).
+-- ------------------------------------------------------------
+create or replace function public.forum_verified_tier(p_user_id uuid, p_username text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    -- Bot personaları HER ZAMAN mavi tik (user_id süper admin olsa bile).
+    when translate(lower(trim(coalesce(p_username, ''))), 'İI' || chr(775), 'iı')
+      in ('elon musk', 'entes yöneticisi', 'faik erdem', 'ilham memiş', 'ihsan memiş', 'kripto kaplanı') then 'admin'
+    when lower(coalesce(p_username, '')) = 'deniztradex' then 'super'
+    when exists (select 1 from public.profiles where id = p_user_id and is_admin = true) then 'super'
+    when exists (
+      select 1 from public.profiles
+      where id = p_user_id
+        and coalesce(array_length(admin_permissions, 1), 0) > 0
+    ) then 'admin'
+    else 'none'
+  end;
+$$;
+
+revoke all on function public.forum_verified_tier(uuid, text) from public;
+grant execute on function public.forum_verified_tier(uuid, text) to anon, authenticated;
+
+
+-- >>> supabase/migrations/20260918130000_wallet_transfer.sql
+-- ============================================================
+-- DenizTradeX — Cüzdan numarası + hesaplar arası transfer
+--
+-- 1) `profiles.wallet_no`: her hesaba benzersiz cüzdan numarası
+--    (`WT-XXXXXXXX`). Yeni kayıtlarda trigger üretir, eskiler
+--    backfill ile dolar.
+-- 2) `transactions.type`: `transfer_in` / `transfer_out` eklenir.
+-- 3) `lookup_wallet(p_q)`: cüzdan no veya kullanıcı adından alıcı
+--    arar - yalnızca cüzdan no + kullanıcı adı döndürür (bakiye vb.
+--    sızmaz).
+-- 4) `transfer_assets(p_receiver_wallet, p_asset, p_amount)`:
+--    SECURITY DEFINER - USDT bakiye veya coin miktarı gönderir.
+--    - USDT: profiles.balance satırları kilitlenerek taşınır.
+--    - Spot coin (BTC…): iki tarafın `trading_state.spot_balances`
+--      JSONB'si güncellenir (satır yoksa açılır).
+--    - Sanal coin (ENTES, V-XAU…): `virtual_holdings` taşınır.
+--    Her iki tarafa da defter satırı yazılır.
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 1) Cüzdan numarası
+-- ------------------------------------------------------------
+alter table public.profiles
+  add column if not exists wallet_no text;
+
+-- Üretici: WT- + id hash'inden 8 büyük harf/rakam.
+create or replace function public.make_wallet_no(p_id uuid)
+returns text
+language sql
+immutable
+as $$
+  select 'WT-' || upper(substring(md5(p_id::text) from 1 for 8));
+$$;
+
+-- Mevcut satırlara geriye dönük numara (çakışmada son 4 haneyi id'den alır).
+do $$
+declare
+  r record;
+  v_no text;
+begin
+  for r in select id from public.profiles where wallet_no is null loop
+    v_no := public.make_wallet_no(r.id);
+    if exists (select 1 from public.profiles where wallet_no = v_no) then
+      v_no := 'WT-' || upper(substring(md5(r.id::text || now()::text) from 1 for 8));
+    end if;
+    update public.profiles set wallet_no = v_no where id = r.id;
+  end loop;
+end;
+$$;
+
+alter table public.profiles
+  alter column wallet_no set default public.make_wallet_no(auth.uid());
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'profiles_wallet_no_key'
+  ) then
+    alter table public.profiles add constraint profiles_wallet_no_key unique (wallet_no);
+  end if;
+end;
+$$;
+
+-- Yeni kayıtlarda numara trigger ile garanti altına alınır
+-- (auth.uid() varsayılanı RPC bağlamlarında boş kalabilir).
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, username, email, balance, wallet_no)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'username', 'user_' || left(new.id::text, 8)),
+    coalesce(new.email, ''),
+    10000.00,
+    public.make_wallet_no(new.id)
+  );
+  return new;
+end;
+$$;
+
+-- ------------------------------------------------------------
+-- 2) Defter tipleri: transfer giriş/çıkışı
+-- ------------------------------------------------------------
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'transactions_type_check') then
+    alter table public.transactions drop constraint transactions_type_check;
+  end if;
+  alter table public.transactions
+    add constraint transactions_type_check
+    check (type in ('trade_buy','trade_sell','withdraw','promo','referral','transfer_in','transfer_out'));
+end;
+$$;
+
+-- ------------------------------------------------------------
+-- 3) Alıcı arama (yalnızca cüzdan no + kullanıcı adı döner)
+-- ------------------------------------------------------------
+create or replace function public.lookup_wallet(p_q text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_q text := trim(both from coalesce(p_q, ''));
+  v_row record;
+begin
+  if v_q = '' then
+    raise exception 'geçersiz arama';
+  end if;
+
+  select wallet_no, username into v_row
+  from public.profiles
+  where upper(wallet_no) = upper(v_q)
+  limit 1;
+
+  if not found then
+    select wallet_no, username into v_row
+    from public.profiles
+    where username ilike v_q
+    limit 1;
+  end if;
+
+  if not found then
+    raise exception 'alıcı bulunamadı';
+  end if;
+
+  return jsonb_build_object('wallet_no', v_row.wallet_no, 'username', v_row.username);
+end;
+$$;
+
+revoke all on function public.lookup_wallet(text) from public;
+grant execute on function public.lookup_wallet(text) to authenticated;
+
+-- ------------------------------------------------------------
+-- 4) Hesaplar arası transfer
+-- ------------------------------------------------------------
+create or replace function public.transfer_assets(
+  p_receiver_wallet text,
+  p_asset          text,
+  p_amount         numeric
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sender   uuid := auth.uid();
+  v_receiver uuid;
+  v_asset    text := upper(trim(both from coalesce(p_asset, '')));
+  v_qty      numeric;
+  v_bal      numeric;
+  v_hold     numeric;
+  v_state    jsonb;
+  v_new      numeric;
+begin
+  if v_sender is null then
+    raise exception 'giriş gerekli';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'geçersiz tutar';
+  end if;
+  if v_asset = '' then
+    raise exception 'geçersiz varlık';
+  end if;
+
+  select id into v_receiver
+  from public.profiles
+  where upper(wallet_no) = upper(trim(both from coalesce(p_receiver_wallet, '')))
+  limit 1;
+  if not found then
+    raise exception 'alıcı bulunamadı';
+  end if;
+  if v_receiver = v_sender then
+    raise exception 'kendine transfer yapamazsın';
+  end if;
+
+  if v_asset = 'USDT' then
+    select balance into v_bal from public.profiles where id = v_sender for update;
+    if v_bal is null then
+      raise exception 'profil bulunamadı';
+    end if;
+    if v_bal < p_amount then
+      raise exception 'yetersiz USDT bakiyesi';
+    end if;
+
+    update public.profiles set balance = balance - p_amount where id = v_sender;
+    update public.profiles set balance = balance + p_amount where id = v_receiver;
+
+    insert into public.transactions (user_id, type, amount_usdt)
+    values (v_sender, 'transfer_out', p_amount),
+           (v_receiver, 'transfer_in', p_amount);
+
+    return jsonb_build_object('ok', true, 'asset', 'USDT', 'amount', p_amount);
+  end if;
+
+  -- Sanal coin mi?
+  if exists (select 1 from public.virtual_coins where symbol = v_asset) then
+    select quantity into v_hold
+    from public.virtual_holdings
+    where user_id = v_sender and symbol = v_asset;
+    if coalesce(v_hold, 0) < p_amount then
+      raise exception 'yetersiz coin bakiyesi';
+    end if;
+
+    update public.virtual_holdings
+    set quantity = quantity - p_amount
+    where user_id = v_sender and symbol = v_asset;
+
+    insert into public.virtual_holdings (user_id, symbol, quantity)
+    values (v_receiver, v_asset, p_amount)
+    on conflict (user_id, symbol)
+    do update set quantity = public.virtual_holdings.quantity + excluded.quantity;
+
+    insert into public.transactions (user_id, type, symbol, side, quantity, amount_usdt)
+    values (v_sender, 'transfer_out', v_asset, 'sell', p_amount, p_amount),
+           (v_receiver, 'transfer_in', v_asset, 'buy', p_amount, p_amount);
+
+    return jsonb_build_object('ok', true, 'asset', v_asset, 'amount', p_amount);
+  end if;
+
+  -- Spot coin: trading_state.spot_balances JSONB taşınır.
+  select (spot_balances ->> v_asset)::numeric into v_qty
+  from public.trading_state
+  where user_id = v_sender;
+  if coalesce(v_qty, 0) < p_amount then
+    raise exception 'yetersiz coin bakiyesi';
+  end if;
+
+  insert into public.trading_state (user_id, spot_balances)
+  values (v_sender, '{}'::jsonb)
+  on conflict (user_id) do nothing;
+
+  update public.trading_state
+  set spot_balances = coalesce(spot_balances, '{}'::jsonb) ||
+        jsonb_build_object(v_asset, greatest(coalesce((spot_balances ->> v_asset)::numeric, 0) - p_amount, 0)),
+      updated_at = now()
+  where user_id = v_sender;
+
+  insert into public.trading_state (user_id, spot_balances)
+  values (v_receiver, '{}'::jsonb)
+  on conflict (user_id) do nothing;
+
+  update public.trading_state
+  set spot_balances = coalesce(spot_balances, '{}'::jsonb) ||
+        jsonb_build_object(v_asset, coalesce((spot_balances ->> v_asset)::numeric, 0) + p_amount),
+      updated_at = now()
+  where user_id = v_receiver;
+
+  insert into public.transactions (user_id, type, symbol, side, quantity, amount_usdt)
+  values (v_sender, 'transfer_out', v_asset || 'USDT', 'sell', p_amount, p_amount),
+         (v_receiver, 'transfer_in', v_asset || 'USDT', 'buy', p_amount, p_amount);
+
+  return jsonb_build_object('ok', true, 'asset', v_asset, 'amount', p_amount);
+end;
+$$;
+
+revoke all on function public.transfer_assets(text, text, numeric) from public;
+grant execute on function public.transfer_assets(text, text, numeric) to authenticated;
+
+
+-- >>> supabase/migrations/20260918140000_new_users_restricted.sql
+-- ============================================================
+-- DenizTradeX — Yeni üyeler kısıtlı başlar
+--
+-- Yeni kayıt olan hesapların para yatırma + para çekme işlemleri
+-- varsayılan olarak KAPALI başlar; yönetici Admin Panel → Kısıtla
+-- ekranından tek tek açar. Mevcut hesaplar etkilenmez (yalnızca
+-- kolon varsayılanı + tetikleyici değişir).
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+alter table public.profiles
+  alter column deposit_blocked set default true;
+
+alter table public.profiles
+  alter column withdraw_blocked set default true;
+
+-- handle_new_user transfer migration'ında yeniden tanımlanmıştı;
+-- kısıtları açık şekilde kapalı başlatır (varsayılana bel bağlamaz).
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles
+    (id, username, email, balance, wallet_no, deposit_blocked, withdraw_blocked)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'username', 'user_' || left(new.id::text, 8)),
+    coalesce(new.email, ''),
+    10000.00,
+    public.make_wallet_no(new.id),
+    true,
+    true
+  );
+  return new;
+end;
+$$;
+
+
+-- >>> supabase/migrations/20260918150000_username_exact_match.sql
+-- ============================================================
+-- DenizTradeX — kullanıcı-adı çakışma kontrolünde tam-eşleşme fix'i
+--
+-- Hata: `change_own_username` çakışma kontrolü
+--   `where id <> v_uid and username ilike v_new`
+-- kullanıyordu. `ilike` bir LIKE desenidir: kullanıcı adlarında
+-- SERBEST olan `_` tek-karakter jokeridir (`%` çok-karakter).
+-- Örnek: boşta olan `eski_ad` adı, veritabanında `eskiAad`
+-- (veya `eski1ad`) gibi KOMŞU bir ad varsa desen eşleşmesi yüzünden
+-- "dolu" sanılıp `Bu kullanıcı adı zaten kullanılıyor.` hatasıyla
+-- reddediliyordu — kullanıcı eski adını geri alamıyordu.
+-- Aynı hata istemcideki `findProfileByUsername` / `findProfileByEmail`
+-- `ilike` sorgularında da vardı (desen kaçışıyla düzeltildi).
+--
+-- Çözüm: desen eşleşmesi yerine `lower() = lower()` ile gerçek
+-- büyük-küçük harfe duyarsız TAM eşleşme (`resolve_login_email`
+-- fonksiyonundaki doğru yaklaşımla aynı). `_`/`%` artık joker değil,
+-- sıradan karakterdir.
+--
+-- NOT: `lookup_wallet` bölümü `profiles.wallet_no` kolonunu gerektirir
+-- (20260918130000_wallet_transfer). Bu dosya tek başına çalışırsa o
+-- bölüm sessizce atlanır; kronolojik sırada sorun yoktur.
+--
+-- Idempotent: tekrar çalıştırılabilir.
+-- ============================================================
+
+create or replace function public.change_own_username(p_username text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_new text;
+begin
+  if v_uid is null then
+    raise exception 'giriş gerekli';
+  end if;
+
+  v_new := trim(both from coalesce(p_username, ''));
+  if char_length(v_new) < 3 or char_length(v_new) > 20 then
+    raise exception 'geçersiz kullanıcı adı (3-20 karakter olmalı)';
+  end if;
+
+  -- TAM eşleşme: lower()=lower(). ilike KULLANMA (bkz. dosya başı).
+  if exists (
+    select 1 from public.profiles
+    where id <> v_uid and lower(username) = lower(v_new)
+  ) then
+    raise exception 'Bu kullanıcı adı zaten kullanılıyor.';
+  end if;
+
+  update public.profiles
+  set username = v_new
+  where id = v_uid;
+
+  return jsonb_build_object('ok', true, 'username', v_new);
+end;
+$$;
+
+revoke all on function public.change_own_username(text) from public;
+grant execute on function public.change_own_username(text) to authenticated;
+
+-- ------------------------------------------------------------
+-- Aynı kök neden `lookup_wallet` alıcı aramasında da vardı
+-- (transfer ekranı): `where username ilike v_q` deseni
+-- `_` içeren adlarda KOMŞU kullanıcıya eşleşebilir ve para
+-- yanlış kişiye gidebilirdi. Burada da tam-eşleşmeye çevrildi
+-- (cüzdan no karşılaştırması zaten exact `upper() = upper()` idi).
+--
+-- Koşullu çalışır: `profiles.wallet_no` kolonu yoksa
+-- (20260918130000_wallet_transfer henüz uygulanmamışsa) bu bölüm
+-- atlanır; kronolojik sırada (bundle dahil) normal uygulanır.
+-- ------------------------------------------------------------
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'profiles' and column_name = 'wallet_no'
+  ) then
+    execute $q$
+    create or replace function public.lookup_wallet(p_q text)
+    returns jsonb
+    language plpgsql
+    security definer
+    set search_path = public
+    as $fn$
+    declare
+      v_q text := trim(both from coalesce(p_q, ''));
+      v_row record;
+    begin
+      if v_q = '' then
+        raise exception 'geçersiz arama';
+      end if;
+
+      select wallet_no, username into v_row
+      from public.profiles
+      where upper(wallet_no) = upper(v_q)
+      limit 1;
+
+      if not found then
+        -- TAM eşleşme: lower()=lower(). ilike KULLANMA (bkz. dosya başı).
+        select wallet_no, username into v_row
+        from public.profiles
+        where lower(username) = lower(v_q)
+        limit 1;
+      end if;
+
+      if not found then
+        raise exception 'alıcı bulunamadı';
+      end if;
+
+      return jsonb_build_object('wallet_no', v_row.wallet_no, 'username', v_row.username);
+    end;
+    $fn$
+    $q$;
+
+    execute 'revoke all on function public.lookup_wallet(text) from public';
+    execute 'grant execute on function public.lookup_wallet(text) to authenticated';
+  end if;
+end;
+$$;
 

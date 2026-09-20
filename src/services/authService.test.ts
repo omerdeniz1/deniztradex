@@ -51,6 +51,15 @@ describe('changeUsername (yerel backend)', () => {
     ).resolves.toMatchObject({ username: 'eskiad' })
   })
 
+  it('eski ad changeUsername ile geri alınabilir (A -> B -> A)', async () => {
+    await register({ username: 'eski_ad', email: 'geri@x.com', password: 'sifre123' })
+    const renamed = await changeUsername('yeni_ad')
+    expect(renamed.username).toBe('yeni_ad')
+    // Eski ad boşta: geri dönüş reddedilmemeli.
+    const back = await changeUsername('eski_ad')
+    expect(back.username).toBe('eski_ad')
+  })
+
   it('alınmış ismi ve rezerve adları reddeder', async () => {
     await register({ username: 'birinci', email: 'bir@x.com', password: 'sifre123' })
     await register({ username: 'ikinci', email: 'iki@x.com', password: 'sifre123' })

@@ -88,6 +88,27 @@ function lookupRememberedEmail(username: string): string | null {
 }
 
 /**
+ * Ad değişiminde bu e-postaya bağlı ESKİ ad eşleşmelerini siler.
+ * Bırakılan ad gerçekten boşa düşer: aynı cihazdan eski adla giriş
+ * denemesi artık bu hesaba çözümlenmez ("bulunamadı" döner) ve ad
+ * kayda/geri alıma temiz şekilde açılır. Yerel + Supabase iki kolunda
+ * da ad değişiminden hemen önce çağrılır.
+ */
+function forgetUsernamesForEmail(email: string): void {
+  const value = email.trim().toLowerCase()
+  if (!value) return
+  try {
+    const map = readUsernameMap()
+    for (const k of Object.keys(map)) {
+      if (map[k] === value) delete map[k]
+    }
+    safeSet(USERNAME_MAP_KEY, JSON.stringify(map))
+  } catch {
+    // yoksay
+  }
+}
+
+/**
  * Referral codes that are accepted at registration. Empty field is fine;
  * anything entered must match one of these (case-insensitive).
  * Startup seed list — expand later.
@@ -578,6 +599,9 @@ export async function changeUsername(
     }
     const updated: User = { ...session, username, userTag: check.user_tag ?? tag }
     setSession(updated)
+    // Eski ad(lar) bu cihazın haritasından düşer → ad gerçekten boşa
+    // çıkar; ardından yeni ad hatırlanır (yerel kolla aynı davranış).
+    forgetUsernamesForEmail(session.email)
     rememberUsername(username, session.email)
     return updated
   }
@@ -601,15 +625,7 @@ export async function changeUsername(
     throw new Error('Kullanıcı adı güncellenemedi. Lütfen tekrar dene.')
   }
   const publicUser: User = { ...toPublicUser(updated[idx]), userTag: tag }
-  try {
-    const map = readUsernameMap()
-    for (const k of Object.keys(map)) {
-      if (map[k] === session.email.toLowerCase()) delete map[k]
-    }
-    safeSet(USERNAME_MAP_KEY, JSON.stringify(map))
-  } catch {
-    // yoksay
-  }
+  forgetUsernamesForEmail(session.email)
   rememberUsername(username, session.email)
   setSession(publicUser)
   persistLocalTag(publicUser.id, tag)
