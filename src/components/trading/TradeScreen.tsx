@@ -4,9 +4,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useBinanceKlines } from '@/hooks/useBinanceKlines'
 import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { useVirtualKlines } from '@/hooks/useVirtualKlines'
-import { useDnzKlines } from '@/hooks/useDnzKlines'
 import { useLivePrices } from '@/hooks/useLivePrices'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore } from '@/store/dnzStore'
 import { useOrderStore } from '@/store/orderStore'
 import { useToastStore } from '@/store/toastStore'
 import {
@@ -18,7 +18,6 @@ import {
 } from '@/engine/calculations'
 import { getMarkPrice, pushMarkPrice } from '@/engine/markPrice'
 import { executeVirtualTrade, getVirtualHoldings } from '@/services/virtualMarketService'
-import { DNZ_PAIR } from '@/services/dnzService'
 import { useRiskParams } from '@/hooks/useRiskParams'
 import { cn, formatCompact, formatNumber, formatPrice, resolveLivePrice } from '@/lib/utils'
 import { boll, ema, lastDefined, sma } from '@/lib/indicators'
@@ -95,7 +94,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   const pushToast = useToastStore((s) => s.push)
   const pendingOrders = useOrderStore((s) => s.pendingOrders)
 
-  const { tickers, virtualSymbols, dnzSymbols, status: marketStatus } = useUnifiedTickers()
+  const { tickers, virtualSymbols, status: marketStatus } = useUnifiedTickers()
 
   // Lightweight per-symbol streams: the active pair, every open position and
   // held spot coins each get their own dedicated `@ticker` socket feeding the
@@ -105,8 +104,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     () =>
       Array.from(
         new Set([
-          // DNZ'nin Binance akışı yoktur (simüle fiyat) — soket açılmasın.
-          ...(symbol.toUpperCase() === DNZ_PAIR ? [] : [symbol.toUpperCase()]),
+          symbol.toUpperCase(),
           ...positions.map((p) => p.symbol),
           ...spotPositions.map((p) => p.symbol),
           ...Object.entries(spotBalances)
@@ -158,30 +156,22 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [sheetSide])
 
-  // Sanal coinlerde (ENTES, V-XAU…) grafik + işlem sanal altyapıdan gelir;
-  // gerçek coinlerde Binance akışı aynen korunur.
-  // DNZ borsa tokenında grafik + işlem DNZ altyapısından gelir (simüle fiyat).
+  // Sanal coinlerde (ENTES, V-XAU… — DNZ dahil) grafik + işlem sanal
+  // altyapıdan gelir; gerçek coinlerde Binance akışı aynen korunur.
   const isVirtual = virtualSymbols.has(symbol.toUpperCase())
-  const isDnz = dnzSymbols.has(symbol.toUpperCase())
 
   // Full 24h row (change %, volume) for the selected pair.
   const ticker = tickers[symbol] ?? null
   const livePrice = livePrices[symbol] ?? ticker?.price
-  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, interval, !isVirtual && !isDnz)
+  const { klines, isLoading, error } = useBinanceKlines(mode, symbol, interval, !isVirtual)
   const {
     klines: virtualKlines,
     isLoading: virtualLoading,
     error: virtualError,
   } = useVirtualKlines(isVirtual ? symbol : '', interval)
-  // DNZ mumları deterministik yürüyüşten gelir (sunucusuz, anlık).
-  const {
-    klines: dnzKlines,
-    isLoading: dnzLoading,
-    error: dnzError,
-  } = useDnzKlines(isDnz ? symbol : '', interval)
-  const shownKlines = isDnz ? dnzKlines : isVirtual ? virtualKlines : klines
-  const chartLoading = isDnz ? dnzLoading : isVirtual ? virtualLoading : isLoading
-  const chartError = isDnz ? dnzError : isVirtual ? virtualError : error
+  const shownKlines = isVirtual ? virtualKlines : klines
+  const chartLoading = isVirtual ? virtualLoading : isLoading
+  const chartError = isVirtual ? virtualError : error
 
   const handleSymbolChange = (next: string) => {
     setSearchParams({ symbol: next }, { replace: true })
@@ -190,9 +180,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
   // Market-data fallback — when klines cannot be loaded (e.g. the pair was
   // delisted or is suspended on Binance) switch the user to the default pair.
   // Sanal coinlerde Binance hatası aranmaz (grafikleri kendi tablomuzdan gelir).
-  // DNZ'de Binance hiç denenmez (simüle fiyat), yönlendirme yapılmaz.
   useEffect(() => {
-    if (isVirtual || isDnz || !error) return
+    if (isVirtual || !error) return
     pushToast({
       message: `${symbol} için piyasa verisi alınamadı. Otomatik olarak BTCUSDT yükleniyor.`,
       tone: 'error',
@@ -201,16 +190,16 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       handleSymbolChange(DEFAULT_SYMBOL)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [error, isVirtual, isDnz])
+  }, [error, isVirtual])
 
-  // Sanal coinlerde ve DNZ'de vadeli kontrat yoktur — vadeli rotası spot'a yönlenir.
+  // Sanal coinlerde vadeli kontrat yoktur — vadeli rotası spot'a yönlenir.
   const navigate = useNavigate()
   useEffect(() => {
-    if ((isVirtual || isDnz) && mode === 'futures') {
+    if (isVirtual && mode === 'futures') {
       navigate(`/spot?symbol=${symbol}`, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVirtual, isDnz, mode])
+  }, [isVirtual, mode])
 
   // Risk parametreleri (DB `risk_config` + güvenli varsayılan).
   const risk = useRiskParams()
@@ -417,6 +406,14 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     const priceOf = (sym: string): number =>
       livePrices[sym] ?? tickers[sym]?.price ?? 0
     const holdingOf = async (sym: string): Promise<number> => {
+      // DNZ bakiyesi sanal defterde değil dnz defterindedir.
+      if (sym === 'DNZ') {
+        try {
+          return useDnzStore.getState().balance
+        } catch {
+          return 0
+        }
+      }
       try {
         const h = await getVirtualHoldings()
         return h[sym] ?? 0

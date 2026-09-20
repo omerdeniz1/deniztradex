@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
 import { getSessionUserId } from '@/services/authService'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore } from '@/store/dnzStore'
 import {
   quoteVirtualBuy,
   quoteVirtualSell,
@@ -50,6 +51,7 @@ interface VirtualSeed {
 }
 
 export const VIRTUAL_SEED: VirtualSeed[] = [
+  { symbol: 'DNZ', name: 'DNZ Token', type: 'crypto', reserveUsdt: 100000000, reserveToken: 200000000, price: 0.5 },
   { symbol: 'ENTES', name: 'ENTES COIN', type: 'crypto', reserveUsdt: 50000000, reserveToken: 5000000, price: 10 },
   { symbol: 'V-XAU', name: 'Sanal Altın', type: 'commodity', reserveUsdt: 30000000, reserveToken: 300000, price: 100 },
   { symbol: 'V-XAG', name: 'Sanal Gümüş', type: 'commodity', reserveUsdt: 20000000, reserveToken: 1000000, price: 20 },
@@ -68,18 +70,29 @@ interface LocalPool {
 }
 
 function readPools(): Record<string, LocalPool> {
+  let out: Record<string, LocalPool> = {}
   try {
     const raw = localStorage.getItem(POOLS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, LocalPool>
-      if (parsed && typeof parsed === 'object') return parsed
+      if (parsed && typeof parsed === 'object') out = parsed
     }
   } catch {
     // yoksay — tohumdan başla
   }
-  const out: Record<string, LocalPool> = {}
+  if (Object.keys(out).length === 0) {
+    for (const s of VIRTUAL_SEED) {
+      out[s.symbol] = { reserveUsdt: s.reserveUsdt, reserveToken: s.reserveToken, volume24h: 0 }
+    }
+    return out
+  }
+  // Tohumda olup depoda olmayan havuzlar (DNZ gibi sonradan eklenen
+  // coinler) tohum değerleriyle birleşir — eski depoyu bozmaz.
   for (const s of VIRTUAL_SEED) {
-    out[s.symbol] = { reserveUsdt: s.reserveUsdt, reserveToken: s.reserveToken, volume24h: 0 }
+    const p = out[s.symbol]
+    if (!p || !Number.isFinite(p.reserveUsdt) || !Number.isFinite(p.reserveToken)) {
+      out[s.symbol] = { reserveUsdt: s.reserveUsdt, reserveToken: s.reserveToken, volume24h: 0 }
+    }
   }
   return out
 }
@@ -289,9 +302,64 @@ function applyLocalTrade(
 }
 
 /**
+ * DNZ takas yerleşimi (yerel motor): havuz x*y=k aynen işler, DNZ
+ * bacağı `dnzStore` (bakiye + `fee_discount` dışı `buy`/`sell` defteri),
+ * USDT bacağı `tradeStore` üzerinden — diğer sanal coinlerle aynı
+ * davranış, tek fark DNZ `virtual_holdings`'te DEĞİL `dnz_balances`'ta
+ * durur (komisyon indirimi + transfer + cüzdan aynen çalışır).
+ */
+function applyDnzTrade(
+  side: VirtualTradeSide,
+  amount: number,
+  quote: VirtualQuote,
+): VirtualTradeResult {
+  const trade = useTradeStore.getState()
+  const dnz = useDnzStore.getState()
+  const pools = readPools()
+  const pool = pools['DNZ']
+  if (!pool) throw new Error('Coin bulunamadı.')
+
+  if (side === 'buy') {
+    if (trade.balance < amount) throw new Error('Yetersiz USDT bakiyesi.')
+    trade.setBalance(Math.max(0, Math.round((trade.balance - amount) * 100) / 100))
+    const res = dnz.buyDnz({
+      qty: quote.tokenAmount,
+      price: quote.usdtAmount / quote.tokenAmount,
+      usdtCost: amount,
+    })
+    if (!res.ok) throw new Error(res.error)
+  } else {
+    if (dnz.balance < amount) throw new Error('Yetersiz coin bakiyesi.')
+    const res = dnz.sellDnz({
+      qty: amount,
+      price: quote.usdtAmount / quote.tokenAmount,
+    })
+    if (!res.ok) throw new Error(res.error)
+    trade.setBalance(Math.round((trade.balance + quote.usdtAmount) * 100) / 100)
+  }
+
+  pools['DNZ'] = {
+    reserveUsdt: quote.newReserveUsdt,
+    reserveToken: quote.newReserveToken,
+    volume24h: pool.volume24h + quote.usdtAmount,
+  }
+  writePools(pools)
+
+  return {
+    tokenAmount: quote.tokenAmount,
+    usdtAmount: quote.usdtAmount,
+    price: quote.oldPrice,
+    newPrice: quote.newPrice,
+    priceImpactPct: quote.priceImpactPct,
+  }
+}
+
+/**
  * AMM takası çalıştır.
  * - buy: amount = yatırılan USDT → token verir.
  * - sell: amount = satılan token adedi → USDT verir.
+ * - DNZ: aynı imza/matematik, yerleşim `applyDnzTrade` /
+ *   `execute_dnz_trade` (dnz defterleri + mum upsert).
  */
 export async function executeVirtualTrade(
   symbol: string,
@@ -303,6 +371,54 @@ export async function executeVirtualTrade(
   }
   const userId = getSessionUserId()
   if (!userId) throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
+
+  if (symbol === 'DNZ') {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.rpc('execute_dnz_trade', {
+        p_user_id: userId,
+        p_side: side,
+        p_amount: amount,
+      })
+      if (error) {
+        if ((error as { code?: string }).code === 'PGRST202') {
+          throw new Error(
+            "DNZ havuz altyapısı veritabanında yok. Yönetici Supabase SQL Editor'de 20260918180000_dnz_amm_pool migration'ını uygulamalı.",
+          )
+        }
+        throw new Error(mapRpcError(error))
+      }
+      const r = data as Record<string, unknown> | null
+      if (!r || r.ok !== true) throw new Error('İşlem gerçekleştirilemedi.')
+      try {
+        await useDnzStore.getState().refreshRemote()
+      } catch {
+        // yoksay — sunucu doğruluk kaynağı, önbellek sonra yakalar
+      }
+      return {
+        tokenAmount: toNumber(r.token_amount),
+        usdtAmount: toNumber(r.usdt_amount),
+        price: toNumber(r.price),
+        newPrice: toNumber(r.new_price),
+        priceImpactPct: toNumber(r.price_impact_pct),
+      }
+    }
+
+    // Yerel motor: aynı x*y=k matematiği.
+    const pools = readPools()
+    const pool = pools['DNZ']
+    if (!pool) throw new Error('Coin bulunamadı.')
+    const quote =
+      side === 'buy'
+        ? quoteVirtualBuy(
+            { symbol: 'DNZ', reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
+            amount,
+          )
+        : quoteVirtualSell(
+            { symbol: 'DNZ', reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
+            amount,
+          )
+    return applyDnzTrade(side, amount, quote)
+  }
 
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase.rpc('execute_virtual_trade', {

@@ -7,8 +7,6 @@ import {
   type VirtualChange,
   type VirtualCoin,
 } from '@/services/virtualMarketService'
-import { DNZ_PAIR, dnzDayChange } from '@/services/dnzService'
-import { useDnzStore } from '@/store/dnzStore'
 import type { Ticker } from '@/types'
 
 /**
@@ -37,16 +35,10 @@ export function useUnifiedTickers() {
   const [virtualCoins, setVirtualCoins] = useState<VirtualCoin[]>(SEED_COINS)
   // Sanal coin 24s değişimleri: mum kapanışlarından hesaplanır (0 değil).
   const [virtualChanges, setVirtualChanges] = useState<Record<string, VirtualChange>>({})
-  // DNZ borsa tokenı: fiyat dnz store'dan (simüle), tickers'a sentetik satır.
-  const dnzPrice = useDnzStore((s) => s.price)
-  // DNZ 24s değişimi: saatlik mumlardan (Binance akışı yok).
-  const [dnzChange, setDnzChange] = useState({ change: 0, changePct: 0 })
 
   useEffect(() => {
     let live = true
     const load = () => {
-      useDnzStore.getState().tick()
-      if (live) setDnzChange(dnzDayChange(Date.now()))
       void listVirtualCoins().then((list) => {
         if (live) setVirtualCoins(list)
       })
@@ -74,23 +66,13 @@ export function useUnifiedTickers() {
         volume24h: c.volume24h,
       }
     }
-    // DNZ: Binance'te yoktur — simüle fiyat + mumlardan 24s değişimle listelenir (hacim 0).
-    out[DNZ_PAIR] = {
-      symbol: DNZ_PAIR,
-      price: dnzPrice,
-      change24h: dnzChange.change,
-      changePercent24h: dnzChange.changePct,
-      volume24h: 0,
-    }
     return out
-  }, [tickers, virtualCoins, virtualChanges, dnzPrice, dnzChange])
+  }, [tickers, virtualCoins, virtualChanges])
 
   const virtualSymbols = useMemo(
     () => new Set(virtualCoins.map((c) => c.symbol.toUpperCase())),
     [virtualCoins],
   )
 
-  const dnzSymbols = useMemo(() => new Set([DNZ_PAIR]), [])
-
-  return { tickers: merged, virtualSymbols, dnzSymbols, status }
+  return { tickers: merged, virtualSymbols, status }
 }

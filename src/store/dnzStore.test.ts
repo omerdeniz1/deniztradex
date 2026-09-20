@@ -47,14 +47,9 @@ describe('dnzStore', () => {
     expect(after.ledger[0].type).toBe('fee_discount')
   })
 
-  it('tick fiyatı deterministik ilerletir', () => {
-    const s = useDnzStore.getState()
-    const t0 = Date.UTC(2026, 0, 1)
-    s.tick(t0)
-    const p1 = useDnzStore.getState().price
-    s.tick(t0)
-    expect(useDnzStore.getState().price).toBe(p1)
-    s.tick(t0 + 60 * 60 * 1000)
-    expect(useDnzStore.getState().priceStep).toBeGreaterThan(0)
+  it('havuz fiyatını çeker (yerel tohum 0.50)', async () => {
+    useDnzStore.setState({ price: 999 })
+    await useDnzStore.getState().syncPriceFromPool()
+    expect(useDnzStore.getState().price).toBeCloseTo(0.5)
   })
 })

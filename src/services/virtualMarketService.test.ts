@@ -21,14 +21,37 @@ beforeEach(() => {
 })
 
 describe('virtualMarketService (yerel motor)', () => {
-  it('6 seed coini seed fiyatlarıyla listeler', async () => {
+  it('7 seed coini seed fiyatlarıyla listeler (DNZ dahil)', async () => {
     const coins = await listVirtualCoins()
-    expect(coins).toHaveLength(6)
+    expect(coins).toHaveLength(7)
     expect(coins.map((c) => c.symbol)).toEqual(VIRTUAL_SEED.map((s) => s.symbol))
     const entes = coins.find((c) => c.symbol === 'ENTES')!
     expect(entes.price).toBe(10)
     expect(entes.type).toBe('crypto')
     expect(coins.find((c) => c.symbol === 'V-XAU')!.type).toBe('commodity')
+    // DNZ: 100M USDT / 200M arz → $0.50 açılış.
+    const dnz = coins.find((c) => c.symbol === 'DNZ')!
+    expect(dnz.price).toBeCloseTo(0.5)
+    expect(dnz.type).toBe('crypto')
+  })
+
+  it('DNZ alış/satışı dnz defterine işler, havuzu oynatır', async () => {
+    useTradeStore.setState({ balance: 1000 })
+    localStorage.setItem(
+      'deniztradx_session',
+      JSON.stringify({ id: 'u_dnz', username: 'dnzci', email: 'd@x.com', createdAt: 1 }),
+    )
+    const { useDnzStore } = await import('@/store/dnzStore')
+    useDnzStore.getState().resetDnz()
+    const buy = await executeVirtualTrade('DNZ', 'buy', 100)
+    expect(buy.tokenAmount).toBeGreaterThan(190)
+    expect(buy.tokenAmount).toBeLessThan(200)
+    expect(buy.newPrice).toBeGreaterThan(buy.price)
+    expect(buy.priceImpactPct).toBeGreaterThan(0)
+    expect(useDnzStore.getState().balance).toBeCloseTo(buy.tokenAmount, 6)
+    const sell = await executeVirtualTrade('DNZ', 'sell', buy.tokenAmount / 2)
+    expect(sell.usdtAmount).toBeGreaterThan(0)
+    expect(useDnzStore.getState().balance).toBeCloseTo(buy.tokenAmount / 2, 4)
   })
 
   it('alış bakiyeyi düşürür, token verir, fiyatı yukarı iter', async () => {

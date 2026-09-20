@@ -124,12 +124,12 @@ function roundQty(n: number): number {
 
 /**
  * Spot komisyon teklifi (%0.1, bkz. `engine/fees`): saf hesap, yan etki
- * YOK. DNZ ile ödeme aktif ve bakiye yetiyorsa teklifte `useDnz` true
- * döner; gerçek DNZ düşüşü `settleFeeDeduction` ile yapılır.
+ * YOK. DNZ fiyatı havuzdan önbelleklidir (`syncPriceFromPool` ile tazelenir).
+ * DNZ ile ödeme aktif ve bakiye yetiyorsa teklifte `useDnz` true döner;
+ * gerçek DNZ düşüşü `settleFeeDeduction` ile yapılır.
  */
 function quoteFeeFor(notional: number): FeeQuote {
   const dnz = useDnzStore.getState()
-  dnz.tick()
   return quoteSpotFee(notional, {
     payWithDnz: dnz.payWithDnz,
     dnzBalance: dnz.balance,
@@ -531,45 +531,10 @@ export const useTradeStore = create<TradeState>()(
         const pos = get().spotPositions.find((p) => p.id === id)
         if (!pos) return
         const coin = coinOf(pos.symbol)
-        const isDnzClose = coin === 'DNZ'
-        const held = isDnzClose ? useDnzStore.getState().balance : (get().spotBalances[coin] ?? 0)
+        const held = get().spotBalances[coin] ?? 0
         const qty = roundQty(Math.min(pos.quantity, held))
         if (qty <= 0) {
           set((s) => ({ spotPositions: s.spotPositions.filter((p) => p.id !== id) }))
-          return
-        }
-        // DNZ lotu: dnz defterinden satılır (komisyonsuz).
-        if (isDnzClose) {
-          const dnz = useDnzStore.getState()
-          dnz.tick()
-          const res = dnz.sellDnz({ qty, price: marketPrice })
-          if (!res.ok) {
-            set((s) => ({ spotPositions: s.spotPositions.filter((p) => p.id !== id) }))
-            return
-          }
-          const dnzTrade: SpotTrade = {
-            id: makeId('spt'),
-            symbol: pos.symbol,
-            side: 'sell',
-            quantity: qty,
-            price: marketPrice,
-            at: Date.now(),
-          }
-          set((s) => ({
-            spotPositions: s.spotPositions.filter((p) => p.id !== id),
-            balance: roundTo(s.balance + res.proceeds),
-            spotTrades: [dnzTrade, ...s.spotTrades].slice(0, 200),
-          }))
-          void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
-          void recordTransaction({
-            userId: getSessionUserId() ?? '',
-            type: 'trade_sell',
-            symbol: pos.symbol,
-            side: 'sell',
-            quantity: qty,
-            price: marketPrice,
-            amountUsdt: res.proceeds,
-          })
           return
         }
         const proceeds = roundQty(qty * marketPrice)
@@ -778,41 +743,6 @@ export const useTradeStore = create<TradeState>()(
         const cost = roundQty(quantity * price)
         const { balance, spotBalances, spotTrades, spotAvgCosts } = get()
         const coin = coinOf(symbol)
-        // DNZ borsa tokenı: kendi defterine işlenir (komisyonsuz —
-        // ücret tokenının kendisi), USDT bacağı normal. Diğer coinler
-        // aşağıdaki genel komisyonlu yoldan gider.
-        if (coin === 'DNZ') {
-          if (cost > balance) {
-            return { ok: false, error: 'Insufficient USDT balance.' }
-          }
-          const dnz = useDnzStore.getState()
-          dnz.tick()
-          const res = dnz.buyDnz({ qty: roundQty(quantity), price, usdtCost: cost })
-          if (!res.ok) return { ok: false, error: res.error }
-          const dnzTrade: SpotTrade = {
-            id: makeId('spt'),
-            symbol,
-            side: 'buy',
-            quantity: roundQty(quantity),
-            price,
-            at: Date.now(),
-          }
-          set({
-            balance: Math.max(0, roundTo(balance - cost)),
-            spotTrades: [dnzTrade, ...spotTrades].slice(0, 200),
-          })
-          void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
-          void recordTransaction({
-            userId: getSessionUserId() ?? '',
-            type: 'trade_buy',
-            symbol,
-            side: 'buy',
-            quantity: roundQty(quantity),
-            price,
-            amountUsdt: cost,
-          })
-          return { ok: true }
-        }
         // Önce saf teklif + bakiye kontrolü (kesinti YOK): başarısız
         // işlem ne DNZ ne USDT yakar. Sonra kesinti kesinleştirilir.
         let quote = quoteFeeFor(cost)
@@ -869,39 +799,6 @@ export const useTradeStore = create<TradeState>()(
         const proceeds = roundQty(quantity * price)
         const { balance, spotBalances, spotTrades } = get()
         const coin = coinOf(symbol)
-        // DNZ borsa tokenı: dnz defterinden düşer (komisyonsuz).
-        if (coin === 'DNZ') {
-          const dnz = useDnzStore.getState()
-          dnz.tick()
-          if (quantity > dnz.balance) {
-            return { ok: false, error: 'Insufficient DNZ balance.' }
-          }
-          const res = dnz.sellDnz({ qty: roundQty(quantity), price })
-          if (!res.ok) return { ok: false, error: res.error }
-          const dnzTrade: SpotTrade = {
-            id: makeId('spt'),
-            symbol,
-            side: 'sell',
-            quantity: roundQty(quantity),
-            price,
-            at: Date.now(),
-          }
-          set({
-            balance: roundTo(balance + res.proceeds),
-            spotTrades: [dnzTrade, ...spotTrades].slice(0, 200),
-          })
-          void pushBalanceToServer(getSessionUserId() ?? '', get().balance)
-          void recordTransaction({
-            userId: getSessionUserId() ?? '',
-            type: 'trade_sell',
-            symbol,
-            side: 'sell',
-            quantity: roundQty(quantity),
-            price,
-            amountUsdt: res.proceeds,
-          })
-          return { ok: true }
-        }
         const held = spotBalances[coin] ?? 0
         if (quantity > held) {
           return { ok: false, error: `Insufficient ${coin} balance.` }

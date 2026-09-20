@@ -102,5 +102,25 @@ describe('VirtualTradePanel (reel panel standardı)', () => {
       expect(useTradeStore.getState().virtualAvgCosts.ENTES).toBeGreaterThan(0)
     })
   })
+
+  it('DNZ satışta varsayılan birim USDT olur, dolar girilir', async () => {
+    localStorage.setItem(
+      'deniztradx_session',
+      JSON.stringify({ id: 'u_test', username: 'tester', email: 't@x.com', createdAt: 1 }),
+    )
+    const user = userEvent.setup()
+    render(<VirtualTradePanel symbol="DNZ" marketPrice={0.5} initialSide="sell" />)
+    await waitFor(() => {
+      expect(screen.getByText('Elindeki DNZ')).toBeInTheDocument()
+    })
+    // USDT birimi seçili gelir.
+    expect(screen.getByRole('button', { name: 'USDT' })).toHaveAttribute('aria-pressed', 'true')
+    // 100 USDT'lik satış → ~200 DNZ karşılığı kotasyon + fiyat etkisi görünür.
+    await user.type(screen.getByLabelText('Order amount'), '100')
+    await waitFor(() => {
+      expect(screen.getByText('Satılacak (tahmini)')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Fiyat etkisi')).toBeInTheDocument()
+  })
 })
 

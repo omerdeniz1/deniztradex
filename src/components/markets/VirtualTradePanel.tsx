@@ -3,7 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useTradeStore } from '@/store/tradeStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useToastStore } from '@/store/toastStore'
-import { quoteVirtualBuy, quoteVirtualSell } from '@/engine/virtualAmm'
+import { quoteVirtualBuy, quoteVirtualSell, quoteVirtualSellForUsdt } from '@/engine/virtualAmm'
+import { DNZ_SYMBOL } from '@/services/dnzService'
 import {
   executeVirtualTrade,
   getVirtualHoldings,
@@ -72,6 +73,9 @@ export function VirtualTradePanel({
   const [holding, setHolding] = useState(0)
   const [side, setSide] = useState<VirtualTradeSide>(initialSide ?? 'buy')
   const [orderType, setOrderType] = useState<VirtualOrderType>('market')
+  // Satış giriş birimi: coin adedi veya USDT karşılığı (DNZ'de varsayılan
+  // USDT — borsada satış dolarla girilir; diğer coinlerde adet korunur).
+  const [sellUnit, setSellUnit] = useState<'coin' | 'usdt'>('coin')
   const [priceStr, setPriceStr] = useState('')
   const [amountStr, setAmountStr] = useState('')
   const [tpStr, setTpStr] = useState('')
@@ -101,6 +105,7 @@ export function VirtualTradePanel({
     priceDirtyRef.current = false
     priceSymbolRef.current = null
     setSide(initialSide ?? 'buy')
+    setSellUnit(symbol === DNZ_SYMBOL ? 'usdt' : 'coin')
     void load()
   }, [load, initialSide])
 
@@ -137,20 +142,34 @@ export function VirtualTradePanel({
     if (!coin || !Number.isFinite(amount) || amount <= 0) return null
     try {
       const pool = { symbol: coin.symbol, reserveUsdt: coin.reserveUsdt, reserveToken: coin.reserveToken }
-      return isBuy ? quoteVirtualBuy(pool, amount) : quoteVirtualSell(pool, amount)
+      if (isBuy) return quoteVirtualBuy(pool, amount)
+      if (sellUnit === 'usdt') return quoteVirtualSellForUsdt(pool, amount)
+      return quoteVirtualSell(pool, amount)
     } catch {
       return null
     }
-  }, [coin, isBuy, amount])
+  }, [coin, isBuy, sellUnit, amount])
+
+  /**
+   * İcra biriminde tutar: alışta USDT, satışta HER ZAMAN token adedi
+   * (USDT girişli satış kotasyondan tokene çevrilir — bekleyen emir,
+   * TP/SL ve `executeVirtualTrade` token adediyle çalışır).
+   */
+  const execAmount = useMemo(() => {
+    if (!Number.isFinite(amount) || amount <= 0) return NaN
+    if (isBuy || sellUnit === 'coin') return amount
+    return quote?.tokenAmount ?? NaN
+  }, [amount, isBuy, sellUnit, quote])
 
   const setPct = useCallback(
     (k: number) => {
-      const base = isBuy ? balance : holding
+      // Satışta USDT girişliyse baz, eldeki coinlerin dolar karşılığıdır.
+      const base = isBuy ? balance : sellUnit === 'usdt' && mark > 0 ? holding * mark : holding
       if (!(base > 0)) return
       const v = (base * k) / 100
       setAmountStr(v > 0 ? String(Math.round(v * 100) / 100) : '')
     },
-    [balance, holding, isBuy],
+    [balance, holding, isBuy, mark, sellUnit],
   )
 
   const applyTpSlPct = (kind: 'tp' | 'sl', k: number) => {
@@ -174,10 +193,13 @@ export function VirtualTradePanel({
     if (postOnly && orderType === 'market') {
       return 'Piyasa emri Post-Only ile kullanılamaz.'
     }
-    if (!isBuy && amount > holding) return 'Yetersiz coin bakiyesi.'
+    if (!isBuy && (!Number.isFinite(execAmount) || execAmount <= 0)) {
+      return 'Kotasyon alınamadı. Tutarı kontrol edin.'
+    }
+    if (!isBuy && execAmount > holding) return 'Yetersiz coin bakiyesi.'
     if (isBuy && orderType === 'market' && amount > balance) return 'Yetersiz USDT bakiyesi.'
     if (tif === 'FOK') {
-      if (isBuy ? amount > balance : amount > holding) {
+      if (isBuy ? amount > balance : execAmount > holding) {
         return 'FOK: tam miktar karşılanamıyor.'
       }
       if (orderType === 'limit' && !marketable) {
@@ -190,21 +212,24 @@ export function VirtualTradePanel({
     return null
   }
 
-  /** IOC kırpması: karşılanabilir azami miktar (piyasa emirlerinde). */
+  /** Gönderilecek/park edilecek miktar (alış USDT, satış token adedi). */
+  const execAmountForSubmit = (): number => (isBuy ? amount : execAmount)
+
+  /** IOC kırpması: karşılanabilir azami miktar, icra biriminde. */
   const cappedAmount = (): number => {
-    if (tif !== 'IOC' || orderType !== 'market') return amount
+    if (tif !== 'IOC' || orderType !== 'market') return execAmountForSubmit()
     const cap = isBuy ? balance : holding
-    return Math.min(amount, Math.max(0, cap))
+    return Math.min(execAmountForSubmit(), Math.max(0, cap))
   }
 
-  const fireNow = async (execAmount: number) => {
-    const res = await executeVirtualTrade(symbol, side, execAmount)
+  const fireNow = async (execQty: number) => {
+    const res = await executeVirtualTrade(symbol, side, execQty)
     try {
       useTradeStore.getState().recordVirtualTrade(
         symbol,
         side,
-        side === 'buy' ? res.tokenAmount : execAmount,
-        side === 'buy' ? execAmount : res.usdtAmount,
+        side === 'buy' ? res.tokenAmount : execQty,
+        side === 'buy' ? execQty : res.usdtAmount,
         holding,
       )
     } catch {
@@ -235,7 +260,8 @@ export function VirtualTradePanel({
     useTradeStore.getState().placeVirtualPending({
       symbol,
       side,
-      amount,
+      // Satışta token adedi saklanır (USDT girişliyse kotasyondan çevrilir).
+      amount: execAmountForSubmit(),
       limitPrice: price,
       tpPrice: tpValue > 0 ? tpValue : null,
       slPrice: slValue > 0 ? slValue : null,
@@ -261,8 +287,8 @@ export function VirtualTradePanel({
       parkPending()
       return
     }
-    const execAmount = cappedAmount()
-    if (!(execAmount > 0)) {
+    const execQty = cappedAmount()
+    if (!(execQty > 0)) {
       setError('IOC: karşılanacak miktar yok.')
       return
     }
@@ -272,7 +298,7 @@ export function VirtualTradePanel({
     }
     setBusy(true)
     try {
-      await fireNow(execAmount)
+      await fireNow(execQty)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'İşlem yapılamadı.')
     } finally {
@@ -287,14 +313,14 @@ export function VirtualTradePanel({
       parkPending()
       return
     }
-    const execAmount = cappedAmount()
-    if (!(execAmount > 0)) {
+    const execQty = cappedAmount()
+    if (!(execQty > 0)) {
       setError('IOC: karşılanacak miktar yok.')
       return
     }
     setBusy(true)
     try {
-      await fireNow(execAmount)
+      await fireNow(execQty)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'İşlem yapılamadı.')
     } finally {
@@ -401,9 +427,29 @@ export function VirtualTradePanel({
         <div>
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2 md:mb-1.5">
             <label className="text-xs text-exchange-muted">
-              {isBuy ? 'Tutar (USDT)' : `Tutar (${symbol})`}
+              {isBuy ? 'Tutar (USDT)' : sellUnit === 'usdt' ? 'Tutar (USDT)' : `Tutar (${symbol})`}
             </label>
             <div className="flex flex-wrap items-center gap-1">
+              {!isBuy && (
+                <span className="mr-1 flex overflow-hidden rounded border border-exchange-border" role="group" aria-label="Satış giriş birimi">
+                  {(['coin', 'usdt'] as const).map((u) => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => setSellUnit(u)}
+                      aria-pressed={sellUnit === u}
+                      className={cn(
+                        'px-1.5 py-0.5 text-[11px] font-semibold transition-colors',
+                        sellUnit === u
+                          ? 'bg-exchange-yellow/15 text-exchange-yellow'
+                          : 'text-exchange-muted hover:text-exchange-text',
+                      )}
+                    >
+                      {u === 'coin' ? symbol : 'USDT'}
+                    </button>
+                  ))}
+                </span>
+              )}
               {[25, 50, 75, 100].map((k) => (
                 <button
                   key={k}
@@ -432,7 +478,7 @@ export function VirtualTradePanel({
               className="h-9 w-full min-w-0 rounded border border-exchange-border bg-exchange-surface px-2.5 pr-14 font-mono text-sm text-exchange-text outline-none focus:border-exchange-yellow md:h-10 md:px-3"
             />
             <span className="-ml-14 mr-3 shrink-0 text-xs text-exchange-muted">
-              {isBuy ? 'USDT' : symbol}
+              {isBuy || sellUnit === 'usdt' ? 'USDT' : symbol}
             </span>
           </div>
         </div>
@@ -592,6 +638,14 @@ export function VirtualTradePanel({
                 : '—'}
             </span>
           </div>
+          {!isBuy && sellUnit === 'usdt' && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="shrink-0 text-exchange-muted">Satılacak (tahmini)</span>
+              <span className="min-w-0 text-right font-mono text-exchange-text">
+                {quote ? `${formatNumber(quote.tokenAmount, 6)} ${symbol}` : '—'}
+              </span>
+            </div>
+          )}
           {orderType === 'limit' && Number.isFinite(price) && price > 0 && (
             <div className="flex items-center justify-between gap-3">
               <span className="shrink-0 text-exchange-muted">Limit fiyat</span>
@@ -713,7 +767,7 @@ export function VirtualTradePanel({
                 )}
                 <ConfirmRow
                   label="Tutar"
-                  value={`${formatNumber(amount || 0, 2)} ${isBuy ? 'USDT' : symbol}`}
+                  value={`${formatNumber(amount || 0, 2)} ${isBuy || sellUnit === 'usdt' ? 'USDT' : symbol}`}
                 />
                 {quote && (
                   <ConfirmRow

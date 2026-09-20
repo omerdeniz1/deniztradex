@@ -293,9 +293,9 @@ function transferLocal(
   return { asset: coin, amount }
 }
 
-/** Yerel sanal sembol kabulu (sunucusuz tohum listesi). */
+/** Yerel sanal sembol kabulu (sunucusuz tohum listesi — DNZ dahil). */
 function isVirtualSymbolLocal(coin: string): boolean {
-  return ['ENTES', 'V-XAU', 'V-XAG', 'RGC', 'MPRC', 'SVGC'].includes(coin)
+  return ['DNZ', 'ENTES', 'V-XAU', 'V-XAG', 'RGC', 'MPRC', 'SVGC'].includes(coin)
 }
 
 // ---------------------------------------------------------------

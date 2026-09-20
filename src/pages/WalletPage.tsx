@@ -442,7 +442,7 @@ function DnzSection() {
   const dnzPrice = useDnzStore((s) => s.price)
   const payWithDnz = useDnzStore((s) => s.payWithDnz)
   const ledger = useDnzStore((s) => s.ledger)
-  const tick = useDnzStore((s) => s.tick)
+  const syncPrice = useDnzStore((s) => s.syncPriceFromPool)
   const setPayWithDnz = useDnzStore((s) => s.setPayWithDnz)
   const refreshRemote = useDnzStore((s) => s.refreshRemote)
   const { buyForUsdt, sellQty: sellDnzQty } = useDnzTrade()
@@ -453,11 +453,11 @@ function DnzSection() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    tick()
+    void syncPrice()
     void refreshRemote()
-    const timer = window.setInterval(() => tick(), 30000)
+    const timer = window.setInterval(() => void syncPrice(), 30000)
     const onFocus = () => {
-      tick()
+      void syncPrice()
       void refreshRemote()
     }
     window.addEventListener('focus', onFocus)
@@ -465,7 +465,7 @@ function DnzSection() {
       window.clearInterval(timer)
       window.removeEventListener('focus', onFocus)
     }
-  }, [tick, refreshRemote])
+  }, [syncPrice, refreshRemote])
 
   const buyPreview = parseFloat(buyUsdt.replace(',', '.'))
   const buyQty = Number.isFinite(buyPreview) && buyPreview > 0 && dnzPrice > 0 ? buyPreview / dnzPrice : 0
@@ -477,34 +477,38 @@ function DnzSection() {
     if (busy) return
     setError(null)
     setBusy(true)
-    try {
-      const res = buyForUsdt(buyPreview)
-      if (!res.ok) {
-        setError(res.message)
-        return
+    void (async () => {
+      try {
+        const res = await buyForUsdt(buyPreview)
+        if (!res.ok) {
+          setError(res.message)
+          return
+        }
+        setBuyUsdt('')
+        pushToast({ message: res.message, tone: 'success' })
+      } finally {
+        setBusy(false)
       }
-      setBuyUsdt('')
-      pushToast({ message: res.message, tone: 'success' })
-    } finally {
-      setBusy(false)
-    }
+    })()
   }
 
   const onSell = () => {
     if (busy) return
     setError(null)
     setBusy(true)
-    try {
-      const res = sellDnzQty(sellPreview)
-      if (!res.ok) {
-        setError(res.message)
-        return
+    void (async () => {
+      try {
+        const res = await sellDnzQty(sellPreview)
+        if (!res.ok) {
+          setError(res.message)
+          return
+        }
+        setSellQty('')
+        pushToast({ message: res.message, tone: 'success' })
+      } finally {
+        setBusy(false)
       }
-      setSellQty('')
-      pushToast({ message: res.message, tone: 'success' })
-    } finally {
-      setBusy(false)
-    }
+    })()
   }
 
   return (
@@ -522,7 +526,7 @@ function DnzSection() {
             <span className="text-sm font-bold text-exchange-yellow">DNZ</span>
           </div>
           <div className="mt-1 text-xs text-exchange-muted">
-            ≈ {formatNumber(value, 2)} USDT · Fiyat (simüle): {formatPrice(dnzPrice)} USDT
+            ≈ {formatNumber(value, 2)} USDT · Fiyat (havuz): {formatPrice(dnzPrice)} USDT
             {dnzAvg > 0 && <> · Ort. maliyet: {formatPrice(dnzAvg)} USDT</>}
           </div>
           <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-xs font-semibold text-exchange-muted">

@@ -2,9 +2,8 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { getSessionUserId } from '@/services/authService'
 import {
-  advanceDnzPrice,
-  dnzStepForTs,
   DNZ_SEED_PRICE,
+  DNZ_SYMBOL,
   fetchDnzLedgerRemote,
   getDnzBalanceRemote,
   pushDnzBalanceRemote,
@@ -12,6 +11,7 @@ import {
   type DnzLedgerType,
   type DnzRemoteEntry,
 } from '@/services/dnzService'
+import { listVirtualCoins } from '@/services/virtualMarketService'
 import { roundFee } from '@/engine/fees'
 
 /**
@@ -19,13 +19,14 @@ import { roundFee } from '@/engine/fees'
  *
  * - Bakiye/ortalama maliyet/komisyon tercihi hesap başına saklanır
  *   (anahtar `deniztradx_dnz_<uid>`, cüzdan deseniyle aynı).
- * - Fiyat simülasyonu deterministiktir: `priceStep` + `price`'tan
- *   `tick()` ile ilerletilir; aynı adım dizisi aynı fiyatı verir.
+ * - Fiyat TEK kaynaktan gelir: AMM havuzu (`syncPriceFromPool` /
+ *   `refreshRemote` ile tazelenir; takas sonrası gerçekleşen fiyata
+ *   çekilir). Ayrı simüle fiyat yoktur.
  * - Uzak senkron best-effort: bakiye + defter Supabase'e itilir,
  *   açılışta uzaktan tazelenir; çevrimdışı yerelde çalışır.
- * - USDT bacağına DOKUNULMAZ (döngüsel import yok): takasın USDT
- *   tarafını çağıran (cüzdan ekranı / transfer servisi) `tradeStore`
- *   üzerinden uygular, bu store yalnızca DNZ tarafını işler.
+ * - USDT bacağına takas yerleşimi DOKUNMAZ (döngüsel import yok):
+ *   havuz takasları `virtualMarketService`, cüzdan takası `useDnzTrade`
+ *   üzerinden yürür; bu store yalnızca DNZ tarafını işler.
  */
 
 export interface DnzLedgerEntry {
@@ -85,11 +86,10 @@ interface DnzState {
   balance: number
   avgCost: number
   price: number
-  priceStep: number
   payWithDnz: boolean
   ledger: DnzLedgerEntry[]
-  /** Simüle fiyatı `now` anına ilerletir (deterministik). */
-  tick: (now?: number) => void
+  /** Havuz fiyatını çeker (komisyon değerlemesi + cüzdan görünümü için). */
+  syncPriceFromPool: () => Promise<void>
   setPayWithDnz: (value: boolean) => void
   /**
    * DNZ alış (USDT takası): DNZ tarafını işler, USDT düşüşünü çağıran
@@ -117,7 +117,6 @@ const initialState = {
   balance: 0,
   avgCost: 0,
   price: DNZ_SEED_PRICE,
-  priceStep: 0,
   payWithDnz: false,
   ledger: [] as DnzLedgerEntry[],
 }
@@ -127,12 +126,14 @@ export const useDnzStore = create<DnzState>()(
     (set, get) => ({
       ...initialState,
 
-      tick: (now = Date.now()) => {
-        const target = dnzStepForTs(now)
-        const { price, priceStep } = get()
-        if (target <= priceStep) return
-        const next = advanceDnzPrice(price, priceStep, target)
-        set({ price: next.price, priceStep: next.step })
+      syncPriceFromPool: async () => {
+        try {
+          const list = await listVirtualCoins()
+          const row = list.find((c) => c.symbol === DNZ_SYMBOL)
+          if (row && row.price > 0) set({ price: row.price })
+        } catch {
+          // yoksay — önbellek fiyat korunur
+        }
       },
 
       setPayWithDnz: (value) => set({ payWithDnz: value }),
@@ -271,6 +272,7 @@ export const useDnzStore = create<DnzState>()(
 
       refreshRemote: async () => {
         const userId = getSessionUserId()
+        await get().syncPriceFromPool()
         if (!userId) return
         const [remoteBalance, remoteLedger] = await Promise.all([
           getDnzBalanceRemote(userId),

@@ -7,7 +7,6 @@ import {
   type OrderInput,
 } from '@/engine/calculations'
 import { useTradeStore } from '@/store/tradeStore'
-import { useDnzStore } from '@/store/dnzStore'
 import { useOrderStore, type OrderSpec, type OrderStance } from '@/store/orderStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useToastStore } from '@/store/toastStore'
@@ -72,7 +71,6 @@ const ORDER_TYPE_LABEL: Record<OrderType, string> = {
 
 export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, onSubmitted, showTriggerType = true, lockedSide = false }: Props) {
   const spotBalances = useTradeStore((s) => s.spotBalances)
-  const dnzBalance = useDnzStore((s) => s.balance)
   const confirmOrders = useSettingsStore((s) => s.confirmOrders)
   const place = useOrderStore((s) => s.placeOrder)
   const cancelPendingOrder = useOrderStore((s) => s.cancelPendingOrder)
@@ -80,8 +78,7 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
   const pushToast = useToastStore((s) => s.push)
 
   const coin = ticker?.symbol.replace(/USDT$/i, '') ?? 'BTC'
-  // DNZ kendi defterindedir (spotBalances'ta değil) — panelde doğru bakiye görünsün.
-  const heldCoin = coin === 'DNZ' ? dnzBalance : (spotBalances[coin] ?? 0)
+  const heldCoin = spotBalances[coin] ?? 0
 
   const [side, setSide] = useState<PanelSide>(initialSide ?? (mode === 'spot' ? 'buy' : 'long'))
   // Spot↔Vadeli geçişinde (aynı sembolde bileşen yeniden kullanılınca)
