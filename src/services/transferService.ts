@@ -429,6 +429,8 @@ export async function listTransferableAssets(): Promise<{ asset: string; qty: nu
   try {
     const held = await getVirtualHoldings()
     for (const [sym, qty] of Object.entries(held)) {
+      // DNZ yukarıda ayrı girdidir (transfer_dnz yolu) — çift listeleme olmasın.
+      if (sym === 'DNZ') continue
       if (qty > 0) out.push({ asset: sym, qty, kind: 'virtual' })
     }
   } catch {

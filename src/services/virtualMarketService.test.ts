@@ -8,11 +8,13 @@ import {
   VIRTUAL_SEED,
 } from '@/services/virtualMarketService'
 import { useTradeStore } from '@/store/tradeStore'
+import { useDnzStore } from '@/store/dnzStore'
 import type { Kline } from '@/types'
 
 beforeEach(() => {
   localStorage.clear()
   useTradeStore.getState().resetWallet()
+  useDnzStore.getState().resetDnz()
   // Yerel oturum: servis userId ister.
   localStorage.setItem(
     'deniztradx_session',
@@ -37,12 +39,6 @@ describe('virtualMarketService (yerel motor)', () => {
 
   it('DNZ alış/satışı dnz defterine işler, havuzu oynatır', async () => {
     useTradeStore.setState({ balance: 1000 })
-    localStorage.setItem(
-      'deniztradx_session',
-      JSON.stringify({ id: 'u_dnz', username: 'dnzci', email: 'd@x.com', createdAt: 1 }),
-    )
-    const { useDnzStore } = await import('@/store/dnzStore')
-    useDnzStore.getState().resetDnz()
     const buy = await executeVirtualTrade('DNZ', 'buy', 100)
     expect(buy.tokenAmount).toBeGreaterThan(190)
     expect(buy.tokenAmount).toBeLessThan(200)
@@ -52,6 +48,15 @@ describe('virtualMarketService (yerel motor)', () => {
     const sell = await executeVirtualTrade('DNZ', 'sell', buy.tokenAmount / 2)
     expect(sell.usdtAmount).toBeGreaterThan(0)
     expect(useDnzStore.getState().balance).toBeCloseTo(buy.tokenAmount / 2, 4)
+  })
+
+  it('getVirtualHoldings DNZyi dnz defterinden birleştirir (satışta görünür)', async () => {
+    useDnzStore.getState().buyDnz({ qty: 25, price: 0.5, usdtCost: 12.5 })
+    const held = await getVirtualHoldings()
+    expect(held['DNZ']).toBeCloseTo(25)
+    useDnzStore.getState().resetDnz()
+    const empty = await getVirtualHoldings()
+    expect(empty['DNZ']).toBeUndefined()
   })
 
   it('alış bakiyeyi düşürür, token verir, fiyatı yukarı iter', async () => {

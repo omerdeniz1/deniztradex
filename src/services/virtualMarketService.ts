@@ -250,13 +250,35 @@ export async function getVirtualHoldings(): Promise<Record<string, number>> {
           const q = toNumber(r.quantity)
           if (typeof r.symbol === 'string' && q > 0) out[r.symbol] = q
         }
+        // DNZ bakiyesi sanal defterde değil dnz defterindedir
+        // (`dnz_balances`) — panel/cüzdan/transfer tek haritadan okusun
+        // diye burada birleşir; yoksa DNZ satışta "0" görünür.
+        try {
+          const dnz = await supabase
+            .from('dnz_balances')
+            .select('balance')
+            .eq('user_id', userId)
+            .maybeSingle()
+          const q = toNumber((dnz.data as { balance?: unknown } | null)?.balance)
+          if (!dnz.error && q > 0) out['DNZ'] = q
+        } catch {
+          // yoksay — sanal liste aynen döner
+        }
         return out
       }
     } catch {
       // yerel döküme düş
     }
   }
-  return readLocalHoldings()
+  const out = readLocalHoldings()
+  // Yerelde DNZ, hesap bazlı dnz store'dadır (sanal defter cihaz-ortaktır).
+  try {
+    const dnzBal = useDnzStore.getState().balance
+    if (dnzBal > 0) out['DNZ'] = dnzBal
+  } catch {
+    // yoksay
+  }
+  return out
 }
 
 function applyLocalTrade(

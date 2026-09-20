@@ -6,7 +6,6 @@ import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { useVirtualKlines } from '@/hooks/useVirtualKlines'
 import { useLivePrices } from '@/hooks/useLivePrices'
 import { useTradeStore } from '@/store/tradeStore'
-import { useDnzStore } from '@/store/dnzStore'
 import { useOrderStore } from '@/store/orderStore'
 import { useToastStore } from '@/store/toastStore'
 import {
@@ -406,14 +405,6 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     const priceOf = (sym: string): number =>
       livePrices[sym] ?? tickers[sym]?.price ?? 0
     const holdingOf = async (sym: string): Promise<number> => {
-      // DNZ bakiyesi sanal defterde değil dnz defterindedir.
-      if (sym === 'DNZ') {
-        try {
-          return useDnzStore.getState().balance
-        } catch {
-          return 0
-        }
-      }
       try {
         const h = await getVirtualHoldings()
         return h[sym] ?? 0

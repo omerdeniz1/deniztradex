@@ -103,6 +103,8 @@ describe('transferService (yerel mod, aynı cihaz)', () => {
     expect(blob.state?.balance).toBeCloseTo(20)
     const assets = await listTransferableAssets()
     expect(assets.find((a) => a.asset === 'DNZ')).toMatchObject({ qty: 30, kind: 'dnz' })
+    // Sanal listeyle çiftlenmez: tek DNZ girdisi olur.
+    expect(assets.filter((a) => a.asset === 'DNZ')).toHaveLength(1)
     const hist = await listTransferHistory()
     expect(hist[0]).toMatchObject({ direction: 'out', asset: 'DNZ', amount: 20 })
   })
