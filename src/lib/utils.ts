@@ -39,6 +39,23 @@ export function formatSignedPercent(value: number) {
   return `${value >= 0 ? '+' : ''}${formatNumber(value, 2)}%`
 }
 
+/**
+ * Bekleyen-emir bekçisi için fiyat çözümleme: canlı soket birincil,
+ * toplu ticker anlık görüntüsü yedek. Soketi olmayan sembollerde
+ * (örn. simüle fiyatlı DNZ) emirler yedek fiyatla ateşlenir — yoksa
+ * sonsuza dek askıda kalırlardı.
+ */
+export function resolveLivePrice(
+  symbol: string,
+  livePrices: Record<string, number>,
+  tickers?: Record<string, { price?: number } | null | undefined>,
+): number {
+  const live = livePrices[symbol] ?? 0
+  if (live > 0) return live
+  const snap = tickers?.[symbol]?.price ?? 0
+  return snap > 0 ? snap : 0
+}
+
 export function formatTime(value: number) {
   return new Intl.DateTimeFormat('tr-TR', {
     hour: '2-digit',

@@ -20,7 +20,7 @@ import { getMarkPrice, pushMarkPrice } from '@/engine/markPrice'
 import { executeVirtualTrade, getVirtualHoldings } from '@/services/virtualMarketService'
 import { DNZ_PAIR } from '@/services/dnzService'
 import { useRiskParams } from '@/hooks/useRiskParams'
-import { cn, formatCompact, formatNumber, formatPrice } from '@/lib/utils'
+import { cn, formatCompact, formatNumber, formatPrice, resolveLivePrice } from '@/lib/utils'
 import { boll, ema, lastDefined, sma } from '@/lib/indicators'
 import { DEFAULT_SYMBOL } from '@/lib/constants'
 import type { Interval } from '@/types'
@@ -513,11 +513,11 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
 
   // Pending-order watchdog — fires limit / stop / OCO legs and trails the
   // stopping orders as the market moves, all against the dedicated per-symbol
-  // live price feed.
+  // live price feed (ticker snapshot as fallback for socket-less symbols).
   useEffect(() => {
     if (marketStatus !== 'live') return
     for (const order of pendingOrders) {
-      const live = livePrices[order.symbol]
+      const live = resolveLivePrice(order.symbol, livePrices, tickers)
       if (!live || live <= 0) continue
       const buy = order.side === 'buy' || order.side === 'long'
       if (
@@ -552,7 +552,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         }
       }
     }
-  }, [livePrices, pendingOrders, marketStatus])
+  }, [livePrices, tickers, pendingOrders, marketStatus])
 
   const change = ticker?.changePercent24h
   const stats = useMemo(
@@ -790,7 +790,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                         <button
                           type="button"
                           onClick={() =>
-                            closeSpotPosition(p.id, livePrices[p.symbol] ?? p.entryPrice)
+                            closeSpotPosition(p.id, resolveLivePrice(p.symbol, livePrices, tickers) || p.entryPrice)
                           }
                           className="ml-auto shrink-0 font-semibold text-exchange-yellow hover:underline"
                         >
