@@ -51,7 +51,7 @@ interface VirtualSeed {
 }
 
 export const VIRTUAL_SEED: VirtualSeed[] = [
-  { symbol: 'DNZ', name: 'DNZ Token', type: 'crypto', reserveUsdt: 100000000, reserveToken: 200000000, price: 0.5 },
+  { symbol: 'DNZ', name: 'DNZ Token', type: 'crypto', reserveUsdt: 2000000, reserveToken: 4000000, price: 0.5 },
   { symbol: 'ENTES', name: 'ENTES COIN', type: 'crypto', reserveUsdt: 50000000, reserveToken: 5000000, price: 10 },
   { symbol: 'V-XAU', name: 'Sanal Altın', type: 'commodity', reserveUsdt: 30000000, reserveToken: 300000, price: 100 },
   { symbol: 'V-XAG', name: 'Sanal Gümüş', type: 'commodity', reserveUsdt: 20000000, reserveToken: 1000000, price: 20 },
@@ -93,6 +93,18 @@ function readPools(): Record<string, LocalPool> {
     if (!p || !Number.isFinite(p.reserveUsdt) || !Number.isFinite(p.reserveToken)) {
       out[s.symbol] = { reserveUsdt: s.reserveUsdt, reserveToken: s.reserveToken, volume24h: 0 }
     }
+  }
+  // DNZ derinlik ayarı (2M/4M): el değmemiş eski tohum havuz (100M/200M,
+  // hacimsiz) yeni tohuma çekilir — işlem görmüş havuza dokunulmaz
+  // (SQL tarafındaki 20260918210000 kuralıyla birebir).
+  const dnz = out['DNZ']
+  if (
+    dnz &&
+    dnz.reserveUsdt === 100000000 &&
+    dnz.reserveToken === 200000000 &&
+    (dnz.volume24h ?? 0) === 0
+  ) {
+    out['DNZ'] = { reserveUsdt: 2000000, reserveToken: 4000000, volume24h: 0 }
   }
   return out
 }
@@ -661,11 +673,14 @@ export async function listVirtualKlines(
  * admin zorunlu), yerel modda aynı matematik doğrudan havuza uygulanır.
  * - buy:  usdtAmount havuza girer.
  * - sell: usdtAmount havuzdan çıkar (gerekli token tersine çözülür).
+ * - `localOnly`: uzak denemeden doğrudan yerel havuza yazar
+ *   (yetkisiz oturumda perakende botunun düşüş yolu).
  */
 export async function executeBotPoolTrade(
   symbol: string,
   side: VirtualTradeSide,
   usdtAmount: number,
+  opts?: { localOnly?: boolean },
 ): Promise<VirtualTradeResult> {
   if (!Number.isFinite(usdtAmount) || usdtAmount <= 0) {
     throw new Error('Geçersiz tutar.')
@@ -673,7 +688,7 @@ export async function executeBotPoolTrade(
   const userId = getSessionUserId()
   if (!userId) throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
 
-  if (isSupabaseConfigured && supabase) {
+  if (isSupabaseConfigured && supabase && !opts?.localOnly) {
     const { data, error } = await supabase.rpc('execute_bot_trade', {
       p_symbol: symbol,
       p_trade_type: side,
