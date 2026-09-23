@@ -47,7 +47,8 @@ export function useUnifiedTickers() {
       })
     }
     load()
-    const timer = window.setInterval(load, 30000)
+    // Oto-bot hamleleri listeye hızlı düşsün diye 15 sn yoklama.
+    const timer = window.setInterval(load, 15000)
     return () => {
       live = false
       window.clearInterval(timer)

@@ -736,6 +736,51 @@ export async function executeBotPoolTrade(
   }
 }
 
+/**
+ * Otomatik piyasa botu hamlesi — OTURUMSUZ yerel mod.
+ *
+ * `executeBotPoolTrade` oturum ister (admin RPC kapısı); arka planda her
+ * ziyaretçide çalışan oto-botlar için bu engeldir. Bu fonksiyon yalnızca
+ * yerel motoru (localStorage havuzları) oynatır: bakiyeye dokunmaz, yalnızca
+ * rezerv + fiyat + hacim günceller. Supabase modunda sunucu tarafı
+ * `execute_auto_market_trade` RPC'si kullanılır (bkz. autoMarketMakerService).
+ */
+export function executeAutoPoolTradeLocal(
+  symbol: string,
+  side: VirtualTradeSide,
+  usdtAmount: number,
+): VirtualTradeResult {
+  if (!Number.isFinite(usdtAmount) || usdtAmount <= 0) {
+    throw new Error('Geçersiz tutar.')
+  }
+  const pools = readPools()
+  const pool = pools[symbol]
+  if (!pool) throw new Error('Coin bulunamadı.')
+  const quote =
+    side === 'buy'
+      ? quoteVirtualBuy(
+          { symbol, reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
+          usdtAmount,
+        )
+      : quoteVirtualSellForUsdt(
+          { symbol, reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
+          usdtAmount,
+        )
+  pools[symbol] = {
+    reserveUsdt: quote.newReserveUsdt,
+    reserveToken: quote.newReserveToken,
+    volume24h: pool.volume24h + quote.usdtAmount,
+  }
+  writePools(pools)
+  return {
+    tokenAmount: quote.tokenAmount,
+    usdtAmount: quote.usdtAmount,
+    price: quote.oldPrice,
+    newPrice: quote.newPrice,
+    priceImpactPct: quote.priceImpactPct,
+  }
+}
+
 function mapRpcError(error: unknown): string {
   const msg = String((error as { message?: unknown })?.message ?? '')
   if (msg.includes('yetersiz USDT')) return 'Yetersiz USDT bakiyesi.'

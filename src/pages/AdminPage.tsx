@@ -59,6 +59,15 @@ import {
   type EventItem,
 } from '@/services/eventService'
 import { CHARACTER_BOTS, runCharacterBot } from '@/services/botSimulationService'
+import {
+  AUTO_BOT_INTENSITY_LABEL,
+  getAutoBotConfig,
+  isAutoMarketRpcMissing,
+  runAutoBotTick,
+  saveAutoBotConfig,
+  type AutoBotConfig,
+  type AutoBotIntensity,
+} from '@/services/autoMarketMakerService'
 import { cn, formatNumber } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
@@ -1323,7 +1332,9 @@ function BotTestPanel() {
   }
 
   return (
-    <div className="mt-5 overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
+    <div className="mt-5 space-y-4">
+      <AutoBotControl />
+    <div className="overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card">
       <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
         <h2 className="text-sm font-bold text-exchange-text">Bot Test Paneli</h2>
         <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
@@ -1394,6 +1405,151 @@ function BotTestPanel() {
           </li>
         ))}
       </ul>
+    </div>
+    </div>
+  )
+}
+
+/**
+ * Otomatik piyasa botu kontrolü: arka planda sanal coinleri sürekli
+ * oynatan motorun anahtarı (aç/kapat + hız + yoğunluk). Değişiklik tüm
+ * istemcilere yayılır (Supabase `auto_bot_config` + yerel ayar).
+ */
+function AutoBotControl() {
+  const pushToast = useToastStore((s) => s.push)
+  const [cfg, setCfg] = useState<AutoBotConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [tickBusy, setTickBusy] = useState(false)
+  const [rpcMissing, setRpcMissing] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    void getAutoBotConfig()
+      .then((c) => {
+        if (live) setCfg(c)
+      })
+      .catch(() => {
+        if (live) setCfg(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const persist = async (next: AutoBotConfig) => {
+    setCfg(next)
+    setSaving(true)
+    try {
+      await saveAutoBotConfig(next)
+    } catch {
+      pushToast({ message: 'Ayar yerelde saklandı, sunucuya yazılamadı.', tone: 'error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const testTick = async () => {
+    if (tickBusy || !cfg) return
+    setTickBusy(true)
+    try {
+      const res = await runAutoBotTick(cfg.intensity)
+      setRpcMissing(isAutoMarketRpcMissing())
+      if (res.length === 0) {
+        pushToast({ message: 'Tur atlandı (RPC eksik olabilir veya havuz okunamadı).', tone: 'info' })
+      } else {
+        const desc = res.map((r) => `${r.symbol} ${r.side === 'buy' ? '↑' : '↓'}`).join(' · ')
+        pushToast({ message: `Oto-bot turu: ${desc}`, tone: 'success' })
+      }
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Tur çalıştırılamadı.', tone: 'error' })
+    } finally {
+      setTickBusy(false)
+    }
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-exchange-yellow/30 bg-exchange-card">
+      <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
+        <h2 className="text-sm font-bold text-exchange-text">Otomatik Piyasa Botları 🤖</h2>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
+          Açıkken her istemcide arka planda tik atar: rastgele sanal coinlerde küçük
+          al-sat hamleleri yapar, fiyat oynar ve 24s hacim büyür. Bakiyelere dokunulmaz,
+          foruma mesaj düşülmez. Fiyat tohumdan %6 saparsa botlar ters yöne basar
+          (coin tek yöne kaçmaz).
+        </p>
+      </div>
+      <div className="grid gap-2.5 px-3 py-3 sm:px-4">
+        {rpcMissing && (
+          <div className="rounded-xl border border-exchange-sell/40 bg-exchange-sell/10 px-3 py-2.5 text-xs leading-relaxed text-exchange-text">
+            Sunucu RPC’si bulunamadı — Supabase SQL editöründe{' '}
+            <span className="font-mono">20260923000000_auto_market_maker</span> migration’ını
+            uygulayın. O zamana kadar oto-botlar yalnızca yerel modda çalışır.
+          </div>
+        )}
+        <label className="flex min-w-0 cursor-pointer items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-sm font-bold text-exchange-text">Motor açık</span>
+            <span className="block text-[11px] text-exchange-muted">
+              {cfg ? (cfg.enabled ? 'Çalışıyor — coinler sürekli oynar' : 'Duraklatıldı') : 'Yükleniyor…'}
+            </span>
+          </span>
+          <Toggle
+            checked={cfg?.enabled ?? false}
+            onChange={(v) => {
+              if (cfg && !saving) void persist({ ...cfg, enabled: v })
+            }}
+            label="Otomatik bot motoru"
+          />
+        </label>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <div className="min-w-0">
+            <label htmlFor="autobot-intensity" className="mb-1 block text-xs font-semibold text-exchange-muted">
+              Yoğunluk
+            </label>
+            <select
+              id="autobot-intensity"
+              value={cfg?.intensity ?? 'normal'}
+              onChange={(e) => {
+                if (cfg && !saving) void persist({ ...cfg, intensity: e.target.value as AutoBotIntensity })
+              }}
+              disabled={!cfg || saving}
+              className="h-11 w-full min-w-0 cursor-pointer rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm font-bold text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+            >
+              {(Object.keys(AUTO_BOT_INTENSITY_LABEL) as AutoBotIntensity[]).map((k) => (
+                <option key={k} value={k}>
+                  {AUTO_BOT_INTENSITY_LABEL[k]}
+                  {k === 'calm' ? ' — saatte hafif dalga' : k === 'normal' ? ' — dengeli hareket' : ' — sık ve sert dalga'}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="min-w-0">
+            <label htmlFor="autobot-interval" className="mb-1 block text-xs font-semibold text-exchange-muted">
+              Tik aralığı
+            </label>
+            <select
+              id="autobot-interval"
+              value={cfg ? String(Math.round(cfg.intervalMs / 1000)) : '12'}
+              onChange={(e) => {
+                if (cfg && !saving) void persist({ ...cfg, intervalMs: Number(e.target.value) * 1000 })
+              }}
+              disabled={!cfg || saving}
+              className="h-11 w-full min-w-0 cursor-pointer rounded-xl border border-exchange-border bg-exchange-bg px-3 font-mono text-sm font-bold text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+            >
+              <option value="8">8 sn — çok hızlı</option>
+              <option value="12">12 sn — önerilen</option>
+              <option value="20">20 sn — sakin</option>
+              <option value="30">30 sn — çok sakin</option>
+              <option value="60">60 sn — minimum</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <Button size="sm" variant="outline" onClick={() => void testTick()} disabled={!cfg || tickBusy || saving}>
+            {tickBusy ? 'Tur çalışıyor…' : 'Şimdi 1 tur çalıştır (test)'}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
