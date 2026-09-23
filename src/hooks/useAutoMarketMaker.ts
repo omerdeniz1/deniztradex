@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import {
+  DEFAULT_AUTO_BOT_CONFIG,
   getAutoBotConfig,
   runAutoBotTick,
   type AutoBotConfig,
@@ -17,7 +18,7 @@ export function useAutoMarketMaker() {
   useEffect(() => {
     let live = true
     let timer: number | null = null
-    let cfg: AutoBotConfig = { enabled: true, intervalMs: 12000, intensity: 'normal' }
+    let cfg: AutoBotConfig = { ...DEFAULT_AUTO_BOT_CONFIG }
     let ticksSinceRefresh = 0
 
     const schedule = () => {

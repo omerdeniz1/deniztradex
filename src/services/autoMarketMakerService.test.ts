@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   AUTO_BOT_REVERT_BAND,
+  getAutoBotConfig,
   getLocalAutoBotConfig,
   planAutoTrades,
   runAutoBotTick,
@@ -102,14 +103,23 @@ describe('runAutoBotTick (yerel motor, oturumsuz)', () => {
 
 describe('auto bot config', () => {
   it('varsayılan açık + 12 sn + normal gelir', () => {
-    expect(getLocalAutoBotConfig()).toEqual({ enabled: true, intervalMs: 12000, intensity: 'normal' })
+    expect(getLocalAutoBotConfig()).toEqual({ enabled: true, intervalMs: 12000, intensity: 'normal', updatedAt: 0 })
   })
 
   it('kayıt + aralık kelepçesi (4 sn - 120 sn)', async () => {
-    await saveAutoBotConfig({ enabled: false, intervalMs: 1000, intensity: 'lively' })
+    await saveAutoBotConfig({ enabled: false, intervalMs: 1000, intensity: 'lively', updatedAt: 0 })
     const c = getLocalAutoBotConfig()
     expect(c.enabled).toBe(false)
     expect(c.intervalMs).toBe(4000)
     expect(c.intensity).toBe('lively')
+    expect(c.updatedAt).toBeGreaterThan(0)
+  })
+
+  it('son yazan kazanır: yerel kayıt varsayılanı ezer', async () => {
+    await saveAutoBotConfig({ enabled: true, intervalMs: 8000, intensity: 'lively', updatedAt: 0 })
+    // Supabase yok (test) → yerel okunur; sayfa geçişinde korunur.
+    const again = await getAutoBotConfig()
+    expect(again.intervalMs).toBe(8000)
+    expect(again.intensity).toBe('lively')
   })
 })

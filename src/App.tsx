@@ -17,6 +17,7 @@ import { TradeScreen } from '@/components/trading/TradeScreen'
 import { HomePage } from '@/pages/HomePage'
 import { MarketsPage } from '@/pages/MarketsPage'
 import { ForumPage } from '@/pages/ForumPage'
+import { ProfilePage } from '@/pages/ProfilePage'
 import { LeaderboardPage } from '@/pages/LeaderboardPage'
 import { EventsPage } from '@/pages/EventsPage'
 import { AdminPage } from '@/pages/AdminPage'
@@ -69,6 +70,7 @@ function Shell() {
           <Route path="/" element={<HomePage />} />
           <Route path="/markets" element={<MarketsPage />} />
           <Route path="/forum" element={<ForumPage />} />
+          <Route path="/profile/:username" element={<ProfilePage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/spot" element={<TradeScreen mode="spot" />} />

@@ -9,6 +9,7 @@ import {
   forumDisplayName,
   isVerifiedUsername,
   listForumPosts,
+  listForumPostsByAuthor,
   listForumReplies,
   parseVerifiedTier,
   toggleForumLike,
@@ -248,5 +249,24 @@ describe('classifyForumRemoteError', () => {
   it('falls back to a generic message without leaking internals', () => {
     const err = classifyForumRemoteError(new Error('unexpected-feed-shape'), 'Akış yüklenemedi')
     expect(err.message).toBe('Akış yüklenemedi. Lütfen tekrar dene.')
+  })
+})
+
+describe('listForumPostsByAuthor (profil akışı)', () => {
+  it('yalnızca o yazarın gönderilerini yeni-eski sıralar', async () => {
+    loginAs(alice)
+    await createForumPost('alice bir')
+    loginAs(bob)
+    await createForumPost('bob bir')
+    loginAs(alice)
+    await createForumPost('alice iki')
+
+    const mine = await listForumPostsByAuthor('ALICE')
+    expect(mine).toHaveLength(2)
+    expect(mine[0].content).toBe('alice iki')
+    expect(mine[1].content).toBe('alice bir')
+
+    const empty = await listForumPostsByAuthor('kimse')
+    expect(empty).toHaveLength(0)
   })
 })

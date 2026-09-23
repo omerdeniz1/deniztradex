@@ -35,12 +35,19 @@ export interface AutoBotConfig {
   /** Tik aralığı (ms, istemci tarafı). */
   intervalMs: number
   intensity: AutoBotIntensity
+  /**
+   * Son kayıt damgası (ms). Yerel + sunucu kopya çatışmasında SON YAZAN
+   * kazanır — admin panelde değiştirilip sayfa değiştirince varsayılana
+   * dönme hatasının kökü buydu (eski DB satırı yerel kaydı eziyordu).
+   */
+  updatedAt: number
 }
 
 export const DEFAULT_AUTO_BOT_CONFIG: AutoBotConfig = {
   enabled: true,
   intervalMs: 12000,
   intensity: 'normal',
+  updatedAt: 0,
 }
 
 export const AUTO_BOT_INTENSITY_LABEL: Record<AutoBotIntensity, string> = {
@@ -67,23 +74,29 @@ function clampIntensity(v: unknown): AutoBotIntensity {
   return v === 'calm' || v === 'lively' ? v : 'normal'
 }
 
-/** İstemci ayarı: önce Supabase `auto_bot_config`, yoksa localStorage. */
+/**
+ * İstemci ayarı: yerel + sunucu kopyadan SON YAZAN kazanır.
+ * (Sunucu satırı eski varsayılanla dururken yerel değişikliği ezmesin.)
+ */
 export async function getAutoBotConfig(): Promise<AutoBotConfig> {
   const local = readLocalConfig()
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
         .from('auto_bot_config')
-        .select('enabled,interval_sec,intensity')
+        .select('enabled,interval_sec,intensity,updated_at')
         .eq('id', 1)
         .maybeSingle()
       if (!error && data) {
         const row = data as Record<string, unknown>
-        return {
+        const remote: AutoBotConfig = {
           enabled: row.enabled !== false,
           intervalMs: clampInterval(Number(row.interval_sec) * 1000 || local.intervalMs),
           intensity: clampIntensity(String(row.intensity ?? '')),
+          updatedAt: Date.parse(String(row.updated_at ?? '')) || 0,
         }
+        // Eşitlikte yerel kazanır (az önce panelde basılan değer korunur).
+        return remote.updatedAt > local.updatedAt ? remote : local.updatedAt > 0 ? local : remote
       }
     } catch {
       // tablo yok / ağ hatası — yerel ayara düş
@@ -105,6 +118,7 @@ function readLocalConfig(): AutoBotConfig {
         enabled: p.enabled !== false,
         intervalMs: clampInterval(p.intervalMs),
         intensity: clampIntensity(p.intensity),
+        updatedAt: Number.isFinite(Number(p.updatedAt)) ? Number(p.updatedAt) : 0,
       }
     }
   } catch {
@@ -122,6 +136,7 @@ export async function saveAutoBotConfig(next: AutoBotConfig): Promise<void> {
     enabled: next.enabled,
     intervalMs: clampInterval(next.intervalMs),
     intensity: clampIntensity(next.intensity),
+    updatedAt: Date.now(),
   }
   try {
     localStorage.setItem(CONFIG_KEY, JSON.stringify(clean))

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
 import { getMyAdminAccess } from '@/services/adminService'
@@ -27,6 +28,14 @@ import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
 
 export function ForumPage() {
   const pushToast = useToastStore((s) => s.push)
+  const navigate = useNavigate()
+  const openProfile = useCallback(
+    (username: string) => {
+      const clean = username.trim()
+      if (clean) navigate(`/profile/${encodeURIComponent(clean)}`)
+    },
+    [navigate],
+  )
   const [posts, setPosts] = useState<ForumPost[]>([])
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
@@ -394,6 +403,7 @@ export function ForumPage() {
                   onLike={() => void toggleLike(post)}
                   onDelete={() => void remove(post)}
                   onReplyCount={bumpReplyCount}
+                  onOpenProfile={openProfile}
                 />
               ))}
             </ul>
@@ -414,6 +424,7 @@ function PostRow({
   onLike,
   onDelete,
   onReplyCount,
+  onOpenProfile,
 }: {
   post: ForumPost
   isMine: boolean
@@ -424,6 +435,7 @@ function PostRow({
   onLike: () => void
   onDelete: () => void
   onReplyCount: (postId: string, delta: number) => void
+  onOpenProfile: (username: string) => void
 }) {
   const pushToast = useToastStore((s) => s.push)
   const [showReplies, setShowReplies] = useState(false)
@@ -603,9 +615,14 @@ function PostRow({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
             <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5">
-              <span className="truncate text-sm font-bold text-exchange-text">
+              <button
+                type="button"
+                onClick={() => onOpenProfile(post.username)}
+                title={`${displayName} profilini aç`}
+                className="min-w-0 max-w-full truncate text-sm font-bold text-exchange-text transition-colors hover:text-exchange-yellow hover:underline"
+              >
                 {displayName}
-              </span>
+              </button>
               {post.verifiedTier !== 'none' && (
                 <VerifiedBadge tone={post.verifiedTier === 'super' ? 'gold' : 'blue'} />
               )}

@@ -419,10 +419,69 @@ function listLocal(): Promise<ForumPost[]> {
 export async function listForumPosts(): Promise<ForumPost[]> {
   if (isRemoteMode()) {
     // Uzak hata gizlenmez: listeleyemezsek boş yerel akış gösterip
-    // "tüm mesajlar silindi" izlenimi vermek yerine hata fırlatılır.
+    // "tüm mesajlar silinmez" izlenimi vermek yerine hata fırlatılır.
     return listRemote()
   }
   return listLocal()
+}
+
+/**
+ * Profil sayfası akışı: bir kullanıcının gönderileri (yeni → eski, 50).
+ * Uzakta kullanıcı adına göre filtreli sorgu; yerelde aynı filtre.
+ */
+export async function listForumPostsByAuthor(username: string): Promise<ForumPost[]> {
+  const needle = username.trim()
+  if (!needle) return []
+  if (isRemoteMode()) {
+    if (!supabase) throw new Error('no-backend')
+    try {
+      const myId = getSessionUser()?.id ?? null
+      const { data, error } = await supabase
+        .from('forum_posts')
+        .select('*')
+        .ilike('username', needle)
+        .order('created_at', { ascending: false })
+        .limit(FORUM_FEED_LIMIT)
+      if (error) throw error
+      if (!Array.isArray(data)) throw new Error('unexpected-feed-shape')
+      let liked = new Set<string>()
+      if (myId && data.length > 0) {
+        const ids = (data as { id: string }[]).map((r) => r.id)
+        const { data: likes } = await supabase
+          .from('forum_likes')
+          .select('post_id')
+          .eq('user_id', myId)
+          .in('post_id', ids)
+        if (Array.isArray(likes)) {
+          liked = new Set((likes as { post_id: string }[]).map((l) => l.post_id))
+        }
+      }
+      return (data as Record<string, unknown>[]).map((r) => ({
+        id: String(r.id ?? ''),
+        userId: String(r.user_id ?? ''),
+        username: forumDisplayName(String(r.username ?? ''), String(r.user_id ?? '')),
+        content: String(r.content ?? ''),
+        likeCount: typeof r.like_count === 'number' ? r.like_count : 0,
+        likedByMe: liked.has(String(r.id ?? '')),
+        replyCount: typeof r.reply_count === 'number' ? r.reply_count : 0,
+        verifiedTier: parseVerifiedTier(r.verified_tier),
+        avatarUrl: optText(r, 'avatar_url'),
+        userTag: optText(r, 'user_tag'),
+        imageUrl: optText(r, 'image_url'),
+        createdAt: Date.parse(String(r.created_at ?? '')) || Date.now(),
+      }))
+    } catch (err) {
+      throw classifyForumRemoteError(err, 'Profil gönderileri yüklenemedi')
+    }
+  }
+  const myId = getSessionUser()?.id ?? null
+  return Promise.resolve(
+    readLocalPosts()
+      .filter((p) => p.username.toLowerCase() === needle.toLowerCase())
+      .map((p) => toForumPost(p, myId))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, FORUM_FEED_LIMIT),
+  )
 }
 
 async function listRemote(): Promise<ForumPost[]> {

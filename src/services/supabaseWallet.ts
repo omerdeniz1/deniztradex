@@ -257,6 +257,31 @@ export async function findProfileByUsername(username: string): Promise<Profile |
 }
 
 /**
+ * Sunucu tarafı kullanıcı adı uygunluğu (`is_username_available` RPC).
+ *
+ * Neden? Kayıt akışı anonimken `profiles` RLS'i tabloyu kapatır; istemci
+ * sorgusu kördür ve joker/önbellek artıkları "boşa düşmüş adı dolu"
+ * gösterebilir. RPC SECURITY DEFINER ile tam `lower()` eşleşmesi yapar,
+ * yalnızca true/false döner. RPC yoksa (eski DB) klasik sorguya düşülür.
+ *
+ * @returns true = alınabilir, false = dolu, null = belirlenemedi.
+ */
+export async function isUsernameAvailableRemote(username: string): Promise<boolean | null> {
+  if (!supabase) return null
+  const needle = username.trim()
+  if (!needle) return false
+  try {
+    const { data, error } = await supabase.rpc('is_username_available', {
+      p_username: needle,
+    })
+    if (!error && typeof data === 'boolean') return data
+  } catch {
+    // RPC yoksa (eski DB) sessizce klasik yola düş
+  }
+  return null
+}
+
+/**
  * PostgREST `ilike` filtresi bir LIKE desenidir: `%` (çok karakter) ve
  * `_` (tek karakter) joker sayılır. Tam-eşleşme niyetiyle sorgulanan
  * kullanıcı adı/e-posta bu karakterleri içerebilir (`_` her ikisinde de

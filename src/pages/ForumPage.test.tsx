@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { ForumPage } from '@/pages/ForumPage'
 
 const alice = { id: 'u_alice', username: 'alice', email: 'a@x.com', createdAt: 1 }
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <ForumPage />
+    </MemoryRouter>,
+  )
+}
 
 beforeEach(() => {
   localStorage.clear()
@@ -12,14 +21,14 @@ beforeEach(() => {
 
 describe('ForumPage', () => {
   it('shows the composer and existing feed', async () => {
-    render(<ForumPage />)
+    renderPage()
     expect(screen.getByLabelText('Yeni gönderi')).toBeInTheDocument()
     expect(await screen.findByText(/Topluluğa hoş geldin/)).toBeInTheDocument()
   })
 
   it('publishes a typed post to the top of the feed', async () => {
     const user = userEvent.setup()
-    render(<ForumPage />)
+    renderPage()
     await screen.findByText(/Topluluğa hoş geldin/)
 
     await user.type(screen.getByLabelText('Yeni gönderi'), 'BTC bu hafta uçar mı?')
@@ -30,7 +39,7 @@ describe('ForumPage', () => {
 
   it('toggles likes optimistically', async () => {
     const user = userEvent.setup()
-    render(<ForumPage />)
+    renderPage()
     await screen.findByText(/Topluluğa hoş geldin/)
 
     await user.click(screen.getByRole('button', { name: 'Beğen' }))
@@ -38,14 +47,14 @@ describe('ForumPage', () => {
   })
 
   it('rejects empty posts via disabled button', async () => {
-    render(<ForumPage />)
+    renderPage()
     await screen.findByText(/Topluluğa hoş geldin/)
     expect(screen.getByRole('button', { name: 'Paylaş' })).toBeDisabled()
   })
 
   it('expands replies and posts a reply with counter', async () => {
     const user = userEvent.setup()
-    render(<ForumPage />)
+    renderPage()
     await screen.findByText(/Topluluğa hoş geldin/)
 
     await user.click(screen.getByRole('button', { name: 'Yanıtları göster' }))
@@ -58,14 +67,14 @@ describe('ForumPage', () => {
   })
 
   it('shows the gold verified badge on the official welcome post', async () => {
-    render(<ForumPage />)
+    renderPage()
     await screen.findByText(/Topluluğa hoş geldin/)
     expect(screen.getByLabelText('Onaylı hesap')).toBeInTheDocument()
   })
 
   it('highlights @mentions in published posts', async () => {
     const user = userEvent.setup()
-    render(<ForumPage />)
+    renderPage()
     await screen.findByText(/Topluluğa hoş geldin/)
 
     await user.type(screen.getByLabelText('Yeni gönderi'), 'selam @denizbak nasılsın')

@@ -6,6 +6,7 @@ import {
   findProfileByUsername,
   getProfile,
   getProfileWithFallback,
+  isUsernameAvailableRemote,
   resolveLoginEmail,
   setLocalMoneyRestrictions,
 } from '@/services/supabaseWallet'
@@ -286,7 +287,11 @@ export async function register(input: {
     if (emailTaken) {
       throw new Error('Bu e-posta adresi zaten kayıtlı.')
     }
-    const usernameTaken = await findProfileByUsername(username)
+    // Önce sunucu hükmü (RLS-körü değil, silinmiş adları boştadır);
+    // RPC yoksa (eski DB) klasik sorguya düşülür.
+    const availability = await isUsernameAvailableRemote(username)
+    const usernameTaken =
+      availability === null ? await findProfileByUsername(username) : !availability
     if (usernameTaken) {
       throw new Error('Bu kullanıcı adı zaten kullanılıyor.')
     }
