@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { WS_HOSTS, wsHost } from '@/services/binance'
 import { useMarketStore } from '@/store/marketStore'
 import type { Ticker } from '@/types'
@@ -151,12 +151,18 @@ export function resetLivePriceStream() {
  */
 export function useLivePrices(symbols: string[], exclude?: ReadonlySet<string>) {
   const livePrices = useMarketStore((s) => s.livePrices)
+  // `exclude` her yoklamada yeni Set kimliğiyle gelir; effect deps'ine girerse
+  // tüm soketler 15 sn'de bir kapatılıp açılır. Ref'te tutulur — effect
+  // yalnızca gerçek sembol listesi değişince koşar.
+  const excludeRef = useRef<ReadonlySet<string> | undefined>(undefined)
+  excludeRef.current = exclude
 
   useEffect(() => {
+    const ex = excludeRef.current
     const next = new Set(
       symbols
         .map((s) => s.trim().toUpperCase())
-        .filter((s) => s.length > 0 && !exclude?.has(s)),
+        .filter((s) => s.length > 0 && !ex?.has(s)),
     )
     for (const s of next) {
       if (!sockets.has(s)) openLivePriceSocket(s)
@@ -165,12 +171,12 @@ export function useLivePrices(symbols: string[], exclude?: ReadonlySet<string>) 
       if (!next.has(s)) closeLivePriceSocket(s)
     }
     // Hariç tutulan sembolde açık kalmış soket varsa kapat (sanal kontrat vb.).
-    if (exclude) {
+    if (ex) {
       for (const s of Array.from(sockets.keys())) {
-        if (exclude.has(s)) closeLivePriceSocket(s)
+        if (ex.has(s)) closeLivePriceSocket(s)
       }
     }
-  }, [symbols, exclude])
+  }, [symbols])
 
   // Unmount: close every per-symbol socket (its own effect is deps-driven, so
   // this cleanup only ever runs on unmount).
