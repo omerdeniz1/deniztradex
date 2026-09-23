@@ -203,6 +203,41 @@ export function validateDisplayName(raw: string): string {
   return clean
 }
 
+export interface FollowEntry {
+  display: string
+  handle: string
+  avatarUrl: string | null
+  verifiedTier: VerifiedTier
+}
+
+/** Takipçi / takip edilen listesi (girişsiz de okunur). */
+export async function listFollows(
+  username: string,
+  kind: 'followers' | 'following',
+): Promise<FollowEntry[]> {
+  const needle = username.trim()
+  if (!needle) return []
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase.rpc('list_follows', {
+        p_username: needle,
+        p_kind: kind,
+      })
+      if (!error && Array.isArray(data)) {
+        return (data as Record<string, unknown>[]).map((r) => ({
+          display: text(r.display) || text(r.handle),
+          handle: text(r.handle).toLowerCase(),
+          avatarUrl: typeof r.avatar === 'string' && r.avatar ? r.avatar : null,
+          verifiedTier: parseTier(r.tier),
+        }))
+      }
+    } catch {
+      // eski DB — boş liste
+    }
+  }
+  return []
+}
+
 /** Kendi tanıtım yazını günceller (220 karakter). */
 export async function updateMyBio(bio: string): Promise<void> {
   const userId = getSessionUserId()

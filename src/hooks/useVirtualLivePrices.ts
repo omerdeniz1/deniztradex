@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useMarketStore } from '@/store/marketStore'
 import type { Ticker } from '@/types'
 
@@ -12,9 +12,14 @@ import type { Ticker } from '@/types'
  *
  * Yalnızca sanal semboller işlenir — gerçek Binance satırlarına dokunulmaz.
  *
+ * PERFORMANS NOTU: birleşik `tickers` nesnesi Binance akışıyla saniyede
+ * birkaç kez yenilenir (binlerce kayıt). Effect doğrudan ona bağlanırsa her
+ * seferinde tüm harita dönülür ve site ağırlaşır. Bunun yerine 7 sanal
+ * sembolden ucuz bir imza çıkarılır; yazım YALNIZCA imza değişince
+ * (15 sn yoklamada) koşar.
+ *
  * DÖNGÜ KORUMASI: yazım marketStore'u günceller → `tickers` nesnesi yenilenir →
- * bu effect tekrar koşar. Fiyatı değişmeyen sembole YENİDEN yazılmaz
- * (`last` ref'i); aksi halde sekme kilitlenir (sonsuz render döngüsü).
+ * imza aynı kaldığı için effect tekrar koşmaz (sonsuz render yok).
  */
 export function useVirtualLivePrices(
   tickers: Record<string, Ticker>,
@@ -22,14 +27,30 @@ export function useVirtualLivePrices(
 ) {
   const last = useRef<Record<string, number>>({})
 
+  const snapshot = useMemo(() => {
+    const rows: Record<string, Ticker> = {}
+    const parts: string[] = []
+    for (const sym of virtualSymbols) {
+      const t = tickers[sym]
+      if (t && t.price > 0) {
+        rows[sym] = t
+        parts.push(`${sym}:${t.price}`)
+      }
+    }
+    return { rows, sig: parts.join('|') }
+  }, [tickers, virtualSymbols])
+
+  const sig = snapshot.sig
   useEffect(() => {
+    if (!sig) return
     const ingest = useMarketStore.getState().ingestLiveTicker
-    for (const [key, t] of Object.entries(tickers)) {
-      if (!t || !(t.price > 0)) continue
-      if (!virtualSymbols.has(key.toUpperCase())) continue
-      if (last.current[key] === t.price) continue
-      last.current[key] = t.price
+    for (const [sym, t] of Object.entries(snapshot.rows)) {
+      if (last.current[sym] === t.price) continue
+      last.current[sym] = t.price
       ingest(t)
     }
-  }, [tickers, virtualSymbols])
+    // rows bilerek deps dışı: sig ile aynı memo'dan gelir, imza değişmeden
+    // satırlar da değişmez (bkz. PERFORMANS NOTU).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig])
 }

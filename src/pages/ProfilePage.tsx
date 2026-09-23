@@ -10,9 +10,11 @@ import {
   followUser,
   formatFollowCount,
   getPublicProfile,
+  listFollows,
   unfollowUser,
   updateMyProfile,
   validateDisplayName,
+  type FollowEntry,
   type PublicProfile,
 } from '@/services/profileService'
 import { updateSessionAvatarUrl } from '@/services/authService'
@@ -53,6 +55,8 @@ export function ProfilePage() {
   const [editBusy, setEditBusy] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const avatarRef = useRef<HTMLInputElement>(null)
+  const [followList, setFollowList] = useState<{ kind: 'followers' | 'following'; entries: FollowEntry[] } | null>(null)
+  const [followListLoading, setFollowListLoading] = useState(false)
 
   const me = getSessionUser()
   const isMine = me !== null && me.username.toLowerCase() === username.trim().toLowerCase()
@@ -157,6 +161,21 @@ export function ProfilePage() {
     }
   }
 
+  const openFollowList = async (kind: 'followers' | 'following') => {
+    if (!profile) return
+    setFollowListLoading(true)
+    setFollowList({ kind, entries: [] })
+    try {
+      const entries = await listFollows(profile.handle, kind)
+      setFollowList({ kind, entries })
+    } catch {
+      setFollowList(null)
+      pushToast({ message: 'Liste yüklenemedi.', tone: 'error' })
+    } finally {
+      setFollowListLoading(false)
+    }
+  }
+
   const removeAvatar = async () => {
     if (avatarBusy) return
     const me = getSessionUser()
@@ -256,14 +275,22 @@ export function ProfilePage() {
             <span className="font-mono font-extrabold text-exchange-text">{formatFollowCount(profile.posts)}</span>{' '}
             Gönderi
           </span>
-          <span className="text-exchange-muted">
+          <button
+            type="button"
+            onClick={() => void openFollowList('followers')}
+            className="text-exchange-muted transition-colors hover:text-exchange-yellow"
+          >
             <span className="font-mono font-extrabold text-exchange-text">{formatFollowCount(profile.followers)}</span>{' '}
             Takipçi
-          </span>
-          <span className="text-exchange-muted">
+          </button>
+          <button
+            type="button"
+            onClick={() => void openFollowList('following')}
+            className="text-exchange-muted transition-colors hover:text-exchange-yellow"
+          >
             <span className="font-mono font-extrabold text-exchange-text">{formatFollowCount(profile.following)}</span>{' '}
             Takip
-          </span>
+          </button>
         </div>
       </div>
 
@@ -383,6 +410,76 @@ export function ProfilePage() {
               <Button size="sm" onClick={() => void saveEdit()} disabled={editBusy}>
                 {editBusy ? 'Kaydediliyor…' : 'Kaydet'}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {followList && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={followList.kind === 'followers' ? 'Takipçiler' : 'Takip edilenler'}
+          onClick={() => setFollowList(null)}
+        >
+          <div
+            className="flex max-h-[70dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-exchange-border bg-exchange-card shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-exchange-border px-4 py-3">
+              <h3 className="text-sm font-bold text-exchange-text">
+                {followList.kind === 'followers' ? 'Takipçiler' : 'Takip edilenler'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setFollowList(null)}
+                aria-label="Kapat"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-exchange-muted hover:bg-exchange-surface hover:text-exchange-text"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {followListLoading ? (
+                <div className="px-4 py-8 text-center text-sm text-exchange-muted">Yükleniyor…</div>
+              ) : followList.entries.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-exchange-muted">
+                  {followList.kind === 'followers' ? 'Henüz takipçi yok.' : 'Henüz kimse takip edilmiyor.'}
+                </div>
+              ) : (
+                <ul>
+                  {followList.entries.map((e) => (
+                    <li key={e.handle} className="border-b border-exchange-border/50 last:border-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFollowList(null)
+                          navigate(`/profile/${encodeURIComponent(e.handle)}`)
+                        }}
+                        className="flex w-full min-w-0 items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-exchange-surface"
+                      >
+                        {e.avatarUrl ? (
+                          <img src={e.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                        ) : (
+                          <DefaultAvatar size="md" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-bold text-exchange-text">{e.display}</span>
+                            {e.verifiedTier !== 'none' && (
+                              <VerifiedBadge small tone={e.verifiedTier === 'super' ? 'gold' : 'blue'} />
+                            )}
+                          </span>
+                          <span className="block truncate font-mono text-[11px] text-exchange-muted">
+                            @{e.handle}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>

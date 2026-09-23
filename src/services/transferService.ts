@@ -407,7 +407,7 @@ export async function listTransferHistory(limit = 20): Promise<TransferRecord[]>
     try {
       const { data, error } = await supabase
         .from('transactions')
-        .select('type,symbol,quantity,amount_usdt,created_at')
+        .select('type,symbol,quantity,amount_usdt,counterparty,created_at')
         .eq('user_id', userId)
         .in('type', ['transfer_in', 'transfer_out'])
         .order('created_at', { ascending: false })
@@ -422,7 +422,7 @@ export async function listTransferHistory(limit = 20): Promise<TransferRecord[]>
           direction: r.type === 'transfer_in' ? 'in' : 'out',
           asset: sym,
           amount: sym === 'USDT' ? usdt : qty || usdt,
-          counterparty: '',
+          counterparty: typeof r.counterparty === 'string' ? r.counterparty : '',
           at: Date.parse(String(r.created_at ?? '')) || 0,
         }
       })

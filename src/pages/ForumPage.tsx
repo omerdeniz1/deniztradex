@@ -677,7 +677,7 @@ function PostRow({
             )}
           </div>
           <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-exchange-text">
-            {renderContentWithMentions(post.content)}
+            {renderContentWithMentions(post.content, onOpenProfile)}
           </p>
           {post.imageUrl && (
             <button
@@ -798,7 +798,7 @@ function PostRow({
                           ) : null}
                         </div>
                         <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-exchange-text">
-                          {renderContentWithMentions(reply.content)}
+                          {renderContentWithMentions(reply.content, onOpenProfile)}
                         </p>
                         <div className="mt-1 flex items-center gap-1">
                           <button
@@ -966,13 +966,16 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
 }
 
 /**
- * @kullanıcı etiketlerini vurgulama: metni parçalayıp etiketleri renkli
- * gösterir. Eşleşme kuralı `extractMentions` ile birebir aynıdır
- * (e-postalar etiket sayılmaz).
+ * @kullanıcı etiketlerini vurgulama: metni parçalayıp etiketleri renkli,
+ * TIKLANABİLİR gösterir (dokununca ilgili profil açılır). Eşleşme kuralı
+ * `extractMentions` ile birebir aynıdır (e-postalar etiket sayılmaz).
  */
 const MENTION_SPLIT_RE = /(^|[^A-Za-z0-9_çÇğĞıİöÖşŞüÜ])(@[A-Za-z0-9_çÇğĞıİöÖşŞüÜ]{3,20})/gu
 
-export function renderContentWithMentions(content: string): React.ReactNode[] {
+export function renderContentWithMentions(
+  content: string,
+  onOpenProfile?: (username: string) => void,
+): React.ReactNode[] {
   const out: React.ReactNode[] = []
   MENTION_SPLIT_RE.lastIndex = 0
   let last = 0
@@ -981,10 +984,23 @@ export function renderContentWithMentions(content: string): React.ReactNode[] {
   while ((m = MENTION_SPLIT_RE.exec(content)) !== null) {
     const at = m.index + m[1].length
     if (at > last) out.push(content.slice(last, at))
+    const handle = m[2].slice(1)
     out.push(
-      <span key={`m${i++}`} className="font-semibold text-exchange-yellow">
-        {m[2]}
-      </span>,
+      onOpenProfile ? (
+        <button
+          key={`m${i++}`}
+          type="button"
+          onClick={() => onOpenProfile(handle)}
+          title={`@${handle} profilini aç`}
+          className="font-semibold text-exchange-yellow transition-colors hover:underline active:scale-95"
+        >
+          {m[2]}
+        </button>
+      ) : (
+        <span key={`m${i++}`} className="font-semibold text-exchange-yellow">
+          {m[2]}
+        </span>
+      ),
     )
     last = at + m[2].length
   }

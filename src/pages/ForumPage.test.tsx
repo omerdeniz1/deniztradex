@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { ForumPage } from '@/pages/ForumPage'
 
@@ -81,5 +81,24 @@ describe('ForumPage', () => {
     await user.click(screen.getByRole('button', { name: 'Paylaş' }))
 
     expect(await screen.findByText('@denizbak')).toBeInTheDocument()
+  })
+
+  it('mention dokununca ilgili profile gider', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter initialEntries={['/forum']}>
+        <Routes>
+          <Route path="/forum" element={<ForumPage />} />
+          <Route path="/profile/:username" element={<div>Profil: denizbak</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText(/Topluluğa hoş geldin/)
+
+    await user.type(screen.getByLabelText('Yeni gönderi'), 'selam @denizbak nasılsın')
+    await user.click(screen.getByRole('button', { name: 'Paylaş' }))
+
+    await user.click(await screen.findByRole('button', { name: '@denizbak' }))
+    expect(await screen.findByText('Profil: denizbak')).toBeInTheDocument()
   })
 })

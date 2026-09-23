@@ -4,6 +4,7 @@ import {
   followUser,
   formatFollowCount,
   getPublicProfile,
+  listFollows,
   PERSONAS,
   unfollowUser,
   validateDisplayName,
@@ -74,5 +75,11 @@ describe('profileService (çevrimdışı)', () => {
     loginAs(alice)
     await expect(followUser('blackrock')).resolves.toBe(780001)
     await expect(unfollowUser('blackrock')).resolves.toBe(780000)
+  })
+
+  it('çevrimdışı takip listesi boş döner', async () => {
+    await expect(listFollows('blackrock', 'followers')).resolves.toEqual([])
+    await expect(listFollows('blackrock', 'following')).resolves.toEqual([])
+    await expect(listFollows('  ', 'followers')).resolves.toEqual([])
   })
 })
