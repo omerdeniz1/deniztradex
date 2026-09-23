@@ -1472,18 +1472,21 @@ function AutoBotControl() {
       <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
         <h2 className="text-sm font-bold text-exchange-text">Otomatik Piyasa Botları 🤖</h2>
         <p className="mt-0.5 text-[11px] leading-relaxed text-exchange-muted">
-          Açıkken her istemcide arka planda tik atar: rastgele sanal coinlerde küçük
-          al-sat hamleleri yapar, fiyat oynar ve 24s hacim büyür. Bakiyelere dokunulmaz,
-          foruma mesaj düşülmez. Fiyat tohumdan %6 saparsa botlar ters yöne basar
-          (coin tek yöne kaçmaz).
+          İki katman çalışır: (1) sunucu görevi her dakika 2-6 hamle yapar — sitede
+          kimse yokken bile piyasa oynar; (2) site açıkken her istemci ek tik atar.
+          Rastgele sanal coinlerde al-sat: fiyat oynar, 24s hacim büyür. Bakiyelere
+          dokunulmaz, foruma mesaj düşülmez. Fiyat çapadan %6-8 saparsa botlar ters
+          yöne basar (coin tek yöne kaçmaz).
         </p>
       </div>
       <div className="grid gap-2.5 px-3 py-3 sm:px-4">
         {rpcMissing && (
           <div className="rounded-xl border border-exchange-sell/40 bg-exchange-sell/10 px-3 py-2.5 text-xs leading-relaxed text-exchange-text">
             Sunucu RPC’si bulunamadı — Supabase SQL editöründe{' '}
-            <span className="font-mono">20260923000000_auto_market_maker</span> migration’ını
-            uygulayın. O zamana kadar oto-botlar yalnızca yerel modda çalışır.
+            <span className="font-mono">20260923000000_auto_market_maker</span> ve{' '}
+            <span className="font-mono">20260923000001_auto_market_cron</span> migration’larını
+            uygulayın (cron için pg_cron eklentisi açık olmalı). O zamana kadar
+            oto-botlar yalnızca yerel modda çalışır.
           </div>
         )}
         <label className="flex min-w-0 cursor-pointer items-center justify-between gap-3">

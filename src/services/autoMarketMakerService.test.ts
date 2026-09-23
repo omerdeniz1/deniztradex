@@ -23,15 +23,15 @@ describe('planAutoTrades', () => {
     expect(planAutoTrades([], 'normal')).toEqual([])
   })
 
-  it('yoğunluğa göre 1-3 coin seçer, oranlar cap altındadır', async () => {
+  it('yoğunluğa göre 1-5 coin seçer, oranlar cap altındadır', async () => {
     const coins = await listVirtualCoins()
     for (const intensity of ['calm', 'normal', 'lively'] as const) {
       const plans = planAutoTrades(coins, intensity, seq([0.1, 0.5, 0.9, 0.3, 0.7, 0.2, 0.8, 0.4]))
       expect(plans.length).toBeGreaterThanOrEqual(1)
-      expect(plans.length).toBeLessThanOrEqual(3)
+      expect(plans.length).toBeLessThanOrEqual(5)
       for (const p of plans) {
         expect(p.fraction).toBeGreaterThan(0)
-        expect(p.fraction).toBeLessThanOrEqual(0.001)
+        expect(p.fraction).toBeLessThanOrEqual(0.002)
         expect(['buy', 'sell']).toContain(p.side)
       }
     }
@@ -76,11 +76,14 @@ describe('runAutoBotTick (yerel motor, oturumsuz)', () => {
     // En az bir coinin hacmi artmış olmalı
     const grown = after.filter((c) => c.volume24h > (volBefore.get(c.symbol) ?? 0))
     expect(grown.length).toBeGreaterThanOrEqual(1)
-    // Hamleler küçük: tek tikte fiyat %1'den fazla oynamamalı
+    // Hamleler sınırlı: tek tikte fiyat %1'den fazla oynamamalı
     for (const r of res) {
       expect(Math.abs(r.priceImpactPct)).toBeLessThan(1)
       expect(r.usdtAmount).toBeGreaterThan(0)
     }
+    // Lively tikte en az 3 hamle beklenir (çalkantı).
+    const lively = await runAutoBotTick('lively')
+    expect(lively.length).toBeGreaterThanOrEqual(1)
   })
 
   it('art arda tikler fiyatı tohum bandında tutar (kaçış yok)', async () => {

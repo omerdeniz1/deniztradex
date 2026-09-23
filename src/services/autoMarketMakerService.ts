@@ -152,19 +152,26 @@ export interface AutoTradePlan {
   fraction: number
 }
 
-/** Yoğunluğa göre hamle büyüklüğü aralığı (rezerv oranı). */
+/**
+ * Yoğunluğa göre hamle büyüklüğü aralığı (rezerv oranı).
+ * Etki ≈ 2·oran: lively üst sınır (%0.15) tik başına ~%0.3 fiyat oynatır —
+ * görünür çalkantı, tek tikte asla yıkım yok (sunucu cap'i ayrıca kırpar).
+ */
 const FRACTION_RANGE: Record<AutoBotIntensity, [number, number]> = {
-  calm: [0.00003, 0.00015],
-  normal: [0.00008, 0.0004],
-  lively: [0.0002, 0.0009],
+  calm: [0.00005, 0.00025],
+  normal: [0.00015, 0.0007],
+  lively: [0.0004, 0.0015],
 }
 
-/** Tik başına coin sayısı (yoğunluğa göre 1-3). */
+/** Tik başına coin sayısı (yoğunluğa göre 1-5). */
 const COINS_PER_TICK: Record<AutoBotIntensity, [number, number]> = {
-  calm: [1, 1],
-  normal: [1, 2],
-  lively: [2, 3],
+  calm: [1, 2],
+  normal: [2, 3],
+  lively: [3, 5],
 }
+
+/** İstemci hamlesi tavanı (rezerv oranı) — sunucu RPC cap'iyle uyumlu. */
+export const AUTO_BOT_CLIENT_MAX_FRACTION = 0.002
 
 /** Ortalama-dönüş bandı: tohum fiyattan bu orandan fazla sapma → ters yön baskısı. */
 export const AUTO_BOT_REVERT_BAND = 0.06
@@ -193,7 +200,7 @@ export function planAutoTrades(
     const side: VirtualTradeSide = rand() < buyProb ? 'buy' : 'sell'
     // Bant dışıysa hamleyi biraz büyüt (dönüşü hızlandır), bant içinde küçük tut.
     const boost = Math.abs(drift) > AUTO_BOT_REVERT_BAND ? 1.6 : 1
-    const fraction = Math.min(0.001, (lo + rand() * (hi - lo)) * boost)
+    const fraction = Math.min(AUTO_BOT_CLIENT_MAX_FRACTION, (lo + rand() * (hi - lo)) * boost)
     return { symbol: c.symbol, side, fraction }
   })
 }

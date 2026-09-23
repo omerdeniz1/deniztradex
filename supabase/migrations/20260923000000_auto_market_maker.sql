@@ -9,7 +9,7 @@
 --   - Admin ZORUNLU DEĞİLDİR (her giriş yapmış istemci çağırabilir —
 --     motor herkeste çalışır, tek bir admin sekmesine bağımlı değildir).
 --   - Hamle SUNUCUDA sert sınırlanır: istenen tutar havuz USDT
---     rezervinin BİNDE 1'ini (ve 5.000 USDT'yi) aşamaz; aşan kısım
+--     rezervinin BİNDE 2'sini (ve 25.000 USDT'yi) aşamaz; aşan kısım
 --     sessizce kırpılır. İstemci ne gönderirse göndersin havuz
 --     boşaltılamaz, fiyat tek tikte uçamaz.
 --   - Kullanıcı bakiyesine DOKUNMAZ, foruma yazmaz; yalnızca rezerv +
@@ -120,9 +120,9 @@ set search_path = public
 as $$
 declare
   v_fee_rate   constant numeric := 0.003;
-  -- Güvenlik cap'leri: hamle başına havuzun binde 1'i, en fazla 5000 USDT.
-  v_cap_frac   constant numeric := 0.001;
-  v_cap_abs    constant numeric := 5000;
+  -- Güvenlik cap'leri: hamle başına havuzun binde 2'si, en fazla 25000 USDT.
+  v_cap_frac   constant numeric := 0.002;
+  v_cap_abs    constant numeric := 25000;
   v_amount     numeric;
   v_rusdt      numeric;
   v_rtoken     numeric;
