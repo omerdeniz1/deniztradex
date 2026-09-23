@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { VerifiedBadge } from '@/components/forum/VerifiedBadge'
 import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
@@ -6,13 +6,21 @@ import { Button } from '@/components/ui/Button'
 import { useToastStore } from '@/store/toastStore'
 import { getSessionUser } from '@/services/authService'
 import {
+  DISPLAY_NAME_MAX,
   followUser,
   formatFollowCount,
   getPublicProfile,
   unfollowUser,
-  updateMyBio,
+  updateMyProfile,
+  validateDisplayName,
   type PublicProfile,
 } from '@/services/profileService'
+import { updateSessionAvatarUrl } from '@/services/authService'
+import {
+  removeAvatarFile,
+  uploadAvatarFile,
+  validateAvatarFile,
+} from '@/services/supabaseWallet'
 import {
   formatTimeAgo,
   listForumPostsByAuthor,
@@ -37,9 +45,14 @@ export function ProfilePage() {
   const [posts, setPosts] = useState<ForumPost[]>([])
   const [loading, setLoading] = useState(true)
   const [followBusy, setFollowBusy] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
   const [bioDraft, setBioDraft] = useState('')
-  const [bioEditing, setBioEditing] = useState(false)
-  const [bioBusy, setBioBusy] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const avatarRef = useRef<HTMLInputElement>(null)
 
   const me = getSessionUser()
   const isMine = me !== null && me.username.toLowerCase() === username.trim().toLowerCase()
@@ -53,7 +66,10 @@ export function ProfilePage() {
       ])
       setProfile(p)
       setPosts(list)
-      if (p) setBioDraft(p.bio)
+      if (p) {
+        setBioDraft(p.bio)
+        setNameDraft(p.username)
+      }
     } finally {
       setLoading(false)
     }
@@ -82,18 +98,79 @@ export function ProfilePage() {
     }
   }
 
-  const saveBio = async () => {
-    if (bioBusy) return
-    setBioBusy(true)
+  const openEdit = () => {
+    if (!profile) return
+    setNameDraft(profile.username)
+    setBioDraft(profile.bio)
+    setAvatarFile(null)
+    setAvatarPreview(null)
+    setEditOpen(true)
+  }
+
+  const pickAvatar = (file: File | undefined) => {
+    if (!file) return
     try {
-      await updateMyBio(bioDraft)
-      setProfile((p) => (p ? { ...p, bio: bioDraft.trim().slice(0, 220) } : p))
-      setBioEditing(false)
-      pushToast({ message: 'Tanıtım yazısı güncellendi.', tone: 'success' })
+      validateAvatarFile(file)
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Fotoğraf eklenemedi.', tone: 'error' })
+      return
+    }
+    if (avatarPreview) {
+      try {
+        URL.revokeObjectURL(avatarPreview)
+      } catch {
+        // yoksay
+      }
+    }
+    setAvatarFile(file)
+    setAvatarPreview(URL.createObjectURL(file))
+  }
+
+  const saveEdit = async () => {
+    if (editBusy || !profile) return
+    let displayName = profile.username
+    try {
+      displayName = validateDisplayName(nameDraft)
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Geçersiz isim.', tone: 'error' })
+      return
+    }
+    setEditBusy(true)
+    try {
+      const me = getSessionUser()
+      // Fotoğraf önce yüklenir (tetikleyici eski yazılara da işler).
+      if (avatarFile && me) {
+        const url = await uploadAvatarFile(me.id, avatarFile)
+        updateSessionAvatarUrl(url)
+        setProfile((p) => (p ? { ...p, avatarUrl: url } : p))
+      }
+      await updateMyProfile({ displayName, bio: bioDraft })
+      setProfile((p) =>
+        p ? { ...p, username: displayName, bio: bioDraft.trim().slice(0, 220) } : p,
+      )
+      setEditOpen(false)
+      pushToast({ message: 'Profil güncellendi — forumdaki ismin ve fotoğrafın değişti.', tone: 'success' })
     } catch (err) {
       pushToast({ message: err instanceof Error ? err.message : 'Kaydedilemedi.', tone: 'error' })
     } finally {
-      setBioBusy(false)
+      setEditBusy(false)
+    }
+  }
+
+  const removeAvatar = async () => {
+    if (avatarBusy) return
+    const me = getSessionUser()
+    if (!me) return
+    setAvatarBusy(true)
+    try {
+      await removeAvatarFile(me.id)
+      updateSessionAvatarUrl(null)
+      setProfile((p) => (p ? { ...p, avatarUrl: null } : p))
+      pushToast({ message: 'Profil fotoğrafı kaldırıldı.', tone: 'success' })
+    } catch (err) {
+      pushToast({ message: err instanceof Error ? err.message : 'Kaldırılamadı.', tone: 'error' })
+    } finally {
+      setAvatarBusy(false)
     }
   }
 
@@ -161,45 +238,17 @@ export function ProfilePage() {
               {followBusy ? '…' : profile.isFollowing ? 'Takibi Bırak' : 'Takip Et'}
             </Button>
           )}
+          {isMine && !profile.isPersona && (
+            <Button size="sm" variant="outline" onClick={openEdit} className="shrink-0 whitespace-nowrap">
+              Profili düzenle
+            </Button>
+          )}
         </div>
 
-        {isMine && bioEditing ? (
-          <div className="mt-3">
-            <textarea
-              value={bioDraft}
-              onChange={(e) => setBioDraft(e.target.value)}
-              maxLength={220}
-              rows={3}
-              placeholder="Kendini tanıt… (en fazla 220 karakter)"
-              disabled={bioBusy}
-              className="w-full resize-y rounded-xl border border-exchange-border bg-exchange-bg px-3 py-2.5 text-sm leading-relaxed text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
-            />
-            <div className="mt-2 flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => { setBioEditing(false); setBioDraft(profile.bio) }} disabled={bioBusy}>
-                Vazgeç
-              </Button>
-              <Button size="sm" onClick={() => void saveBio()} disabled={bioBusy}>
-                {bioBusy ? 'Kaydediliyor…' : 'Kaydet'}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {profile.bio && (
-              <p className="mt-2.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-exchange-text">
-                {profile.bio}
-              </p>
-            )}
-            {isMine && (
-              <button
-                type="button"
-                onClick={() => setBioEditing(true)}
-                className="mt-1.5 text-xs font-bold text-exchange-yellow hover:underline"
-              >
-                {profile.bio ? 'Tanıtım yazısını düzenle' : '+ Tanıtım yazısı ekle'}
-              </button>
-            )}
-          </>
+        {profile.bio && (
+          <p className="mt-2.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-exchange-text">
+            {profile.bio}
+          </p>
         )}
 
         <div className="mt-3 flex items-center gap-4 text-sm">
@@ -256,6 +305,88 @@ export function ProfilePage() {
           </ul>
         )}
       </div>
+
+      {editOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Profili düzenle">
+          <div className="w-full max-w-md rounded-2xl border border-exchange-border bg-exchange-card p-5 shadow-2xl">
+            <h3 className="text-base font-bold text-exchange-text">Profili düzenle</h3>
+            <p className="mt-0.5 text-xs text-exchange-muted">
+              İsim forumda böyle görünür, altında @{profile.handle} yazar.
+            </p>
+
+            <div className="mt-4 flex items-center gap-3">
+              {avatarPreview || profile.avatarUrl ? (
+                <img
+                  src={avatarPreview ?? profile.avatarUrl ?? ''}
+                  alt=""
+                  className="h-16 w-16 shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <DefaultAvatar size="lg" />
+              )}
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <input
+                  ref={avatarRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  aria-label="Profil fotoğrafı seç"
+                  className="hidden"
+                  onChange={(e) => pickAvatar(e.target.files?.[0])}
+                />
+                <Button size="sm" variant="outline" onClick={() => avatarRef.current?.click()} disabled={editBusy}>
+                  Fotoğraf seç
+                </Button>
+                {(profile.avatarUrl || avatarPreview) && (
+                  <button
+                    type="button"
+                    onClick={() => void removeAvatar()}
+                    disabled={avatarBusy || editBusy}
+                    className="w-fit text-xs font-bold text-exchange-sell hover:underline disabled:opacity-50"
+                  >
+                    {avatarBusy ? 'Kaldırılıyor…' : 'Fotoğrafı kaldır'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <label htmlFor="edit-display-name" className="mt-4 block text-xs font-semibold text-exchange-muted">
+              Görünen isim ({nameDraft.trim().length}/{DISPLAY_NAME_MAX})
+            </label>
+            <input
+              id="edit-display-name"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              maxLength={DISPLAY_NAME_MAX}
+              placeholder="örn. Kripto Balinası"
+              disabled={editBusy}
+              className="mt-1.5 h-11 w-full rounded-xl border border-exchange-border bg-exchange-bg px-3 text-sm text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+            />
+
+            <label htmlFor="edit-bio" className="mt-3 block text-xs font-semibold text-exchange-muted">
+              Tanıtım yazısı ({bioDraft.trim().length}/220)
+            </label>
+            <textarea
+              id="edit-bio"
+              value={bioDraft}
+              onChange={(e) => setBioDraft(e.target.value)}
+              maxLength={220}
+              rows={3}
+              placeholder="Kendini tanıt…"
+              disabled={editBusy}
+              className="mt-1.5 w-full resize-y rounded-xl border border-exchange-border bg-exchange-bg px-3 py-2.5 text-sm leading-relaxed text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50"
+            />
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setEditOpen(false)} disabled={editBusy}>
+                Vazgeç
+              </Button>
+              <Button size="sm" onClick={() => void saveEdit()} disabled={editBusy}>
+                {editBusy ? 'Kaydediliyor…' : 'Kaydet'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

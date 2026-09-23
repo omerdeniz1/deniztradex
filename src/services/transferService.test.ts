@@ -51,8 +51,9 @@ describe('transferService (yerel mod, aynı cihaz)', () => {
     await useTradeStore.persist.rehydrate()
     expect(useTradeStore.getState().balance).toBeCloseTo(500)
     const res = await transferAsset(deriveWalletNo(b.id), 'USDT', 200)
-    expect(res).toMatchObject({ asset: 'USDT', amount: 200 })
-    expect(useTradeStore.getState().balance).toBeCloseTo(300)
+    // %1.2 ücret: gönderen 202.4 öder, alıcı 200 alır.
+    expect(res).toMatchObject({ asset: 'USDT', amount: 200, fee: 2.4 })
+    expect(useTradeStore.getState().balance).toBeCloseTo(297.6)
     void a
     // Alıcı tarafın blob'u güncellenmiştir.
     const blob = JSON.parse(
@@ -70,8 +71,10 @@ describe('transferService (yerel mod, aynı cihaz)', () => {
     useTradeStore.getState().deposit(10000)
     useTradeStore.getState().spotBuy({ symbol: 'BTCUSDT', quantity: 1, price: 100 })
     const res = await transferAsset(deriveWalletNo(b.id), 'BTC', 0.4)
+    // %1.2 ücret: gönderen 0.4048 düşer, alıcı 0.4 alır.
     expect(res).toMatchObject({ asset: 'BTC', amount: 0.4 })
-    expect(useTradeStore.getState().spotBalances.BTC).toBeCloseTo(0.6)
+    expect(res.fee).toBeCloseTo(0.0048)
+    expect(useTradeStore.getState().spotBalances.BTC).toBeCloseTo(0.5952)
     const blob = JSON.parse(
       localStorage.getItem(`deniztradx_wallet_${b.id}`) ?? '{}',
     ) as { state?: { spotBalances?: Record<string, number>; spotAvgCosts?: Record<string, number> } }
@@ -95,14 +98,16 @@ describe('transferService (yerel mod, aynı cihaz)', () => {
     await login('dnzA', 'sifre123')
     useDnzStore.getState().buyDnz({ qty: 50, price: 0.5, usdtCost: 25 })
     const res = await transferAsset(deriveWalletNo(b.id), 'DNZ', 20)
+    // %1.2 ücret: gönderen 20.24 düşer, alıcı 20 alır.
     expect(res).toMatchObject({ asset: 'DNZ', amount: 20 })
-    expect(useDnzStore.getState().balance).toBeCloseTo(30)
+    expect(res.fee).toBeCloseTo(0.24)
+    expect(useDnzStore.getState().balance).toBeCloseTo(29.76)
     const blob = JSON.parse(
       localStorage.getItem(`deniztradx_dnz_${b.id}`) ?? '{}',
     ) as { state?: { balance?: number } }
     expect(blob.state?.balance).toBeCloseTo(20)
     const assets = await listTransferableAssets()
-    expect(assets.find((a) => a.asset === 'DNZ')).toMatchObject({ qty: 30, kind: 'dnz' })
+    expect(assets.find((a) => a.asset === 'DNZ')).toMatchObject({ qty: 29.76, kind: 'dnz' })
     // Sanal listeyle çiftlenmez: tek DNZ girdisi olur.
     expect(assets.filter((a) => a.asset === 'DNZ')).toHaveLength(1)
     const hist = await listTransferHistory()
@@ -115,6 +120,19 @@ describe('transferService (yerel mod, aynı cihaz)', () => {
     await login('dnzC', 'sifre123')
     useDnzStore.getState().buyDnz({ qty: 5, price: 0.5, usdtCost: 2.5 })
     await expect(transferAsset(deriveWalletNo(b.id), 'DNZ', 99)).rejects.toThrow('Yetersiz')
+  })
+
+  it('%1.2 ücret: tutarı karşılayan ama ücreti karşılamayan bakiye reddedilir', async () => {
+    await registerWithFunds('ucretA', 'ua2@x.com', 100)
+    const b = await register({ username: 'ucretB', email: 'ub2@x.com', password: 'sifre123' })
+    await login('ucretA', 'sifre123')
+    await useTradeStore.persist.rehydrate()
+    // 100 bakiye 100'lük transfere yetmez (101.2 gerekir).
+    await expect(transferAsset(deriveWalletNo(b.id), 'USDT', 100)).rejects.toThrow('Yetersiz')
+    // 98'lik transfer olur: 98 + 1.18 = 99.18 düşer.
+    const res = await transferAsset(deriveWalletNo(b.id), 'USDT', 98)
+    expect(res.fee).toBeCloseTo(1.18)
+    expect(useTradeStore.getState().balance).toBeCloseTo(0.82)
   })
 
   it('yeni kayıt para işlemlerine kapalı başlar', async () => {

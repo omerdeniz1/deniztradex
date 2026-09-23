@@ -17,6 +17,25 @@ import { getVirtualHoldings } from '@/services/virtualMarketService'
  *   cihaz-ortak defterde tutulduğu için transfer anlamsızdır).
  */
 
+/**
+ * Transfer işlem ücreti (%1.2): gönderen tutar + ücret öder, alıcı tutarın
+ * tamamını alır. Sunucu RPC'leri (`transfer_assets`, `transfer_dnz`) aynı
+ * hesabı yapar; burası yerel mod + özet ekranı içindir.
+ */
+export const TRANSFER_FEE_RATE = 0.012
+
+/** Tutarın ücret bacağı (USDT 2 ondalık, coinler 8 ondalık duyarlılık). */
+export function transferFeeFor(amount: number, asset: string): number {
+  if (!Number.isFinite(amount) || amount <= 0) return 0
+  const raw = amount * TRANSFER_FEE_RATE
+  return asset === 'USDT' ? Math.round(raw * 100) / 100 : Math.round(raw * 1e8) / 1e8
+}
+
+/** Gönderenin toplam borcu (tutar + ücret). */
+export function transferTotalFor(amount: number, asset: string): number {
+  return amount + transferFeeFor(amount, asset)
+}
+
 export interface TransferTarget {
   walletNo: string
   username: string
@@ -111,7 +130,7 @@ export async function transferAsset(
   toWallet: string,
   asset: string,
   amount: number,
-): Promise<{ asset: string; amount: number }> {
+): Promise<{ asset: string; amount: number; fee: number }> {
   const target = normalizeWallet(toWallet)
   if (!target) throw new Error('Alıcı cüzdan numarası gerekli.')
   const coin = asset.trim().toUpperCase()
@@ -131,7 +150,7 @@ export async function transferAsset(
       } catch {
         // yoksay — yerel bakiye RPC sonrası ayrıca eşitlenir
       }
-      return res
+      return { ...res, fee: res.fee ?? transferFeeFor(amount, coin) }
     }
     return transferDnzLocal(userId, target, amount)
   }
@@ -155,10 +174,11 @@ export async function transferAsset(
       }
       throw new Error(msg || 'Transfer yapılamadı.')
     }
-    const row = data as { asset?: unknown; amount?: unknown } | null
+    const row = data as { asset?: unknown; amount?: unknown; fee?: unknown } | null
     return {
       asset: typeof row?.asset === 'string' ? row.asset : coin,
       amount: typeof row?.amount === 'number' ? row.amount : amount,
+      fee: typeof row?.fee === 'number' ? row.fee : transferFeeFor(amount, coin),
     }
   }
 
@@ -218,16 +238,18 @@ function transferLocal(
   target: string,
   coin: string,
   amount: number,
-): { asset: string; amount: number } {
+): { asset: string; amount: number; fee: number } {
   const receiver = findLocalUserId(target)
   if (!receiver) throw new Error('Alıcı bulunamadı.')
   if (receiver.id === senderId) throw new Error('Kendine transfer yapamazsın.')
 
   const trade = useTradeStore.getState()
+  const fee = transferFeeFor(amount, coin)
+  const total = amount + fee
 
   if (coin === 'USDT') {
-    if (trade.balance < amount) throw new Error('Yetersiz USDT bakiyesi.')
-    trade.setBalance(Math.max(0, Math.round((trade.balance - amount) * 100) / 100))
+    if (trade.balance < total) throw new Error('Yetersiz USDT bakiyesi (ücret dahil).')
+    trade.setBalance(Math.max(0, Math.round((trade.balance - total) * 100) / 100))
     const blob = readLocalWalletBlob(receiver.id)
     const next = Math.round(((blob?.state.balance ?? 0) + amount) * 100) / 100
     try {
@@ -240,12 +262,12 @@ function transferLocal(
     }
   } else if (/^[A-Z0-9-]{2,12}$/.test(coin) && !isVirtualSymbolLocal(coin)) {
     const held = trade.spotBalances[coin] ?? 0
-    if (held < amount) throw new Error(`Yetersiz ${coin} bakiyesi.`)
+    if (held < total) throw new Error(`Yetersiz ${coin} bakiyesi (ücret dahil).`)
     const senderAvg = trade.spotAvgCosts[coin] ?? 0
-    // Gönderen taraf tradeStore üzerinden düşer (persist otomatik).
+    // Gönderen taraf tradeStore üzerinden düşer (tutar + %1.2 ücret).
     // Miktar sıfırlanırsa maliyet kaydı da silinir (spotSell ile aynı kural).
     useTradeStore.setState((s) => {
-      const nextQty = Math.round(Math.max(0, (s.spotBalances[coin] ?? 0) - amount) * 1e8) / 1e8
+      const nextQty = Math.round(Math.max(0, (s.spotBalances[coin] ?? 0) - total) * 1e8) / 1e8
       const nextAvg = { ...s.spotAvgCosts }
       if (nextQty <= 0) delete nextAvg[coin]
       return {
@@ -290,7 +312,7 @@ function transferLocal(
     counterparty: getSessionUser()?.username ?? '',
     at,
   })
-  return { asset: coin, amount }
+  return { asset: coin, amount, fee }
 }
 
 /** Yerel sanal sembol kabulu (sunucusuz tohum listesi — DNZ dahil). */
@@ -325,14 +347,16 @@ function transferDnzLocal(
   senderId: string,
   target: string,
   amount: number,
-): { asset: string; amount: number } {
+): { asset: string; amount: number; fee: number } {
   const receiver = findLocalUserId(target)
   if (!receiver) throw new Error('Alıcı bulunamadı.')
   if (receiver.id === senderId) throw new Error('Kendine transfer yapamazsın.')
 
   const dnz = useDnzStore.getState()
-  if (amount > dnz.balance) throw new Error('Yetersiz DNZ bakiyesi.')
+  const fee = transferFeeFor(amount, 'DNZ')
+  if (amount + fee > dnz.balance) throw new Error('Yetersiz DNZ bakiyesi (ücret dahil).')
   dnz.applyTransferOut(amount, receiver.username)
+  if (fee > 0) dnz.applyTransferOut(fee, 'Transfer ücreti (%1.2)')
 
   const blob = readLocalDnzBlob(receiver.id)
   const rQty = Math.round(((blob?.state.balance ?? 0) + amount) * 1e8) / 1e8
@@ -372,7 +396,7 @@ function transferDnzLocal(
     counterparty: getSessionUser()?.username ?? '',
     at,
   })
-  return { asset: 'DNZ', amount }
+  return { asset: 'DNZ', amount, fee: transferFeeFor(amount, 'DNZ') }
 }
 
 /** Son transferler (uzak defter veya yerel kayıt). */

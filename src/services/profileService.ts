@@ -189,6 +189,20 @@ export async function unfollowUser(username: string): Promise<number> {
   throw new Error('Çevrimdışı modda takip edilemez.')
 }
 
+/** Görünen isim üst sınırı (forumda isim olarak görünür). */
+export const DISPLAY_NAME_MAX = 30
+
+/** Görünen ismi doğrular (boş olamaz, 30 karakter, < > @ yok). */
+export function validateDisplayName(raw: string): string {
+  const clean = raw.trim().replace(/\s+/g, ' ')
+  if (!clean) throw new Error('Görünen isim boş olamaz.')
+  if (clean.length > DISPLAY_NAME_MAX) {
+    throw new Error(`Görünen isim en fazla ${DISPLAY_NAME_MAX} karakter olabilir.`)
+  }
+  if (/[<>@]/.test(clean)) throw new Error('İsimde < > @ karakterleri kullanılamaz.')
+  return clean
+}
+
 /** Kendi tanıtım yazını günceller (220 karakter). */
 export async function updateMyBio(bio: string): Promise<void> {
   const userId = getSessionUserId()
@@ -197,6 +211,23 @@ export async function updateMyBio(bio: string): Promise<void> {
   if (isSupabaseConfigured && supabase) {
     const { error } = await supabase.from('profiles').update({ bio: clean }).eq('id', userId)
     if (error) throw new Error('Tanıtım yazısı kaydedilemedi.')
+    return
+  }
+  // Çevrimdışı modda yazım yok — sessiz geç.
+}
+
+/** Profil düzenleme: görünen isim + tanıtım yazısı (kendi satırın). */
+export async function updateMyProfile(input: { displayName: string; bio: string }): Promise<void> {
+  const userId = getSessionUserId()
+  if (!userId) throw new Error('Giriş yapmalısın.')
+  const displayName = validateDisplayName(input.displayName)
+  const bio = input.bio.trim().slice(0, 220)
+  if (isSupabaseConfigured && supabase) {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ display_name: displayName, bio })
+      .eq('id', userId)
+    if (error) throw new Error('Profil güncellenemedi. Lütfen tekrar dene.')
     return
   }
   // Çevrimdışı modda yazım yok — sessiz geç.

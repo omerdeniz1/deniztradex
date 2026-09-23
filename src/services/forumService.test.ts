@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   classifyForumRemoteError,
   createForumPost,
+  displayNameOf,
   createForumReply,
   deleteForumPost,
   deleteForumReply,
@@ -249,6 +250,20 @@ describe('classifyForumRemoteError', () => {
   it('falls back to a generic message without leaking internals', () => {
     const err = classifyForumRemoteError(new Error('unexpected-feed-shape'), 'Akış yüklenemedi')
     expect(err.message).toBe('Akış yüklenemedi. Lütfen tekrar dene.')
+  })
+})
+
+describe('displayNameOf (görünen isim)', () => {
+  it('sunucu damgası varsa onu, yoksa kullanıcı adını kullanır', () => {
+    expect(displayNameOf({ display_name: 'Kripto Balinası' }, 'balina1')).toBe('Kripto Balinası')
+    expect(displayNameOf({}, 'balina1')).toBe('balina1')
+    expect(displayNameOf({ display_name: '  ' }, 'balina1')).toBe('balina1')
+  })
+
+  it('yerel gönderilerde görünen isim kullanıcı adıdır', async () => {
+    loginAs(alice)
+    const post = await createForumPost('isim testi')
+    expect(post.displayName).toBe('alice')
   })
 })
 

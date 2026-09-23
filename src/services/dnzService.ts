@@ -154,7 +154,7 @@ export async function fetchDnzLedgerRemote(userId: string, limit = 20): Promise<
 export async function transferDnzRemote(
   toWallet: string,
   amountDnz: number,
-): Promise<{ asset: string; amount: number }> {
+): Promise<{ asset: string; amount: number; fee?: number }> {
   if (!isSupabaseConfigured || !supabase) throw new Error('Çevrimdışı modda DNZ transferi yapılamaz.')
   const userId = getSessionUserId()
   if (!userId) throw new Error('Oturum bulunamadı. Tekrar giriş yap.')
@@ -175,9 +175,10 @@ export async function transferDnzRemote(
     }
     throw new Error(msg || 'Transfer yapılamadı.')
   }
-  const row = data as { asset?: unknown; amount?: unknown } | null
+  const row = data as { asset?: unknown; amount?: unknown; fee?: unknown } | null
   return {
     asset: typeof row?.asset === 'string' ? row.asset : 'DNZ',
     amount: typeof row?.amount === 'number' ? row.amount : amountDnz,
+    fee: typeof row?.fee === 'number' ? row.fee : undefined,
   }
 }

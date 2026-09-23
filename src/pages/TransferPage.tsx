@@ -7,6 +7,9 @@ import {
   listTransferableAssets,
   lookupTransferTarget,
   transferAsset,
+  TRANSFER_FEE_RATE,
+  transferFeeFor,
+  transferTotalFor,
   type TransferRecord,
   type TransferTarget,
 } from '@/services/transferService'
@@ -98,8 +101,8 @@ export function TransferPage() {
       setError('Geçerli bir tutar gir.')
       return
     }
-    if (amount > selected.qty) {
-      setError(`Yetersiz ${asset} bakiyesi.`)
+    if (transferTotalFor(amount, asset) > selected.qty) {
+      setError(`Yetersiz ${asset} bakiyesi (tutar + %1.2 ücret).`)
       return
     }
     if (!armed) {
@@ -111,8 +114,9 @@ export function TransferPage() {
       const res = await transferAsset(target.walletNo, asset, amount)
       setAmountStr('')
       setArmed(false)
+      const fee = res.fee ?? transferFeeFor(amount, asset)
       pushToast({
-        message: `${formatNumber(res.amount, res.asset === 'USDT' ? 2 : 6)} ${res.asset} → ${target.username} gönderildi.`,
+        message: `${formatNumber(res.amount, res.asset === 'USDT' ? 2 : 6)} ${res.asset} → ${target.username} gönderildi (ücret: ${formatNumber(fee, res.asset === 'USDT' ? 2 : 6)}).`,
         tone: 'success',
       })
       await load()
@@ -235,11 +239,27 @@ export function TransferPage() {
             </div>
 
             {target && Number.isFinite(amount) && amount > 0 && (
-              <div className="flex items-center justify-between gap-3 rounded-xl bg-exchange-surface px-3 py-2.5 text-sm">
-                <span className="shrink-0 text-exchange-muted">Özet</span>
-                <span className="min-w-0 truncate text-right font-mono font-semibold text-exchange-text">
-                  {formatNumber(amount, asset === 'USDT' ? 2 : 6)} {asset} → {target.username}
-                </span>
+              <div className="rounded-xl bg-exchange-surface px-3 py-2.5 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="shrink-0 text-exchange-muted">Alıcı alır</span>
+                  <span className="min-w-0 truncate text-right font-mono font-semibold text-exchange-text">
+                    {formatNumber(amount, asset === 'USDT' ? 2 : 6)} {asset} → {target.username}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-3 text-xs">
+                  <span className="shrink-0 text-exchange-muted">
+                    İşlem ücreti (%{(TRANSFER_FEE_RATE * 100).toLocaleString('tr-TR')})
+                  </span>
+                  <span className="min-w-0 truncate text-right font-mono text-exchange-muted">
+                    {formatNumber(transferFeeFor(amount, asset), asset === 'USDT' ? 2 : 6)} {asset}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-3 text-xs">
+                  <span className="shrink-0 font-bold text-exchange-muted">Bakiyenden düşer</span>
+                  <span className="min-w-0 truncate text-right font-mono font-bold text-exchange-yellow">
+                    {formatNumber(transferTotalFor(amount, asset), asset === 'USDT' ? 2 : 6)} {asset}
+                  </span>
+                </div>
               </div>
             )}
 

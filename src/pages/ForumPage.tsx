@@ -47,6 +47,8 @@ export function ForumPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const myId = getSessionUser()?.id ?? null
+  const myUsername = getSessionUser()?.username ?? null
+  const myAvatarUrl = getSessionUser()?.avatarUrl ?? null
 
   // Forum moderasyonu: süper admin veya ban yetkili alt yönetici
   // herkesin yazısını silebilir (sunucu RLS ile denetler). Süper admin
@@ -290,9 +292,26 @@ export function ForumPage() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
       <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col sm:border-x sm:border-exchange-border">
-        <div className="sticky top-0 z-10 border-b border-exchange-border bg-exchange-bg/95 px-4 py-3 backdrop-blur">
-          <h1 className="text-lg font-bold text-exchange-text">Forum</h1>
-          <p className="text-xs text-exchange-muted">Topluluk akışı</p>
+        <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-exchange-border bg-exchange-bg/95 px-4 py-3 backdrop-blur">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-lg font-bold text-exchange-text">Forum</h1>
+            <p className="text-xs text-exchange-muted">Topluluk akışı</p>
+          </div>
+          {myId && myUsername && (
+            <button
+              type="button"
+              onClick={() => openProfile(myUsername)}
+              className="flex shrink-0 items-center gap-2 rounded-full border border-exchange-border bg-exchange-card py-1.5 pl-1.5 pr-3.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow active:scale-95"
+              aria-label="Profilim"
+            >
+              {myAvatarUrl ? (
+                <img src={myAvatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" />
+              ) : (
+                <DefaultAvatar size="xs" />
+              )}
+              Profilim
+            </button>
+          )}
         </div>
 
         <div className="border-b border-exchange-border px-3 py-3 sm:px-4">
@@ -614,15 +633,16 @@ function PostRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
-            <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5">
-              <button
-                type="button"
-                onClick={() => onOpenProfile(post.username)}
-                title={`${displayName} profilini aç`}
-                className="min-w-0 max-w-full truncate text-sm font-bold text-exchange-text transition-colors hover:text-exchange-yellow hover:underline"
-              >
-                {displayName}
-              </button>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+                <button
+                  type="button"
+                  onClick={() => onOpenProfile(post.username)}
+                  title={`${displayName} profilini aç`}
+                  className="min-w-0 max-w-full truncate text-sm font-bold text-exchange-text transition-colors hover:text-exchange-yellow hover:underline"
+                >
+                  {post.displayName || displayName}
+                </button>
               {post.verifiedTier !== 'none' && (
                 <VerifiedBadge tone={post.verifiedTier === 'super' ? 'gold' : 'blue'} />
               )}
@@ -631,6 +651,14 @@ function PostRow({
                   {post.userTag}
                 </span>
               )}
+              </span>
+              <button
+                type="button"
+                onClick={() => onOpenProfile(post.username)}
+                className="mt-px w-fit max-w-full truncate text-left font-mono text-[11px] text-exchange-muted transition-colors hover:text-exchange-yellow hover:underline"
+              >
+                @{post.username.toLowerCase()}
+              </button>
             </span>
             <span className="shrink-0 whitespace-nowrap text-[11px] text-exchange-muted">
               {formatTimeAgo(post.createdAt)}
@@ -730,21 +758,30 @@ function PostRow({
                       )}
                       <div className="min-w-0 flex-1 rounded-xl bg-exchange-surface/60 px-2.5 py-1.5">
                         <div className="flex min-w-0 items-baseline gap-1.5">
-                          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-0.5">
-                            <span className="truncate text-xs font-bold text-exchange-text">
-                              {forumDisplayName(reply.username, reply.userId)}
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+                              <button
+                                type="button"
+                                onClick={() => onOpenProfile(reply.username)}
+                                className="min-w-0 max-w-full truncate text-xs font-bold text-exchange-text transition-colors hover:text-exchange-yellow hover:underline"
+                              >
+                                {reply.displayName || forumDisplayName(reply.username, reply.userId)}
+                              </button>
+                              {reply.verifiedTier !== 'none' && (
+                                <VerifiedBadge
+                                  small
+                                  tone={reply.verifiedTier === 'super' ? 'gold' : 'blue'}
+                                />
+                              )}
+                              {reply.userTag && (
+                                <span className="max-w-full truncate rounded-full bg-exchange-yellow/15 px-1.5 py-px text-[9px] font-bold text-exchange-yellow">
+                                  {reply.userTag}
+                                </span>
+                              )}
                             </span>
-                            {reply.verifiedTier !== 'none' && (
-                              <VerifiedBadge
-                                small
-                                tone={reply.verifiedTier === 'super' ? 'gold' : 'blue'}
-                              />
-                            )}
-                            {reply.userTag && (
-                              <span className="max-w-full truncate rounded-full bg-exchange-yellow/15 px-1.5 py-px text-[9px] font-bold text-exchange-yellow">
-                                {reply.userTag}
-                              </span>
-                            )}
+                            <span className="mt-px w-fit max-w-full truncate font-mono text-[10px] text-exchange-muted">
+                              @{reply.username.toLowerCase()}
+                            </span>
                           </span>
                           <span className="shrink-0 whitespace-nowrap text-[10px] text-exchange-muted">
                             {formatTimeAgo(reply.createdAt)}

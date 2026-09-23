@@ -142,10 +142,22 @@ export function parseVerifiedTier(value: unknown): VerifiedTier {
   return value === 'super' || value === 'admin' ? value : 'none'
 }
 
+/**
+ * Görünen isim çözümleyici: sunucu damgası (`display_name`) varsa o,
+ * yoksa (eski DB) kullanıcı adı. Profilde belirlenen isim forumda
+ * BÖYLE görünür; altında `@kullanıcıadı` yazılır.
+ */
+export function displayNameOf(row: Record<string, unknown>, username: string): string {
+  const d = optText(row, 'display_name')
+  return d ?? username
+}
+
 export interface ForumPost {
   id: string
   userId: string
   username: string
+  /** Profilde belirlenen görünen isim (yoksa kullanıcı adıyla aynı). */
+  displayName: string
   content: string
   likeCount: number
   likedByMe: boolean
@@ -166,6 +178,8 @@ export interface ForumReply {
   postId: string
   userId: string
   username: string
+  /** Profilde belirlenen görünen isim (yoksa kullanıcı adıyla aynı). */
+  displayName: string
   content: string
   likeCount: number
   likedByMe: boolean
@@ -363,6 +377,7 @@ function toForumPost(row: LocalStoredPost, myId: string | null): ForumPost {
     id: row.id,
     userId: row.userId,
     username,
+    displayName: username,
     content: row.content,
     likeCount: row.likedBy.length,
     likedByMe: myId !== null && row.likedBy.includes(myId),
@@ -384,6 +399,7 @@ function toForumReply(postId: string, row: LocalStoredReply, myId: string | null
     postId,
     userId: row.userId,
     username,
+    displayName: username,
     content: row.content,
     likeCount: row.likedBy.length,
     likedByMe: me !== null && row.likedBy.includes(me),
@@ -460,6 +476,7 @@ export async function listForumPostsByAuthor(username: string): Promise<ForumPos
         id: String(r.id ?? ''),
         userId: String(r.user_id ?? ''),
         username: forumDisplayName(String(r.username ?? ''), String(r.user_id ?? '')),
+      displayName: displayNameOf(r, forumDisplayName(String(r.username ?? ''), String(r.user_id ?? ''))),
         content: String(r.content ?? ''),
         likeCount: typeof r.like_count === 'number' ? r.like_count : 0,
         likedByMe: liked.has(String(r.id ?? '')),
@@ -514,6 +531,7 @@ async function listRemote(): Promise<ForumPost[]> {
       id: String(r.id ?? ''),
       userId: String(r.user_id ?? ''),
       username: forumDisplayName(String(r.username ?? ''), String(r.user_id ?? '')),
+      displayName: displayNameOf(r, forumDisplayName(String(r.username ?? ''), String(r.user_id ?? ''))),
       content: String(r.content ?? ''),
       likeCount: typeof r.like_count === 'number' ? r.like_count : 0,
       likedByMe: liked.has(String(r.id ?? '')),
@@ -578,6 +596,7 @@ async function createRemote(
     id: String(row.id ?? ''),
     userId: String(row.user_id ?? ''),
     username: forumDisplayName(String(row.username ?? ''), String(row.user_id ?? '')),
+    displayName: displayNameOf(row, forumDisplayName(String(row.username ?? ''), String(row.user_id ?? ''))),
     content: String(row.content ?? ''),
     likeCount: typeof row.like_count === 'number' ? row.like_count : 0,
     likedByMe: false,
@@ -668,6 +687,7 @@ export async function createBotForumPost(
         id: String(row.id ?? ''),
         userId: String(row.user_id ?? ''),
         username: forumDisplayName(String(row.username ?? ''), String(row.user_id ?? '')),
+      displayName: displayNameOf(row, forumDisplayName(String(row.username ?? ''), String(row.user_id ?? ''))),
         content: String(row.content ?? ''),
         likeCount: typeof row.like_count === 'number' ? row.like_count : 0,
         likedByMe: false,
@@ -820,6 +840,7 @@ export async function listForumReplies(postId: string): Promise<ForumReply[]> {
         postId: String(r.post_id ?? postId),
         userId: String(r.user_id ?? ''),
         username: forumDisplayName(String(r.username ?? ''), String(r.user_id ?? '')),
+      displayName: displayNameOf(r, forumDisplayName(String(r.username ?? ''), String(r.user_id ?? ''))),
         content: String(r.content ?? ''),
         likeCount: typeof r.like_count === 'number' ? r.like_count : 0,
         likedByMe: liked.has(String(r.id ?? '')),
@@ -858,6 +879,7 @@ export async function createForumReply(
       postId: String(row.post_id ?? postId),
       userId: String(row.user_id ?? ''),
       username: forumDisplayName(String(row.username ?? ''), String(row.user_id ?? '')),
+      displayName: displayNameOf(row, forumDisplayName(String(row.username ?? ''), String(row.user_id ?? ''))),
       content: String(row.content ?? ''),
       likeCount: typeof row.like_count === 'number' ? row.like_count : 0,
       likedByMe: false,

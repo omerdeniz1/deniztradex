@@ -6,6 +6,7 @@ import {
   getPublicProfile,
   PERSONAS,
   unfollowUser,
+  validateDisplayName,
 } from '@/services/profileService'
 import type { User } from '@/types'
 
@@ -40,6 +41,16 @@ describe('profileService personae', () => {
     expect(formatFollowCount(25300)).toBe('25,3 B')
     expect(formatFollowCount(950)).toBe('950')
     expect(formatFollowCount(0)).toBe('0')
+  })
+})
+
+describe('validateDisplayName', () => {
+  it('boş, uzun ve yasak karakterli ismi reddeder', () => {
+    expect(() => validateDisplayName('   ')).toThrow('boş')
+    expect(() => validateDisplayName('x'.repeat(31))).toThrow('30')
+    expect(() => validateDisplayName('kötü<isim')).toThrow()
+    expect(() => validateDisplayName('ad@x')).toThrow()
+    expect(validateDisplayName('  Kripto   Balinası  ')).toBe('Kripto Balinası')
   })
 })
 
