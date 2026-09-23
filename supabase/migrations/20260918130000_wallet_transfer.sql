@@ -94,7 +94,7 @@ begin
   end if;
   alter table public.transactions
     add constraint transactions_type_check
-    check (type in ('trade_buy','trade_sell','withdraw','promo','referral','transfer_in','transfer_out'));
+    check (type in ('trade_buy','trade_sell','withdraw','promo','referral','transfer_in','transfer_out','fee'));
 end;
 $$;
 
