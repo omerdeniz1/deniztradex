@@ -144,15 +144,19 @@ export function resetLivePriceStream() {
 /**
  * Subscribe the given symbols to their own lightweight `@ticker` streams and
  * return the shared `livePrices` map (latest close prices).
+ *
+ * `exclude` — Binance'te karşılığı olmayan semboller (sanal coinler: ENTES,
+ * DNZ…): soket açılmaz (sonsuz reconnect fırtınası önlenir). Bunların fiyatı
+ * `useVirtualLivePrices` ile yoklamadan beslenir.
  */
-export function useLivePrices(symbols: string[]) {
+export function useLivePrices(symbols: string[], exclude?: ReadonlySet<string>) {
   const livePrices = useMarketStore((s) => s.livePrices)
 
   useEffect(() => {
     const next = new Set(
       symbols
         .map((s) => s.trim().toUpperCase())
-        .filter((s) => s.length > 0),
+        .filter((s) => s.length > 0 && !exclude?.has(s)),
     )
     for (const s of next) {
       if (!sockets.has(s)) openLivePriceSocket(s)
@@ -160,7 +164,13 @@ export function useLivePrices(symbols: string[]) {
     for (const s of Array.from(sockets.keys())) {
       if (!next.has(s)) closeLivePriceSocket(s)
     }
-  }, [symbols])
+    // Hariç tutulan sembolde açık kalmış soket varsa kapat (sanal kontrat vb.).
+    if (exclude) {
+      for (const s of Array.from(sockets.keys())) {
+        if (exclude.has(s)) closeLivePriceSocket(s)
+      }
+    }
+  }, [symbols, exclude])
 
   // Unmount: close every per-symbol socket (its own effect is deps-driven, so
   // this cleanup only ever runs on unmount).

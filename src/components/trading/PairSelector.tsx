@@ -26,7 +26,8 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live, mode, virt
 
   const base = symbol.replace('USDT', '')
 
-  // Vadeli mod + kontrat listesi biliniyorsa yalnızca vadeli kontratlar.
+  // Vadeli mod + kontrat listesi biliniyorsa yalnızca vadeli kontratlar
+  // (Binance USDT-M + kendi sanal perpetual'larımız: ENTES, DNZ…).
   // Liste bilinmiyorsa (çevrimdışı) filtre uygulanmaz — menü boş kalmaz.
   const allPairs = useMemo(() => {
     const entries = Object.values(tickers).filter(
@@ -36,7 +37,11 @@ export function PairSelector({ symbol, onSymbolChange, tickers, live, mode, virt
     )
     const inFutures = mode === 'futures' && futuresSymbols
     const filtered = inFutures
-      ? entries.filter((t) => futuresSymbols.has(t.symbol.toUpperCase()))
+      ? entries.filter(
+          (t) =>
+            futuresSymbols.has(t.symbol.toUpperCase()) ||
+            virtualSymbols?.has(t.symbol.toUpperCase()),
+        )
       : entries
     return filtered.sort((a, b) => a.symbol.localeCompare(b.symbol))
   }, [tickers, mode, futuresSymbols, virtualSymbols])

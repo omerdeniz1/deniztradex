@@ -6,6 +6,7 @@ import {
   positionSize,
   type OrderInput,
 } from '@/engine/calculations'
+import { isVirtualFuturesSymbol, VIRTUAL_MAX_LEVERAGE } from '@/lib/virtualFutures'
 import { useTradeStore } from '@/store/tradeStore'
 import { useOrderStore, type OrderSpec, type OrderStance } from '@/store/orderStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -87,6 +88,14 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
     setSide(initialSide ?? (mode === 'spot' ? 'buy' : 'long'))
   }, [mode, initialSide])
   const [leverage, setLeverage] = useState(10)
+  // Sanal perpetual'larda kaldıraç tavanı 20x (havuz oynaklığı freni);
+  // gerçek kontratlarda 125x. Sembol değişince tavan üstü değer çekilir.
+  const isVirtualSymbol = isVirtualFuturesSymbol(ticker?.symbol ?? '')
+  const maxLev = mode === 'futures' && isVirtualSymbol ? VIRTUAL_MAX_LEVERAGE : MAX_LEVERAGE
+  useEffect(() => {
+    setLeverage((v) => Math.min(v, maxLev))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticker?.symbol, mode])
   // Vadeli marjin modu: tek tıkla İzole/Çapraz geçiş (varsayılan İzole —
   // mevcut motorun teminat davranışı değişmez).
   const [marginMode, setMarginMode] = useState<MarginMode>('isolated')
@@ -384,14 +393,14 @@ export function TradingPanel({ ticker, mode, balance, marketPrice, initialSide, 
             <input
               type="range"
               min={MIN_LEVERAGE}
-              max={MAX_LEVERAGE}
+              max={maxLev}
               step={1}
-              value={leverage}
+              value={Math.min(leverage, maxLev)}
               aria-label="Leverage slider"
-              onChange={(e) => setLeverage(Number(e.target.value))}
+              onChange={(e) => setLeverage(Math.min(Number(e.target.value), maxLev))}
               className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-exchange-border accent-exchange-yellow"
             />
-            <span className="text-xs text-exchange-muted">{MAX_LEVERAGE}x</span>
+            <span className="text-xs text-exchange-muted">{maxLev}x</span>
           </div>
         </div>
       )}

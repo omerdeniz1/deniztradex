@@ -98,6 +98,34 @@ describe('PairSelector futures filtresi', () => {
     expect(screen.getByRole('option', { name: /BTC/ })).toBeInTheDocument()
   })
 
+  it('vadeli modda sanal perpetual kontratları da listeler (ENTES, DNZ…)', async () => {
+    mockExchangeInfo([
+      { symbol: 'BTCUSDT', status: 'TRADING', contractType: 'PERPETUAL', quoteAsset: 'USDT' },
+    ])
+    render(
+      <PairSelector
+        symbol="BTCUSDT"
+        onSymbolChange={() => {}}
+        tickers={{
+          ...tickers,
+          ENTES: { symbol: 'ENTES', price: 10, change24h: 0, changePercent24h: 0, volume24h: 5 },
+        }}
+        live
+        mode="futures"
+        virtualSymbols={new Set(['ENTES'])}
+      />,
+    )
+    await openMenu()
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /BTC/ })).toBeInTheDocument()
+    })
+    // Binance kontratı değil ama sanal perpetual — yine listelenir.
+    expect(screen.getByRole('option', { name: /ENTES/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /FAKE/ })).not.toBeInTheDocument()
+    expect(screen.getByText('2 vadeli kontrat')).toBeInTheDocument()
+  })
+
   it('kontrat listesi alınamazsa filtre uygulamaz (fail-open)', async () => {
     vi.stubGlobal(
       'fetch',

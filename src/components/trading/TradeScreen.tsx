@@ -1,9 +1,10 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useBinanceKlines } from '@/hooks/useBinanceKlines'
 import { useUnifiedTickers } from '@/hooks/useUnifiedTickers'
 import { useVirtualKlines } from '@/hooks/useVirtualKlines'
+import { useVirtualLivePrices } from '@/hooks/useVirtualLivePrices'
 import { useLivePrices } from '@/hooks/useLivePrices'
 import { useTradeStore } from '@/store/tradeStore'
 import { useOrderStore } from '@/store/orderStore'
@@ -113,7 +114,10 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
       ).slice(0, 40),
     [symbol, positions, spotPositions, spotBalances],
   )
-  const livePrices = useLivePrices(tradedSymbols)
+  // Sanal sembollere Binance soketi açılmaz (karşılığı yok); fiyatları
+  // havuz yoklamasından beslenir (aşağıda useVirtualLivePrices).
+  const livePrices = useLivePrices(tradedSymbols, virtualSymbols)
+  useVirtualLivePrices(tickers, virtualSymbols)
 
   // Grafik: zaman dilimi + indikatör seçimleri cihazda saklanır.
   const [interval, setIntervalState] = useState<Interval>(readStoredInterval)
@@ -191,14 +195,8 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [error, isVirtual])
 
-  // Sanal coinlerde vadeli kontrat yoktur — vadeli rotası spot'a yönlenir.
-  const navigate = useNavigate()
-  useEffect(() => {
-    if (isVirtual && mode === 'futures') {
-      navigate(`/spot?symbol=${symbol}`, { replace: true })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVirtual, mode])
+  // Sanal coinlerde vadeli kontrat vardır (havuz fiyatlı perpetual):
+  // yönlendirme yok — vadeli modda standart long/short paneli açılır.
 
   // Risk parametreleri (DB `risk_config` + güvenli varsayılan).
   const risk = useRiskParams()
@@ -840,9 +838,10 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
         </section>
 
         {/* Right: trading panel (yalnızca masaüstü — mobilde bottom sheet kullanılır).
-            Sanal sembolde AMM paneli, DNZ dahil gerçekte standart panel. */}
+            Spot + sanal sembolde AMM paneli; vadeli modda (sanal dahil) standart
+            long/short paneli — sanal kontratlar havuz fiyatından işler. */}
         <aside className="hidden max-w-full border-t border-exchange-border bg-exchange-surface md:block md:h-full md:w-[360px] md:shrink-0 md:overflow-y-auto md:border-t-0 md:border-l">
-          {isVirtual ? (
+          {isVirtual && mode === 'spot' ? (
             <VirtualTradePanel key={`v-${symbol}`} symbol={symbol} marketPrice={livePrices[symbol]} />
           ) : (
             <TradingPanel
@@ -907,7 +906,7 @@ export function TradeScreen({ mode }: { mode: TradingMode }) {
                 </button>
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-exchange-border">
-                {isVirtual ? (
+                {isVirtual && mode === 'spot' ? (
                   <VirtualTradePanel
                     key={`v-${symbol}-${sheetSide}`}
                     symbol={symbol}

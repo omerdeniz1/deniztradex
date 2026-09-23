@@ -65,6 +65,30 @@ describe('openPosition', () => {
     expect(after.balance).toBeCloseTo(900) // margin = 1000*1/10
   })
 
+  it('sanal perpetual kontratlarda kaldıracı 20x tavana çeker', () => {
+    useTradeStore.getState().deposit(10000)
+    const result = useTradeStore.getState().openPosition(
+      makeOrder({ symbol: 'ENTES', mode: 'futures', leverage: 125, quantity: 10, entryPrice: 10 }),
+    )
+
+    expect(result.ok).toBe(true)
+    const after = useTradeStore.getState()
+    expect(after.positions).toHaveLength(1)
+    expect(after.positions[0].leverage).toBe(20)
+    // Marjin de tavanlı kaldıraçtan: 10*10/20 = 5
+    expect(after.balance).toBeCloseTo(9995)
+  })
+
+  it('gerçek kontratlarda 125x kaldıraç aynen geçer', () => {
+    useTradeStore.getState().deposit(10000)
+    const result = useTradeStore.getState().openPosition(
+      makeOrder({ symbol: 'BTCUSDT', mode: 'futures', leverage: 125, quantity: 1, entryPrice: 1000 }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(useTradeStore.getState().positions[0].leverage).toBe(125)
+  })
+
   it('rejects an order beyond account purchasing power', () => {
     useTradeStore.getState().deposit(100)
     const result = useTradeStore.getState().openPosition(

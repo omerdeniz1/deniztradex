@@ -11,6 +11,7 @@ import { getSessionUserId, WALLET_STORAGE_KEY } from '@/services/authService'
 import { claimPromoRemote, pushBalanceToServer, recordTransaction } from '@/services/supabaseWallet'
 import { quoteSpotFee, SPOT_FEE_RATE, type FeeQuote } from '@/engine/fees'
 import { useDnzStore } from '@/store/dnzStore'
+import { clampFuturesLeverage } from '@/lib/virtualFutures'
 import { roundTo } from '@/lib/utils'
 import type { MarginMode, OrderSide, Position, TradingMode } from '@/types'
 
@@ -356,6 +357,9 @@ export const useTradeStore = create<TradeState>()(
 
       openPosition: (input) => {
         const { balance, positions } = get()
+        // Sanal perpetual'larda kaldıraç tavanı 20x (panel + motor çift kilit).
+        const effLeverage =
+          input.mode === 'futures' ? clampFuturesLeverage(input.symbol, input.leverage) : 1
         if (positionSize(balance, input).quantity === 0 && input.quantity > 0) {
           return { ok: false, error: 'Insufficient balance for this order size.' }
         }
@@ -363,7 +367,7 @@ export const useTradeStore = create<TradeState>()(
           input.quantity,
           balance,
           input.entryPrice,
-          input.mode === 'futures' ? input.leverage : 1,
+          effLeverage,
         )
         if (quantity <= 0) {
           return { ok: false, error: 'Amount must be greater than zero.' }
@@ -372,6 +376,7 @@ export const useTradeStore = create<TradeState>()(
         const marginNeeded = positionSize(balance, {
           ...input,
           quantity,
+          leverage: effLeverage,
         }).margin
 
         const position: Position = {
@@ -380,7 +385,7 @@ export const useTradeStore = create<TradeState>()(
           side: input.side,
           entryPrice: input.entryPrice,
           quantity,
-          leverage: input.mode === 'futures' ? input.leverage : 1,
+          leverage: effLeverage,
           mode: input.mode,
           openedAt: Date.now(),
           ...(input.tpPrice ? { tpPrice: input.tpPrice } : {}),
@@ -642,7 +647,7 @@ export const useTradeStore = create<TradeState>()(
           return { ok: true }
         }
 
-        const lev = mode === 'futures' ? leverage : 1
+        const lev = mode === 'futures' ? clampFuturesLeverage(symbol, leverage) : 1
         if (tif === 'FOK' && capQuantityByBalance(quantity, get().balance, entryPrice, lev) < quantity) {
           return { ok: false, error: 'FOK: tam miktar karşılanamıyor.' }
         }
