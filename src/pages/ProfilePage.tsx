@@ -147,7 +147,10 @@ export function ProfilePage() {
   }
 
   const openEdit = () => {
-    if (!profile) return
+    if (!profile) {
+      pushToast({ message: 'Profil henüz yüklenemedi. Biraz bekleyip tekrar dene.', tone: 'error' })
+      return
+    }
     setNameDraft(profile.username)
     setBioDraft(profile.bio)
     setAvatarFile(null)
@@ -185,17 +188,26 @@ export function ProfilePage() {
     }
     setEditBusy(true)
     try {
-      const me = getSessionUser()
-      // Fotoğraf önce yüklenir (tetikleyici eski yazılara da işler).
-      if (avatarFile && me) {
-        const url = await uploadAvatarFile(me.id, avatarFile)
-        updateSessionAvatarUrl(url)
-        setProfile((p) => (p ? { ...p, avatarUrl: url } : p))
-      }
+      // İsim + tanıtım yazısı ÖNCE kaydedilir; fotoğraf best-effort'tur —
+      // fotoğraf yüklenemezse isim/bio kaydı çöpe gitmez (eskiden erken
+      // dönüş vardı: fotoğraf hatasında hiçbir şey kaydedilmiyordu).
       await updateMyProfile({ displayName, bio: bioDraft })
       setProfile((p) =>
         p ? { ...p, username: displayName, bio: bioDraft.trim().slice(0, 220) } : p,
       )
+      const me = getSessionUser()
+      if (avatarFile && me) {
+        try {
+          const url = await uploadAvatarFile(me.id, avatarFile)
+          updateSessionAvatarUrl(url)
+          setProfile((p) => (p ? { ...p, avatarUrl: url } : p))
+        } catch (err) {
+          pushToast({
+            message: err instanceof Error ? err.message : 'Fotoğraf yüklenemedi.',
+            tone: 'error',
+          })
+        }
+      }
       setEditOpen(false)
       pushToast({ message: 'Profil güncellendi — forumdaki ismin ve fotoğrafın değişti.', tone: 'success' })
     } catch (err) {

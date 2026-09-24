@@ -354,14 +354,48 @@ export async function updateMyProfile(input: { displayName: string; bio: string 
     } catch {
       // yoksay — aşağıdaki update yine denenir
     }
-    const { error } = await supabase
+    // `.select('id')` bilerek: RLS/satır-yok durumunda PostgREST hata
+    // vermeden BOŞ döner; boş dönüş "kaydedildi" sanılmasın diye
+    // açık hataya çevrilir.
+    const { data, error } = await supabase
       .from('profiles')
       .update({ display_name: displayName, bio })
       .eq('id', userId)
+      .select('id')
+    if (!error && Array.isArray(data) && data.length > 0) return
+    if (error && isMissingProfileColumn(error)) {
+      // Eski DB (`display_name` kolonu yok): tanıtım yazısı yine
+      // kurtarılır, isim için yöneticiye yol gösterilir.
+      const retry = await supabase
+        .from('profiles')
+        .update({ bio })
+        .eq('id', userId)
+        .select('id')
+      if (!retry.error && Array.isArray(retry.data) && retry.data.length > 0) {
+        throw new Error(
+          'Tanıtım yazısı kaydedildi; görünen isim için veritabanı güncellemesi gerekli — yönetici APPLY_ALL_PENDING.sql çalıştırmalı.',
+        )
+      }
+    }
     if (error) throw new Error('Profil güncellenemedi. Lütfen tekrar dene.')
-    return
+    throw new Error(
+      'Profil satırına yazılamadı (kayıt bulunamadı ya da engellendi). Çıkış yapıp tekrar giriş yapmayı dene.',
+    )
   }
   // Çevrimdışı modda yazım yok — sessiz geç.
+}
+
+/** `display_name`/`bio` kolonu yok mu? (migration uygulanmamış eski DB) */
+function isMissingProfileColumn(err: unknown): boolean {
+  const raw = (err ?? {}) as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown }
+  const code = String(raw.code ?? '').toUpperCase()
+  const text = `${String(raw.message ?? '')} ${String(raw.details ?? '')} ${String(raw.hint ?? '')}`.toLowerCase()
+  return (
+    code === 'PGRST204' ||
+    code === '42703' ||
+    text.includes('display_name') ||
+    (text.includes('column') && text.includes('does not exist'))
+  )
 }
 
 function mapFollowError(error: unknown): string {
