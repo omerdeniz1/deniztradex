@@ -54,4 +54,21 @@ describe('ProfilePage (çevrimdışı persona)', () => {
     )
     expect(await screen.findByRole('dialog', { name: 'Profili düzenle' })).toBeInTheDocument()
   })
+
+  it('?edit=1 kart eşleşmese bile oturum verisiyle pencere açar', async () => {
+    localStorage.setItem(
+      'deniztradx_session',
+      JSON.stringify({ id: 'u_alice', username: 'alice', email: 'a@x.com', createdAt: 1 }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/profile/blackrock?edit=1']}>
+        <Routes>
+          <Route path="/profile/:username" element={<ProfilePage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByRole('dialog', { name: 'Profili düzenle' })).toBeInTheDocument()
+    // Oturum ismiyle dolar (persona kartı değil).
+    expect(screen.getByPlaceholderText('örn. Kripto Balinası')).toHaveValue('alice')
+  })
 })

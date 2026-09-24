@@ -117,11 +117,28 @@ export function ProfilePage() {
   }, [load])
 
   // Derin bağlantı: forum profil menüsündeki "Profili düzenle"
-  // `?edit=1` ile gelir — kendi profilinde düzenleme penceresi
-  // otomatik açılır (parametre tek kullanımlık temizlenir).
+  // `?edit=1` ile gelir — girişli kullanıcıda düzenleme penceresi
+  // HER durumda açılır (parametre tek kullanımlık temizlenir).
+  // Kart oturumla eşleşmese bile pencere oturum verisiyle dolar;
+  // kaydetme her zaman oturumun kendi satırına yazar, başkasına
+  // dokunmaz — menü isteği asla boşa düşmez.
   const wantEdit = searchParams.get('edit') === '1'
   useEffect(() => {
-    if (wantEdit && !loading && profile && isMine && !profile.isPersona && !editOpen) {
+    if (wantEdit && !loading && profile && !editOpen) {
+      const sessionUser = getSessionUser()
+      if (!sessionUser) {
+        setSearchParams({}, { replace: true })
+        return
+      }
+      if (isMine && !profile.isPersona) {
+        setNameDraft(profile.username)
+        setBioDraft(profile.bio)
+      } else {
+        setNameDraft(sessionUser.username)
+        setBioDraft(!profile.isPersona ? profile.bio : '')
+      }
+      setAvatarFile(null)
+      setAvatarPreview(null)
       setEditOpen(true)
       setSearchParams({}, { replace: true })
     }
