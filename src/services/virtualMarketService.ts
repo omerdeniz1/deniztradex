@@ -3,6 +3,7 @@ import { getSessionUserId } from '@/services/authService'
 import { useTradeStore } from '@/store/tradeStore'
 import { useDnzStore } from '@/store/dnzStore'
 import {
+  VIRTUAL_AMM_FEE_RATE,
   quoteVirtualBuy,
   quoteVirtualSell,
   quoteVirtualSellForUsdt,
@@ -756,6 +757,12 @@ export function executeAutoPoolTradeLocal(
   const pools = readPools()
   const pool = pools[symbol]
   if (!pool) throw new Error('Coin bulunamadı.')
+  // Ücret simetrisi (sunucu `execute_auto_market_trade` ile aynı kural):
+  // alış havuza net tutarı ekler, satış da net tutarı çıkarır — aksi
+  // halde 50/50 rastgele akış havuzdan tur başına `a·f` USDT sızdırıp
+  // fiyatı sistematik aşağı kaydırırdı.
+  const effAmount = side === 'buy' ? usdtAmount : usdtAmount * (1 - VIRTUAL_AMM_FEE_RATE)
+  if (!(effAmount > 0)) throw new Error('Geçersiz tutar.')
   const quote =
     side === 'buy'
       ? quoteVirtualBuy(
@@ -764,7 +771,7 @@ export function executeAutoPoolTradeLocal(
         )
       : quoteVirtualSellForUsdt(
           { symbol, reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
-          usdtAmount,
+          effAmount,
         )
   pools[symbol] = {
     reserveUsdt: quote.newReserveUsdt,

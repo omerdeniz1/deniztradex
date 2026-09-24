@@ -52,9 +52,21 @@ export const PERSONAS: PersonaSeed[] = [
 ]
 
 export function findPersona(username: string): PersonaSeed | null {
-  const key = username.trim().toLowerCase()
+  const key = normalizeHandle(username)
   if (!key) return null
-  return PERSONAS.find((p) => p.username.toLowerCase() === key) ?? null
+  return PERSONAS.find((p) => normalizeHandle(p.username) === key) ?? null
+}
+
+/**
+ * Handle karşılaştırma normalizasyonu: JS `toLowerCase()` dotted büyük
+ * `İ`'yi `i̇` (i + birleşen nokta) yapar, Postgres `lower()` ise düz `i`
+ * üretir. Önce `İ→i` eşlenip birleşen noktalar silinir — "İLHAM"/"ilham"
+ * her iki tarafta da aynı anahtara iner. Kendi profili kararı ve yerel
+ * yedek eşleşmeleri BUNUNLA yapılır, aksi halde `İ` içeren kullanıcı
+ * adlarında "Profili düzenle" kaybolur.
+ */
+export function normalizeHandle(value: string): string {
+  return (value ?? '').trim().replace(/İ/g, 'i').toLowerCase().replace(/̇/g, '')
 }
 
 export interface PublicProfile {
@@ -154,35 +166,41 @@ export async function getPublicProfile(username: string): Promise<PublicProfile 
 }
 
 /**
- * Yerel/çevrimdışı yedek: gerçek kullanıcı profili.
- *
- * Uzak mod yokken (vitest/çevrimdışı) `getPublicProfile` yalnızca
- * personaları bilirdi — gerçek kullanıcı kendi profilini açınca
- * "bulunamadı" görüp "Profili düzenle"ye hiç ulaşamazdı. Bu yedek
- * oturumdaki kullanıcıyı (ve aynı cihazda kayıtlı diğer yerel
- * kullanıcıları) kart olarak döndürür: isim + avatar oturumdan,
- * sayaçlar 0'dan başlar, gönderiler `listForumPostsByAuthor` ile
+ * Oturumdaki kullanıcı için her zaman kart üretir (oturum yoksa null).
+ * Profil sayfası "bulunamadı"ya düşmeden kendi profilini bu kartla
+ * gösterir — "Profili düzenle" hiçbir backend durumunda kaybolmaz.
+ * Sayaçlar 0'dan başlar, gönderiler `listForumPostsByAuthor` ile
  * ayrıca yüklenir.
  */
+export function sessionProfileCard(): PublicProfile | null {
+  try {
+    const me = getSessionUser()
+    if (!me) return null
+    return {
+      username: me.username,
+      handle: normalizeHandle(me.username),
+      bio: '',
+      avatarUrl: me.avatarUrl ?? null,
+      verifiedTier: 'none',
+      createdAt: me.createdAt ?? 0,
+      followers: 0,
+      following: 0,
+      posts: 0,
+      isFollowing: false,
+      isPersona: false,
+    }
+  } catch {
+    return null
+  }
+}
+
 function localRealProfile(needle: string): PublicProfile | null {
-  const key = needle.trim().toLowerCase()
+  const key = normalizeHandle(needle)
   if (!key) return null
   try {
     const me = getSessionUser()
-    if (me && me.username.trim().toLowerCase() === key) {
-      return {
-        username: me.username,
-        handle: key,
-        bio: '',
-        avatarUrl: me.avatarUrl ?? null,
-        verifiedTier: 'none',
-        createdAt: me.createdAt ?? 0,
-        followers: 0,
-        following: 0,
-        posts: 0,
-        isFollowing: false,
-        isPersona: false,
-      }
+    if (me && normalizeHandle(me.username) === key) {
+      return sessionProfileCard()
     }
   } catch {
     // yoksay — liste yedeğine düş
@@ -193,7 +211,7 @@ function localRealProfile(needle: string): PublicProfile | null {
       const users = JSON.parse(raw) as { username?: unknown }[]
       if (Array.isArray(users)) {
         const found = users.find(
-          (u) => typeof u?.username === 'string' && u.username.toLowerCase() === key,
+          (u) => typeof u?.username === 'string' && normalizeHandle(u.username) === key,
         )
         if (found && typeof found.username === 'string') {
           return {
@@ -324,6 +342,18 @@ export async function updateMyProfile(input: { displayName: string; bio: string 
   const displayName = validateDisplayName(input.displayName)
   const bio = input.bio.trim().slice(0, 220)
   if (isSupabaseConfigured && supabase) {
+    // Satır yoksa `update` sessizce 0 satıra dokunur (kayıt öncesi dönemden
+    // kalma hesaplarda "kaydedildi" görünüp hiçbir şey değişmezdi) — önce
+    // garanti satırı upsert edilir, sonra yazılır.
+    try {
+      const me = getSessionUser()
+      if (me) {
+        const { ensureProfileRow } = await import('@/services/supabaseWallet')
+        await ensureProfileRow({ id: userId, username: me.username, email: me.email })
+      }
+    } catch {
+      // yoksay — aşağıdaki update yine denenir
+    }
     const { error } = await supabase
       .from('profiles')
       .update({ display_name: displayName, bio })

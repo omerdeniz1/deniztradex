@@ -1287,11 +1287,48 @@ function AnnouncementManager() {
   )
 }
 
+/** Karakter botu hedef seçimleri (bot id → sembol) — menü değişiminde
+ * sıfırlanmasın diye localStorage'da saklanır. */
+const BOT_TARGETS_KEY = 'deniztradx_bot_targets'
+
+function readStoredBotTargets(): Record<string, string> {
+  const next: Record<string, string> = {}
+  for (const b of CHARACTER_BOTS) next[b.id] = b.defaultCoin
+  try {
+    const raw = localStorage.getItem(BOT_TARGETS_KEY)
+    if (!raw) return next
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (parsed && typeof parsed === 'object') {
+      for (const b of CHARACTER_BOTS) {
+        const v = parsed[b.id]
+        if (typeof v === 'string' && v.trim()) next[b.id] = v.trim().toUpperCase()
+      }
+    }
+  } catch {
+    // yoksay — varsayılanlar geçerli
+  }
+  return next
+}
+
 function BotTestPanel() {
   const pushToast = useToastStore((s) => s.push)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [coins, setCoins] = useState<string[]>([])
-  const [targets, setTargets] = useState<Record<string, string>>({})
+  const [targets, setTargets] = useState<Record<string, string>>(readStoredBotTargets)
+
+  const setTarget = (botId: string, symbol: string) => {
+    const clean = symbol.trim().toUpperCase()
+    if (!clean) return
+    setTargets((prev) => {
+      const next = { ...prev, [botId]: clean }
+      try {
+        localStorage.setItem(BOT_TARGETS_KEY, JSON.stringify(next))
+      } catch {
+        // yoksay — seçim yine de bu oturumda korunur
+      }
+      return next
+    })
+  }
 
   // Hedef listesi: tüm sanal coinler + emtialar (kripto/emtia ayrımıyla).
   useEffect(() => {
@@ -1358,7 +1395,7 @@ function BotTestPanel() {
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <select
                 value={targets[b.id] ?? b.defaultCoin}
-                onChange={(e) => setTargets((prev) => ({ ...prev, [b.id]: e.target.value }))}
+                onChange={(e) => setTarget(b.id, e.target.value)}
                 aria-label={`${b.name} hedef coin`}
                 disabled={busyKey !== null}
                 className="h-9 min-w-0 flex-1 cursor-pointer rounded-lg border border-exchange-border bg-exchange-bg px-2 font-mono text-xs font-bold text-exchange-text outline-none focus:border-exchange-yellow disabled:opacity-50 sm:max-w-44"
@@ -1441,6 +1478,7 @@ function AutoBotControl() {
     setSaving(true)
     try {
       await saveAutoBotConfig(next)
+      pushToast({ message: 'Oto-bot ayarı kaydedildi.', tone: 'success' })
     } catch {
       pushToast({ message: 'Ayar yerelde saklandı, sunucuya yazılamadı.', tone: 'error' })
     } finally {

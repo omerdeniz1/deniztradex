@@ -11,6 +11,8 @@ import {
   formatFollowCount,
   getPublicProfile,
   listFollows,
+  normalizeHandle,
+  sessionProfileCard,
   unfollowUser,
   updateMyProfile,
   validateDisplayName,
@@ -60,17 +62,19 @@ export function ProfilePage() {
   const [followListLoading, setFollowListLoading] = useState(false)
 
   const me = getSessionUser()
-  // Kendi profili kararı profil kartındaki `handle` ile verilir (URL'deki
+  // Kendi profili kararı normalize edilmiş `handle` ile verilir (URL'deki
   // görünen isimle değil): görünen isim boşluklu/değişmiş olsa bile kendi
-  // profilinde "Profili düzenle" kaybolmaz. Kart henüz yüklenmediyse
-  // rota parametresiyle ön karar verilir.
-  const routeKey = username.trim().toLowerCase()
-  const isMineByRoute = me !== null && me.username.trim().toLowerCase() === routeKey
+  // profilinde "Profili düzenle" kaybolmaz. `normalizeHandle` Türkçe
+  // dotted-İ'yi de eşler (JS lower vs Postgres lower farkı). Kart henüz
+  // yüklenmediyse rota parametresiyle ön karar verilir.
+  const routeKey = normalizeHandle(username)
+  const myKey = me ? normalizeHandle(me.username) : ''
+  const isMineByRoute = me !== null && myKey !== '' && myKey === routeKey
   const isMineByProfile =
     me !== null &&
     profile !== null &&
     !profile.isPersona &&
-    profile.handle.trim().toLowerCase() === me.username.trim().toLowerCase()
+    normalizeHandle(profile.handle) === myKey
   const isMine = profile ? isMineByProfile : isMineByRoute
 
   const load = useCallback(async () => {
@@ -80,17 +84,27 @@ export function ProfilePage() {
         getPublicProfile(username),
         listForumPostsByAuthor(username).catch(() => [] as ForumPost[]),
       ])
-      // Yerel yedekte sayaçlar 0 gelir; başlıkta "0 Gönderi" yazıp altta
-      // liste dolu görünmesin diye gerçek liste uzunluğuyla uzlaştır.
-      if (p && !p.isPersona && list.length > p.posts) {
-        setProfile({ ...p, posts: list.length })
+      // Servis hiçbir kart döndüremediyse bile rota oturum sahibine aitse
+      // oturum kartı basılır: kendi profili ASLA "bulunamadı"ya düşmez,
+      // "Profili düzenle" her durumda görünür.
+      let card = p
+      if (!card) {
+        const mine = sessionProfileCard()
+        if (mine && normalizeHandle(mine.handle) === normalizeHandle(username)) {
+          card = { ...mine, posts: list.length }
+        }
+      }
+      // Yerel/oturum yedeğinde sayaçlar 0 gelir; başlıkta "0 Gönderi"
+      // yazıp altta liste dolu görünmesin diye gerçek uzunlukla uzlaştır.
+      if (card && !card.isPersona && list.length > card.posts) {
+        setProfile({ ...card, posts: list.length })
       } else {
-        setProfile(p)
+        setProfile(card)
       }
       setPosts(list)
-      if (p) {
-        setBioDraft(p.bio)
-        setNameDraft(p.username)
+      if (card) {
+        setBioDraft(card.bio)
+        setNameDraft(card.username)
       }
     } finally {
       setLoading(false)

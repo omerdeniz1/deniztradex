@@ -123,6 +123,12 @@ export const VALID_REFERRAL_CODES = ['testref2026']
  */
 export const RESERVED_USERNAMES = [
   'deniztradex',
+  // Forum senaryo/persona hesapları: bu adları alan gerçek kullanıcı,
+  // profil RPC'sinde persona kartıyla eşleşip "Profili düzenle"yi
+  // kaybederdi (persona önce bakılır). Kayıt + isim değişiminde yasak.
+  'deniztradexx',
+  'omerbabaparayapmakta',
+  'blackrock',
   'admin',
   'administrator',
   'moderator',

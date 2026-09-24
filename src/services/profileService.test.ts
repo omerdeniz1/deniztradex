@@ -5,7 +5,9 @@ import {
   formatFollowCount,
   getPublicProfile,
   listFollows,
+  normalizeHandle,
   PERSONAS,
+  sessionProfileCard,
   unfollowUser,
   validateDisplayName,
 } from '@/services/profileService'
@@ -81,5 +83,26 @@ describe('profileService (çevrimdışı)', () => {
     await expect(listFollows('blackrock', 'followers')).resolves.toEqual([])
     await expect(listFollows('blackrock', 'following')).resolves.toEqual([])
     await expect(listFollows('  ', 'followers')).resolves.toEqual([])
+  })
+
+  it('oturum kartı kendi profilini her zaman üretir (düzenle kaybolmaz)', async () => {
+    loginAs(null)
+    expect(sessionProfileCard()).toBeNull()
+    loginAs(alice)
+    expect(sessionProfileCard()).toMatchObject({
+      handle: 'alice',
+      isPersona: false,
+    })
+    // Oturum kullanıcısı persona değilse profili bulunur.
+    await expect(getPublicProfile('alice')).resolves.toMatchObject({
+      handle: 'alice',
+      isPersona: false,
+    })
+  })
+
+  it('normalizeHandle Türkçe İ harfini eşler', () => {
+    expect(normalizeHandle('İLHAM')).toBe(normalizeHandle('ilham'))
+    expect(normalizeHandle('  BlackRock ')).toBe('blackrock')
+    expect(normalizeHandle('')).toBe('')
   })
 })

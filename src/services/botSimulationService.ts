@@ -27,6 +27,18 @@ function randomIn(min: number, max: number): number {
   return Math.floor(min + Math.random() * (max - min + 1))
 }
 
+/**
+ * Bot gönderisi sahte beğeni bandı: 20B–180B arası uniform rastgele.
+ * Forumda `formatLikeCount` ile "20B"–"180B" görünür. Bant tek merkezden
+ * yönetilir — tüm karakter botları aynı vitrin aralığını kullanır.
+ */
+export const BOT_LIKES_MIN = 20000
+export const BOT_LIKES_MAX = 180000
+
+export function randomBotLikes(): number {
+  return randomIn(BOT_LIKES_MIN, BOT_LIKES_MAX)
+}
+
 function fmtPct(n: number): string {
   const sign = n >= 0 ? '+' : ''
   return `${sign}${n.toFixed(2)}`
@@ -63,7 +75,7 @@ export async function triggerElonMusk(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'Elon Musk',
     'SVG aya çıkıyor! 🚀',
-    randomIn(1500, 2000),
+    randomBotLikes(),
   )
   const { amount, scaled } = await scaleBotAmount('SVGC', 50000)
   const trade = await executeBotPoolTrade('SVGC', 'buy', amount)
@@ -80,7 +92,7 @@ export async function triggerEntesYoneticisiGood(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'Entes Yöneticisi',
     pick(ENTES_YONETICI_UP_POSTS),
-    randomIn(800, 1200),
+    randomBotLikes(),
   )
   const { amount, scaled } = await scaleBotAmount('ENTES', 500000)
   const trade = await executeBotPoolTrade('ENTES', 'buy', amount)
@@ -97,7 +109,7 @@ export async function triggerEntesYoneticisiBad(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'Entes Yöneticisi',
     pick(ENTES_YONETICI_DOWN_POSTS),
-    randomIn(800, 1200),
+    randomBotLikes(),
   )
   const { amount, scaled } = await scaleBotAmount('ENTES', 500000)
   const trade = await executeBotPoolTrade('ENTES', 'sell', amount)
@@ -114,7 +126,7 @@ export async function triggerIlhamMemis(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'İlham Memiş',
     'Dikkat: Kripto çöküyor, altına geçin. V-XAU güvenli limandır. Yıllardır söylüyorum, yine haklı çıkacağım.',
-    randomIn(1000, 1500),
+    randomBotLikes(),
   )
   const { amount, scaled } = await scaleBotAmount('V-XAU', 200000)
   const trade = await executeBotPoolTrade('V-XAU', 'buy', amount)
@@ -131,7 +143,7 @@ export async function triggerKriptoKaplani(): Promise<BotActionResult> {
   const post = await createBotForumPost(
     'Kripto Kaplanı',
     'Ben demiştim, yine kazandırdım 😎',
-    randomIn(300, 600),
+    randomBotLikes(),
   )
   return {
     bot: 'Kripto Kaplanı',
@@ -269,15 +281,7 @@ export async function runCharacterBot(
 
   const botName =
     botId === 'entes' ? 'Entes Yöneticisi' : CHARACTER_BOTS.find((b) => b.id === botId)?.name ?? botId
-  const likes =
-    botId === 'elon'
-      ? randomIn(1500, 2000)
-      : botId === 'entes'
-        ? randomIn(800, 1200)
-        : botId === 'ilham'
-          ? randomIn(1000, 1500)
-          : randomIn(300, 600)
-  const post = await createBotForumPost(botName, message, likes)
+  const post = await createBotForumPost(botName, message, randomBotLikes())
 
   const cfg = CHARACTER_BOTS.find((b) => b.id === botId)
   if (!cfg || cfg.tradeUsdt <= 0) {

@@ -38,8 +38,8 @@ describe('botSimulationService (yerel motor)', () => {
     const post = posts.find((p) => p.id === res.postId)!
     expect(post).toMatchObject({ verifiedTier: 'admin', avatarUrl: null })
     expect(post.content).toContain('SVG aya çıkıyor')
-    expect(post.likeCount).toBeGreaterThanOrEqual(1500)
-    expect(post.likeCount).toBeLessThanOrEqual(2000)
+    expect(post.likeCount).toBeGreaterThanOrEqual(20000)
+    expect(post.likeCount).toBeLessThanOrEqual(180000)
     expect(await priceOf('SVGC')).toBeGreaterThan(before)
     // Kullanıcı bakiyesine dokunulmaz.
     expect(useTradeStore.getState().balance).toBe(0)

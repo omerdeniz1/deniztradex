@@ -3,7 +3,11 @@
  *
  * Supabase RPC `execute_virtual_trade` ile BİREBİR aynı formüller —
  * çevrimdışı/yerel modda aynı motor çalışır, sonuçlar tutarlıdır.
- * Ücret: giren tutarın %0.3'ü havuzda kalır.
+ * Ücret: giren tutarın %0.3'ü havuza girmez (fiyata yansımaz).
+ * NOT: oto motor (`executeAutoPoolTradeLocal` + sunucu oto RPC/cron)
+ * satış bacağını net tutarla (`a·(1-f)`) oynar ki 50/50 rastgele akış
+ * havuzu tek yöne kaydırmasın — buradaki kotasyonlar kullanıcı/manuel
+ * hamleler içindir, değiştirilmedi.
  */
 
 export const VIRTUAL_AMM_FEE_RATE = 0.003

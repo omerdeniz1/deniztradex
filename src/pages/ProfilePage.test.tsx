@@ -30,4 +30,13 @@ describe('ProfilePage (çevrimdışı persona)', () => {
     renderProfile('kimseboylebiri')
     expect(await screen.findByText('@kimseboylebiri bulunamadı.')).toBeInTheDocument()
   })
+
+  it('kendi profilinde Profili düzenle gösterir (oturum kartı yedeği)', async () => {
+    localStorage.setItem(
+      'deniztradx_session',
+      JSON.stringify({ id: 'u_alice', username: 'alice', email: 'a@x.com', createdAt: 1 }),
+    )
+    renderProfile('alice')
+    expect(await screen.findByRole('button', { name: 'Profili düzenle' })).toBeInTheDocument()
+  })
 })

@@ -6,6 +6,7 @@ import {
   createForumReply,
   deleteForumPost,
   deleteForumReply,
+  formatLikeCount,
   formatTimeAgo,
   forumDisplayName,
   isVerifiedUsername,
@@ -264,6 +265,20 @@ describe('displayNameOf (görünen isim)', () => {
     loginAs(alice)
     const post = await createForumPost('isim testi')
     expect(post.displayName).toBe('alice')
+  })
+})
+
+describe('formatLikeCount (B/M kısaltma)', () => {
+  it('1000 altı aynen, 1000+ B, 1M+ M kısaltır', () => {
+    expect(formatLikeCount(0)).toBe('')
+    expect(formatLikeCount(-5)).toBe('')
+    expect(formatLikeCount(5)).toBe('5')
+    expect(formatLikeCount(950)).toBe('950')
+    expect(formatLikeCount(1000)).toBe('1B')
+    expect(formatLikeCount(15000)).toBe('15B')
+    expect(formatLikeCount(15500)).toBe('15,5B')
+    expect(formatLikeCount(180000)).toBe('180B')
+    expect(formatLikeCount(1700000)).toBe('1,7M')
   })
 })
 
