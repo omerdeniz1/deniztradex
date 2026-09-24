@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { VerifiedBadge } from '@/components/forum/VerifiedBadge'
 import { DefaultAvatar } from '@/components/forum/DefaultAvatar'
 import { Button } from '@/components/ui/Button'
@@ -45,6 +45,7 @@ import { cn } from '@/lib/utils'
 export function ProfilePage() {
   const { username = '' } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const pushToast = useToastStore((s) => s.push)
   const [profile, setProfile] = useState<PublicProfile | null>(null)
   const [posts, setPosts] = useState<ForumPost[]>([])
@@ -114,6 +115,17 @@ export function ProfilePage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Derin bağlantı: forum profil menüsündeki "Profili düzenle"
+  // `?edit=1` ile gelir — kendi profilinde düzenleme penceresi
+  // otomatik açılır (parametre tek kullanımlık temizlenir).
+  const wantEdit = searchParams.get('edit') === '1'
+  useEffect(() => {
+    if (wantEdit && !loading && profile && isMine && !profile.isPersona && !editOpen) {
+      setEditOpen(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [wantEdit, loading, profile, isMine, editOpen, setSearchParams])
 
   const toggleFollow = async () => {
     if (!profile || followBusy) return

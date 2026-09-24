@@ -50,6 +50,22 @@ export function ForumPage() {
   const myId = getSessionUser()?.id ?? null
   const myUsername = getSessionUser()?.username ?? null
   const myAvatarUrl = getSessionUser()?.avatarUrl ?? null
+  // Profil menüsü (Görüntüle / Düzenle): forum başlığındaki "Profilim"
+  // düğmesi menü açar; "Profili düzenle" kendi profiline `?edit=1` ile
+  // gider ve düzenleme penceresi otomatik açılır.
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const openMyProfileEdit = useCallback(() => {
+    const clean = (myUsername ?? '').trim()
+    if (clean) navigate(`/profile/${encodeURIComponent(clean)}?edit=1`)
+  }, [myUsername, navigate])
+  useEffect(() => {
+    if (!profileMenuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProfileMenuOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [profileMenuOpen])
 
   // Forum moderasyonu: süper admin veya ban yetkili alt yönetici
   // herkesin yazısını silebilir (sunucu RLS ile denetler). Süper admin
@@ -299,19 +315,64 @@ export function ForumPage() {
             <p className="text-xs text-exchange-muted">Topluluk akışı</p>
           </div>
           {myId && myUsername && (
-            <button
-              type="button"
-              onClick={() => openProfile(myUsername)}
-              className="flex shrink-0 items-center gap-2 rounded-full border border-exchange-border bg-exchange-card py-1.5 pl-1.5 pr-3.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow active:scale-95"
-              aria-label="Profilim"
-            >
-              {myAvatarUrl ? (
-                <img src={myAvatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" />
-              ) : (
-                <DefaultAvatar size="xs" />
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={profileMenuOpen}
+                aria-label="Profil menüsü"
+                className="flex items-center gap-2 rounded-full border border-exchange-border bg-exchange-card py-1.5 pl-1.5 pr-3.5 text-xs font-bold text-exchange-text transition-colors hover:border-exchange-yellow hover:text-exchange-yellow active:scale-95"
+              >
+                {myAvatarUrl ? (
+                  <img src={myAvatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" />
+                ) : (
+                  <DefaultAvatar size="xs" />
+                )}
+                Profilim
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {profileMenuOpen && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Profil menüsünü kapat"
+                    onClick={() => setProfileMenuOpen(false)}
+                    className="fixed inset-0 z-20 cursor-default bg-transparent"
+                  />
+                  <div
+                    role="menu"
+                    aria-label="Profil"
+                    className="absolute right-0 z-30 mt-1.5 w-48 overflow-hidden rounded-xl border border-exchange-border bg-exchange-card shadow-2xl"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileMenuOpen(false)
+                        openProfile(myUsername)
+                      }}
+                      className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-xs font-bold text-exchange-text transition-colors hover:bg-exchange-surface hover:text-exchange-yellow active:scale-[0.99]"
+                    >
+                      Profili görüntüle
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setProfileMenuOpen(false)
+                        openMyProfileEdit()
+                      }}
+                      className="flex w-full items-center gap-2 border-t border-exchange-border/60 px-3.5 py-2.5 text-left text-xs font-bold text-exchange-text transition-colors hover:bg-exchange-surface hover:text-exchange-yellow active:scale-[0.99]"
+                    >
+                      Profili düzenle
+                    </button>
+                  </div>
+                </>
               )}
-              Profilim
-            </button>
+            </div>
           )}
         </div>
 

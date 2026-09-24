@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { ForumPage } from '@/pages/ForumPage'
 
@@ -81,6 +81,32 @@ describe('ForumPage', () => {
     await user.click(screen.getByRole('button', { name: 'Paylaş' }))
 
     expect(await screen.findByText('@denizbak')).toBeInTheDocument()
+  })
+
+  it('profil menüsünden düzenle profil sayfasını edit kipinde açar', async () => {
+    const user = userEvent.setup()
+    let seenEdit = ''
+    function Probe() {
+      const [params] = useSearchParams()
+      seenEdit = params.get('edit') ?? ''
+      return <div>Profil sayfası</div>
+    }
+    render(
+      <MemoryRouter initialEntries={['/forum']}>
+        <Routes>
+          <Route path="/forum" element={<ForumPage />} />
+          <Route path="/profile/:username" element={<Probe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText(/Topluluğa hoş geldin/)
+
+    await user.click(screen.getByRole('button', { name: 'Profil menüsü' }))
+    expect(await screen.findByRole('menuitem', { name: 'Profili görüntüle' })).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: 'Profili düzenle' }))
+
+    expect(await screen.findByText('Profil sayfası')).toBeInTheDocument()
+    expect(seenEdit).toBe('1')
   })
 
   it('mention dokununca ilgili profile gider', async () => {

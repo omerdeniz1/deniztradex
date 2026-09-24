@@ -39,4 +39,19 @@ describe('ProfilePage (çevrimdışı persona)', () => {
     renderProfile('alice')
     expect(await screen.findByRole('button', { name: 'Profili düzenle' })).toBeInTheDocument()
   })
+
+  it('?edit=1 ile düzenleme penceresi otomatik açılır', async () => {
+    localStorage.setItem(
+      'deniztradx_session',
+      JSON.stringify({ id: 'u_alice', username: 'alice', email: 'a@x.com', createdAt: 1 }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/profile/alice?edit=1']}>
+        <Routes>
+          <Route path="/profile/:username" element={<ProfilePage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByRole('dialog', { name: 'Profili düzenle' })).toBeInTheDocument()
+  })
 })
