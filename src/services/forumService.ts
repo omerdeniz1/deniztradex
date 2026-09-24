@@ -229,6 +229,24 @@ export function formatTimeAgo(at: number): string {
   return new Date(at).toLocaleDateString('tr-TR')
 }
 
+/**
+ * Beğeni/yanıt sayacı kısaltması: 1000+ → B, 1M+ → M (tr-TR ondalık).
+ * 15000 → "15B", 15500 → "15,5B", 1700000 → "1,7M", 950 → "950".
+ * Sıfır/negatif/geçersiz → '' (butonlarda sayı gizlenir).
+ */
+export function formatLikeCount(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return ''
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000
+    return `${v.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}M`
+  }
+  if (n >= 1000) {
+    const v = n / 1000
+    return `${v.toLocaleString('tr-TR', { maximumFractionDigits: 1 })}B`
+  }
+  return Math.floor(n).toLocaleString('tr-TR')
+}
+
 function validateContent(raw: string): string {
   const content = raw.trim()
   if (!content) throw new Error('Gönderi boş olamaz.')

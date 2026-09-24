@@ -24,6 +24,7 @@ import {
   validateAvatarFile,
 } from '@/services/supabaseWallet'
 import {
+  formatLikeCount,
   formatTimeAgo,
   listForumPostsByAuthor,
   toggleForumLike,
@@ -59,7 +60,18 @@ export function ProfilePage() {
   const [followListLoading, setFollowListLoading] = useState(false)
 
   const me = getSessionUser()
-  const isMine = me !== null && me.username.toLowerCase() === username.trim().toLowerCase()
+  // Kendi profili kararı profil kartındaki `handle` ile verilir (URL'deki
+  // görünen isimle değil): görünen isim boşluklu/değişmiş olsa bile kendi
+  // profilinde "Profili düzenle" kaybolmaz. Kart henüz yüklenmediyse
+  // rota parametresiyle ön karar verilir.
+  const routeKey = username.trim().toLowerCase()
+  const isMineByRoute = me !== null && me.username.trim().toLowerCase() === routeKey
+  const isMineByProfile =
+    me !== null &&
+    profile !== null &&
+    !profile.isPersona &&
+    profile.handle.trim().toLowerCase() === me.username.trim().toLowerCase()
+  const isMine = profile ? isMineByProfile : isMineByRoute
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -68,7 +80,13 @@ export function ProfilePage() {
         getPublicProfile(username),
         listForumPostsByAuthor(username).catch(() => [] as ForumPost[]),
       ])
-      setProfile(p)
+      // Yerel yedekte sayaçlar 0 gelir; başlıkta "0 Gönderi" yazıp altta
+      // liste dolu görünmesin diye gerçek liste uzunluğuyla uzlaştır.
+      if (p && !p.isPersona && list.length > p.posts) {
+        setProfile({ ...p, posts: list.length })
+      } else {
+        setProfile(p)
+      }
       setPosts(list)
       if (p) {
         setBioDraft(p.bio)
@@ -322,9 +340,9 @@ export function ProfilePage() {
                       p.likedByMe ? 'text-exchange-sell' : 'hover:text-exchange-sell',
                     )}
                   >
-                    ♥ <span className="font-mono">{p.likeCount > 0 ? p.likeCount.toLocaleString('tr-TR') : ''}</span>
+                    ♥ <span className="font-mono">{formatLikeCount(p.likeCount)}</span>
                   </button>
-                  <span className="font-mono">💬 {p.replyCount > 0 ? p.replyCount : ''}</span>
+                  <span className="font-mono">💬 {formatLikeCount(p.replyCount)}</span>
                   <span className="ml-auto shrink-0">{formatTimeAgo(p.createdAt)}</span>
                 </div>
               </li>

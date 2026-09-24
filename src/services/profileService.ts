@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase'
-import { getSessionUserId } from '@/services/authService'
+import { getSessionUser, getSessionUserId } from '@/services/authService'
 
 /**
  * Forum profilleri (Twitter tarzı): herkese açık kart + takipçi sistemi.
@@ -145,11 +145,77 @@ export async function getPublicProfile(username: string): Promise<PublicProfile 
         return null
       }
     } catch {
-      // eski DB — persona yedeğine düş
+      // eski DB — persona + yerel yedeğe düş
     }
   }
   const seed = findPersona(needle)
-  return seed ? personaProfile(seed) : null
+  if (seed) return personaProfile(seed)
+  return localRealProfile(needle)
+}
+
+/**
+ * Yerel/çevrimdışı yedek: gerçek kullanıcı profili.
+ *
+ * Uzak mod yokken (vitest/çevrimdışı) `getPublicProfile` yalnızca
+ * personaları bilirdi — gerçek kullanıcı kendi profilini açınca
+ * "bulunamadı" görüp "Profili düzenle"ye hiç ulaşamazdı. Bu yedek
+ * oturumdaki kullanıcıyı (ve aynı cihazda kayıtlı diğer yerel
+ * kullanıcıları) kart olarak döndürür: isim + avatar oturumdan,
+ * sayaçlar 0'dan başlar, gönderiler `listForumPostsByAuthor` ile
+ * ayrıca yüklenir.
+ */
+function localRealProfile(needle: string): PublicProfile | null {
+  const key = needle.trim().toLowerCase()
+  if (!key) return null
+  try {
+    const me = getSessionUser()
+    if (me && me.username.trim().toLowerCase() === key) {
+      return {
+        username: me.username,
+        handle: key,
+        bio: '',
+        avatarUrl: me.avatarUrl ?? null,
+        verifiedTier: 'none',
+        createdAt: me.createdAt ?? 0,
+        followers: 0,
+        following: 0,
+        posts: 0,
+        isFollowing: false,
+        isPersona: false,
+      }
+    }
+  } catch {
+    // yoksay — liste yedeğine düş
+  }
+  try {
+    const raw = localStorage.getItem('deniztradx_users')
+    if (raw) {
+      const users = JSON.parse(raw) as { username?: unknown }[]
+      if (Array.isArray(users)) {
+        const found = users.find(
+          (u) => typeof u?.username === 'string' && u.username.toLowerCase() === key,
+        )
+        if (found && typeof found.username === 'string') {
+          return {
+            username: found.username,
+            handle: key,
+            bio: '',
+            avatarUrl: null,
+            verifiedTier: 'none',
+            createdAt: 0,
+            followers: 0,
+            following: 0,
+            posts: 0,
+            isFollowing: false,
+            isPersona: false,
+          }
+        }
+      }
+    }
+  } catch {
+    // yoksay
+  }
+  return null
 }
 
 /** Takip et (giriş gerekir). Güncel takipçi sayısını döndürür. */
