@@ -35,7 +35,7 @@ describe('forumService (offline backend)', () => {
   it('rejects empty and overlong posts', async () => {
     loginAs(alice)
     await expect(createForumPost('   ')).rejects.toThrow('boş')
-    await expect(createForumPost('x'.repeat(501))).rejects.toThrow('500')
+    await expect(createForumPost('x'.repeat(5001))).rejects.toThrow('5000')
   })
 
   it('creates posts newest-first (after the welcome seed)', async () => {
@@ -101,7 +101,7 @@ describe('forum replies (offline backend)', () => {  it('rejects empty and overl
     loginAs(alice)
     const post = await createForumPost('Yanıtlanacak')
     await expect(createForumReply(post.id, '   ')).rejects.toThrow('boş')
-    await expect(createForumReply(post.id, 'x'.repeat(501))).rejects.toThrow('500')
+    await expect(createForumReply(post.id, 'x'.repeat(5001))).rejects.toThrow('5000')
   })
 
   it('creates, lists oldest-first and counts replies', async () => {

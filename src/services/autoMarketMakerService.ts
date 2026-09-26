@@ -209,9 +209,12 @@ export function planAutoTrades(
   return picked.map((c) => {
     const seed = SEED_PRICE[c.symbol.toUpperCase()] ?? c.price
     const drift = (c.price - seed) / seed
+    // Ortalama-dönüş: bant dışında %75 ters-yön baskısı (sunucu cron
+    // `run_auto_market_bot` ile aynı kural) — %70 zayıf kalıp fiyatı
+    // tek yöne salıyordu, %75 dengede tutar. Bant içinde %50/%50.
     let buyProb = 0.5
-    if (drift > AUTO_BOT_REVERT_BAND) buyProb = 0.3
-    else if (drift < -AUTO_BOT_REVERT_BAND) buyProb = 0.7
+    if (drift > AUTO_BOT_REVERT_BAND) buyProb = 0.25
+    else if (drift < -AUTO_BOT_REVERT_BAND) buyProb = 0.75
     const side: VirtualTradeSide = rand() < buyProb ? 'buy' : 'sell'
     // Bant dışıysa hamleyi biraz büyüt (dönüşü hızlandır), bant içinde küçük tut.
     const boost = Math.abs(drift) > AUTO_BOT_REVERT_BAND ? 1.6 : 1

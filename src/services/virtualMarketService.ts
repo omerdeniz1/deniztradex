@@ -672,8 +672,10 @@ export async function listVirtualKlines(
  * Kullanıcı bakiyesine DOKUNMAZ — yalnızca havuzu oynatır (rezerv +
  * fiyat + hacim + mum). Uzak modda `execute_bot_trade` RPC'si (süper
  * admin zorunlu), yerel modda aynı matematik doğrudan havuza uygulanır.
- * - buy:  usdtAmount havuza girer.
- * - sell: usdtAmount havuzdan çıkar (gerekli token tersine çözülür).
+ * - buy:  usdtAmount havuza girer (net `a·(1-f)` rezerv artışı).
+ * - sell: usdtAmount havuzdan çıkar — simetrik bacak net tutarla
+ *   (`a·(1-f)`) hareket eder, alışın birebir aynası. Brüt tutar hacim
+ *   raporunda korunur. Böylece 50/50 bot akışı nötrdür, tek yöne akmaz.
  * - `localOnly`: uzak denemeden doğrudan yerel havuza yazar
  *   (yetkisiz oturumda perakende botunun düşüş yolu).
  */
@@ -712,6 +714,12 @@ export async function executeBotPoolTrade(
   const pools = readPools()
   const pool = pools[symbol]
   if (!pool) throw new Error('Coin bulunamadı.')
+  // Ücret simetrisi (oto motor + sunucu `execute_bot_trade` ile aynı kural):
+  // alış havuza net tutarı ekler, satış da net tutarı çıkarır — aksi
+  // halde 50/50 rastgele akış havuzdan tur başına `a·f` USDT sızdırıp
+  // fiyatı sistematik aşağı kaydırırdı (botlar "sürekli satıyor" izlenimi).
+  const effAmount = side === 'buy' ? usdtAmount : usdtAmount * (1 - VIRTUAL_AMM_FEE_RATE)
+  if (!(effAmount > 0)) throw new Error('Geçersiz tutar.')
   const quote =
     side === 'buy'
       ? quoteVirtualBuy(
@@ -720,7 +728,7 @@ export async function executeBotPoolTrade(
         )
       : quoteVirtualSellForUsdt(
           { symbol, reserveUsdt: pool.reserveUsdt, reserveToken: pool.reserveToken },
-          usdtAmount,
+          effAmount,
         )
   pools[symbol] = {
     reserveUsdt: quote.newReserveUsdt,
