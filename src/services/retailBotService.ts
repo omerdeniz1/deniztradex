@@ -14,18 +14,18 @@ import { getSessionUserId } from '@/services/authService'
  * - 2–7 sn arasında rastgele sürelerle tetiklenir (`setTimeout` zinciri).
  * - Sanal coin listesinden rastgele coin seçer (DNZ dahil — liste her
  *   tur tazelenir, yeni coinler otomatik katılır).
- * - 10–150$ bandında perakende hacim + %50 alım / %50 satım.
+ * - 20–300$ bandında perakende hacim + %50 alım / %50 satım.
  * - Emirler AMM havuzuna işlenir (`executeBotPoolTrade` — kullanıcı
  *   bakiyesine DOKUNULMAZ, yalnızca havuz oynar).
  * - Her baskı anlık yayınlanır (`onRetailTrade` abone listesi —
  *   bant/tape arayüzleri buradan beslenir; grafikler mevcut 15 sn
  *   yoklamayla tazelenir).
  *
- * FİZİK NOTU: mikro etki bandı (%0.01–0.1) havuz derinliğine göre
+ * FİZİK NOTU: mikro etki bandı (%0.016–0.24) havuz derinliğine göre
  * ölçeklenir — derin havuzda aynı yüzde için büyük tutar gerekir
- * (etki ≈ 2·tutar/rezerv). Tutar = U(10,150) · max(1, R/250B) ve
- * 5.000$ sert tavan: sığ havuzlarda gerçek perakende fişleri, derin
- * havuzlarda (DNZ dahil) görünür mikro kıpırtı üretir. Bantta yazan
+ * (etki ≈ 2·tutar/rezerv). Tutar = U(20,300) · max(1, R/250B) ve
+ * 10.000$ sert tavan: sığ havuzlarda gerçek perakende fişleri, derin
+ * havuzlarda (DNZ dahil) görünür kıpırtı üretir. Bantta yazan
  * GERÇEK USD tutarıdır; gerçekleşen etki her baskıda raporlanır.
  *
  * GÜVENLİK/YERLEŞİM: uzak havuz yazımı (`execute_bot_trade` RPC'si)
@@ -39,12 +39,12 @@ import { getSessionUserId } from '@/services/authService'
 
 export const RETAIL_MIN_DELAY_MS = 2000
 export const RETAIL_MAX_DELAY_MS = 7000
-export const RETAIL_MIN_USD = 10
-export const RETAIL_MAX_USD = 150
-/** Derinlik referansı: etki ≈ 2·tutar/R denkleminden %0.008–0.12 bandı verir. */
+export const RETAIL_MIN_USD = 20
+export const RETAIL_MAX_USD = 300
+/** Derinlik referansı: etki ≈ 2·tutar/R denkleminden %0.016–0.24 bandı verir. */
 export const RETAIL_REF_POOL_USDT = 250_000
 /** Derin havuzlardaki perakende fişi tavanı (USD). */
-export const RETAIL_HARD_CAP_USD = 5000
+export const RETAIL_HARD_CAP_USD = 10000
 export const RETAIL_FLAG_KEY = 'deniztradx_retail_bot'
 
 export type RetailSide = VirtualTradeSide
@@ -90,9 +90,9 @@ export function pickRetailSide(rng: Rng = Math.random): RetailSide {
 }
 
 /**
- * Perakende fiş tutarı (USD): U(10,150) · max(1, R/250B), tavan 5000$.
- * Derin havuzda aynı mikro etki için büyük fiş gerekir — formül etkiyi
- * havuzdan bağımsız ~%0.008–0.12 bandında tutar.
+ * Perakende fiş tutarı (USD): U(20,300) · max(1, R/250B), tavan 10000$.
+ * Derin havuzda aynı etki için büyük fiş gerekir — formül etkiyi
+ * havuzdan bağımsız ~%0.016–0.24 bandında tutar.
  */
 export function retailOrderSize(reserveUsdt: number, rng: Rng = Math.random): number {
   const r = Math.min(Math.max(rng(), 0), 0.999999)

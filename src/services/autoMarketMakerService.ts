@@ -169,13 +169,14 @@ export interface AutoTradePlan {
 
 /**
  * Yoğunluğa göre hamle büyüklüğü aralığı (rezerv oranı).
- * Etki ≈ 2·oran: lively üst sınır (%0.15) tik başına ~%0.3 fiyat oynatır —
- * görünür çalkantı, tek tikte asla yıkım yok (sunucu cap'i ayrıca kırpar).
+ * Etki ≈ 2·oran: normal üst sınır tik başına ~%0.36, lively ~%0.8
+ * fiyat oynatır — canlı çalkantı, tek tikte asla yıkım yok
+ * (sunucu cap'i ayrıca kırpar, ortalama-dönüş bandı geri çeker).
  */
 const FRACTION_RANGE: Record<AutoBotIntensity, [number, number]> = {
-  calm: [0.00005, 0.00025],
-  normal: [0.00015, 0.0007],
-  lively: [0.0004, 0.0015],
+  calm: [0.00015, 0.0007],
+  normal: [0.0004, 0.0018],
+  lively: [0.001, 0.004],
 }
 
 /** Tik başına coin sayısı (yoğunluğa göre 1-5). */
@@ -186,7 +187,7 @@ const COINS_PER_TICK: Record<AutoBotIntensity, [number, number]> = {
 }
 
 /** İstemci hamlesi tavanı (rezerv oranı) — sunucu RPC cap'iyle uyumlu. */
-export const AUTO_BOT_CLIENT_MAX_FRACTION = 0.002
+export const AUTO_BOT_CLIENT_MAX_FRACTION = 0.004
 
 /** Ortalama-dönüş bandı: tohum fiyattan bu orandan fazla sapma → ters yön baskısı. */
 export const AUTO_BOT_REVERT_BAND = 0.06

@@ -73,28 +73,28 @@ describe('retail zamanlama + seçim (saf fonksiyonlar)', () => {
 
   it('tutar perakende bandında ve havuza göre ölçeklenir', () => {
     const rng = seeded(99)
-    // Referans altı havuz (100B$): tam 10–150$ bandı.
+    // Referans altı havuz (100B$): tam 20–300$ bandı.
     for (let i = 0; i < 200; i++) {
       const a = retailOrderSize(100_000, rng)
-      expect(a).toBeGreaterThanOrEqual(10)
-      expect(a).toBeLessThanOrEqual(150)
-    }
-    // Sığ havuz (500B$): ×2 ölçek → 20–300$.
-    for (let i = 0; i < 200; i++) {
-      const a = retailOrderSize(500_000, rng)
       expect(a).toBeGreaterThanOrEqual(20)
       expect(a).toBeLessThanOrEqual(300)
     }
-    // DNZ havuzu (2M$): ×8 ölçek → 80–1200$.
+    // Sığ havuz (500B$): ×2 ölçek → 40–600$.
+    for (let i = 0; i < 200; i++) {
+      const a = retailOrderSize(500_000, rng)
+      expect(a).toBeGreaterThanOrEqual(40)
+      expect(a).toBeLessThanOrEqual(600)
+    }
+    // DNZ havuzu (2M$): ×8 ölçek → 160–2400$.
     for (let i = 0; i < 200; i++) {
       const a = retailOrderSize(2_000_000, rng)
-      expect(a).toBeGreaterThanOrEqual(80)
-      expect(a).toBeLessThanOrEqual(1200)
+      expect(a).toBeGreaterThanOrEqual(160)
+      expect(a).toBeLessThanOrEqual(2400)
     }
-    // Derin havuz (50M$): tavan 5000$ aşılmaz.
+    // Derin havuz (50M$): tavan 10000$ aşılmaz.
     for (let i = 0; i < 200; i++) {
       const a = retailOrderSize(50_000_000, rng)
-      expect(a).toBeGreaterThanOrEqual(2000)
+      expect(a).toBeGreaterThanOrEqual(4000)
       expect(a).toBeLessThanOrEqual(RETAIL_HARD_CAP_USD)
     }
   })

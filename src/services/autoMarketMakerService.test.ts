@@ -32,7 +32,7 @@ describe('planAutoTrades', () => {
       expect(plans.length).toBeLessThanOrEqual(5)
       for (const p of plans) {
         expect(p.fraction).toBeGreaterThan(0)
-        expect(p.fraction).toBeLessThanOrEqual(0.002)
+        expect(p.fraction).toBeLessThanOrEqual(0.004)
         expect(['buy', 'sell']).toContain(p.side)
       }
     }
