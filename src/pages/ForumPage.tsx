@@ -86,12 +86,21 @@ export function ForumPage() {
   }, [])
   const [feedError, setFeedError] = useState<string | null>(null)
 
+  // Feed yarış koruması: polling (1sn/5sn) + realtime + odaklanma aynı
+  // anda tetiklenebilir; yavaş dönen eski yanıt yeniyi ezip beğeni
+  // sayaçlarını "bir gelip bir gidiyor" göstermesin diye yalnızca son
+  // başlatılan refresh listeyi yazar (eski yanıtlar atılır).
+  const refreshSeq = useRef(0)
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
+      const seq = ++refreshSeq.current
       try {
-        setPosts(await listForumPosts())
+        const list = await listForumPosts()
+        if (refreshSeq.current !== seq) return
+        setPosts(list)
         setFeedError(null)
       } catch (err) {
+        if (refreshSeq.current !== seq) return
         const msg = err instanceof Error ? err.message : 'Akış yüklenemedi. Lütfen tekrar dene.'
         setFeedError(msg)
         // Arka plan yenilemeleri (polling/realtime/odak) sessizdir:
@@ -100,7 +109,7 @@ export function ForumPage() {
           pushToast({ message: msg, tone: 'error' })
         }
       } finally {
-        setLoading(false)
+        if (refreshSeq.current === seq) setLoading(false)
       }
     },
     [pushToast],
@@ -271,6 +280,9 @@ export function ForumPage() {
     )
     try {
       const res = await toggleForumLike(post.id)
+      // Uçuşan eski refresh yanıtı sunucu sonucunu ezmesin diye
+      // geçersiz kıl, sonra yetkili değeri yaz.
+      refreshSeq.current++
       setPosts((list) =>
         list.map((p) =>
           p.id === post.id ? { ...p, likedByMe: res.liked, likeCount: res.likeCount } : p,
